@@ -3,6 +3,10 @@ __pycache__/
 *$py.class
 
 .Python
+.venv/
+venv/
+env/
+.env/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
@@ -13,19 +17,39 @@ htmlcov/
 build/
 dist/
 *.spec.tmp
+*.egg-info/
 
 voice_input.log
 *.log
+logs/
 
 .idea/
 .vscode/
 *.code-workspace
+.fleet/
 
 Thumbs.db
 Desktop.ini
 
 config.json
+config.local.json
+config.*.local.json
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.template
 token.txt
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa
+id_dsa
+id_ecdsa
+id_ed25519
 
 *.tmp
 *.temp
+*.bak
+*.swp

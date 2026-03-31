@@ -1,0 +1,15 @@
+#!/bin/sh
+
+# 提交前做一次本地 secret 粗扫，拦住明显的误提交。
+if command -v python >/dev/null 2>&1; then
+  python scripts/scan_secrets.py --staged
+  exit $?
+fi
+
+if command -v py >/dev/null 2>&1; then
+  py -3 scripts/scan_secrets.py --staged
+  exit $?
+fi
+
+echo "[pre-commit] Python not found, skip secret scan" >&2
+exit 0

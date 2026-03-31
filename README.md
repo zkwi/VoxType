@@ -78,6 +78,22 @@ python main.py
 
 产物在 `dist\voice_input\` 目录，分发时至少保留 `voice_input.exe` 和 `config.json` 在同一目录。
 
+## 本地安全检查
+
+可以先手动扫描一次仓库里的明显密钥：
+
+```powershell
+python .\scripts\scan_secrets.py
+```
+
+如果要在每次提交前自动检查，执行：
+
+```powershell
+.\scripts\enable_git_hooks.ps1
+```
+
+启用后，Git 会在 `pre-commit` 阶段自动运行 `scripts/scan_secrets.py --staged`，只检查本次已暂存、准备提交的文件。像 `config.json` 这类已被 `.gitignore` 忽略、且未加入暂存区的本地文件，不会拦截提交。
+
 ## 配置说明
 
 ### 音频设置 (`audio`)
