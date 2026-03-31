@@ -6,6 +6,10 @@ import sounddevice as sd
 
 
 class MicrophoneRecorder:
+    """麦克风录音器，使用 sounddevice 回调方式采集 PCM 音频。
+
+    通过 iter_chunks() 迭代获取音频块，供 ASR 客户端消费。
+    """
     def __init__(
         self,
         sample_rate: int,

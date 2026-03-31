@@ -23,6 +23,8 @@ from voice_input.text_output import get_foreground_window, paste_text
 
 
 LOG_PATH = Path("voice_input.log")
+
+# Windows API 相关
 user32 = ctypes.windll.user32
 user32.VkKeyScanW.argtypes = [wintypes.WCHAR]
 user32.VkKeyScanW.restype = ctypes.c_short
@@ -35,6 +37,7 @@ HOTKEY_ID = 1
 
 
 def parse_hotkey(hotkey: str) -> tuple[int, int]:
+    """将 "ctrl+q" 格式的热键字符串解析为 (modifiers, vk_code)，用于 RegisterHotKey。"""
     modifiers = 0
     parts = [part.strip().lower() for part in hotkey.split("+") if part.strip()]
     if not parts:
@@ -72,6 +75,8 @@ class UiBridge(QObject):
 
 
 class NativeHotkeyFilter(QAbstractNativeEventFilter):
+    """拦截 Windows 原生 WM_HOTKEY 消息，触发录音切换。"""
+
     def __init__(self, callback) -> None:
         super().__init__()
         self.callback = callback
@@ -89,6 +94,15 @@ class NativeHotkeyFilter(QAbstractNativeEventFilter):
 
 
 class VoiceInputApp:
+    """主应用类，管理录音会话的完整生命周期。
+
+    工作流程：
+    1. 用户按下热键 -> toggle_recording()
+    2. start_recording(): 记住目标窗口、静音系统、启动麦克风、开启识别线程
+    3. 识别线程 (_run_session): ASR 识别 -> 可选 LLM 润色 -> 粘贴到目标窗口
+    4. 再按热键 -> stop_recording(): 停止麦克风、等待最终结果
+    """
+
     def __init__(self) -> None:
         self.app_config = AppConfig.load()
         self.config = self.app_config.raw

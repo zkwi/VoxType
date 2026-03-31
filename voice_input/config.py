@@ -7,6 +7,7 @@ from typing import Any
 
 @dataclass
 class AppConfig:
+    """配置文件加载器。按优先级搜索 config.json：当前目录 > exe 同目录 > 项目根目录。"""
     raw: dict[str, Any]
     path: Path
 

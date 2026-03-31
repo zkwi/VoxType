@@ -4,6 +4,10 @@ from PyQt6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
 
 
 class FloatingCaption(QWidget):
+    """悬浮字幕窗，显示在屏幕底部，实时展示 ASR 识别结果。
+
+    特性：不抢焦点、半透明背景、自动换行、长文本自动滚动。
+    """
     CENTER_ALIGN_MAX_CHARS = 18
     TWO_LINE_ALIGN_MAX_CHARS = 40
     SINGLE_LINE_MIN_HEIGHT = 60

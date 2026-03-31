@@ -15,9 +15,15 @@ logger = logging.getLogger(__name__)
 
 
 class DoubaoAsrClient:
+    """流式语音识别客户端（基于豆包 ASR 服务）。
+
+    通过 WebSocket 将麦克风音频流发送到豆包 ASR 服务，
+    实时接收识别结果（一遍流式 + 二遍精修）。
+    """
+
     def __init__(self, config: dict[str, Any]) -> None:
         self.config = config
-        self.seq = 1
+        self.seq = 1  # WebSocket 消息序号，每发一包递增
 
     def _build_context_payload(self) -> str | None:
         context_config = self.config.get("context", {})
@@ -155,6 +161,13 @@ class DoubaoAsrClient:
         stop_event: threading.Event | None = None,
         final_result_timeout_seconds: float | None = None,
     ) -> str:
+        """执行一次完整的语音识别会话。
+
+        同时运行 sender（发音频）和 receiver（收结果）两个协程。
+        sender 在 stop_event 触发或音频耗尽后发送结束包；
+        receiver 持续接收，直到收到 is_last_package 或超时。
+        最终优先返回二遍 definite 结果（更准确）。
+        """
         final_text = ""
         definitive_text = ""
         definitive_end_time = -1
@@ -176,6 +189,7 @@ class DoubaoAsrClient:
                     parse_response(initial_msg.data)
 
                 async def sender() -> None:
+                    """持续读取麦克风音频块并发送到 WebSocket。"""
                     loop = asyncio.get_running_loop()
                     while True:
                         if stop_event and stop_event.is_set():
@@ -188,6 +202,7 @@ class DoubaoAsrClient:
                     await ws.send_bytes(build_audio_request(self.seq, b"", is_last=True))
 
                 async def receiver() -> None:
+                    """接收并解析服务端返回的识别结果，跟踪 definite 片段。"""
                     nonlocal final_text, definitive_text, definitive_end_time
                     waiting_for_final_after_stop = False
                     final_deadline: float | None = None

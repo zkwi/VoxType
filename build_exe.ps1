@@ -1,5 +1,5 @@
 ﻿param(
-    [string]$PythonExe = "C:\Users\zkwi\miniconda3\envs\Quantitative-investment\python.exe"
+    [string]$PythonExe = "python"
 )
 
 $ErrorActionPreference = "Stop"

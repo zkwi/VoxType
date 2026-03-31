@@ -1,75 +1,152 @@
-# 豆包流式语音输入法
+# ASR_IME - 流式语音输入法
 
-一个尽量简洁的 Windows 个人项目：
+Windows 桌面语音输入工具，按下热键即可语音输入到任意应用的输入框。
 
-- `Ctrl+Q` 开始/停止录音
-- 录音期间调用豆包流式识别 `bigmodel_async`
-- 开启二遍识别
+**核心特性：**
+
+- 热键触发录音（默认 `Ctrl+Q`，也支持右 Alt / 鼠标中键）
+- 流式语音识别（豆包 `bigmodel_async`），支持二遍识别
 - 支持热词直传、上下文、图片上下文
-- 桌面顶部显示一个不抢焦点的悬浮字幕窗
-- 停止后把最终识别结果写入剪贴板，并自动粘贴到当前输入框
+- 桌面悬浮字幕窗，实时显示识别结果（不抢焦点）
+- 识别完成后自动复制到剪贴板并粘贴到当前输入位置
+- 可选：调用大模型（阿里云百炼）对长文本做轻度润色
 
-## 1. 安装依赖
+## 快速开始
 
-建议使用你项目说明里的 Python：
+### 1. 安装依赖
 
-```powershell
-C:\Users\zkwi\miniconda3\envs\Quantitative-investment\python.exe -m pip install -r requirements.txt
-```
-
-## 2. 准备配置
-
-直接修改 [config.json](E:\ollama_proxy\config.json)，填写：
-
-- `auth.app_key`
-- `auth.access_key`
-- `auth.resource_id`
-- `context.hotwords`
-- `context.prompt_context`
-- `context.image_url`
-
-说明：
-
-- 热词会走 `context` 直传，优先级高于热词表。
-- `prompt_context` 需要按“从新到旧”填写，程序会最多保留 20 条。
-- `image_url` 只支持 1 张图，是否有效由豆包接口侧校验。
-- 当最终二遍文本长度超过 `llm_post_edit.min_chars` 时，会调用阿里云百炼做一次轻度润色。
-- 阿里云的调用地址、密钥、模型、阈值和提示词都在 `llm_post_edit` 配置段里可调。
-- 超过 5 分钟会自动停止录音。
-- 默认会在录音开始时把系统主音量静音，录音结束后恢复原状态。可通过 `audio.mute_system_volume_while_recording` 关闭。
-
-## 3. 运行
+需要 Python 3.10+：
 
 ```powershell
-C:\Users\zkwi\miniconda3\envs\Quantitative-investment\python.exe main.py
+pip install -r requirements.txt
 ```
 
-## 4. 打包 EXE
+### 2. 准备配置
 
-项目已经补好 `PyInstaller` 打包文件，默认会生成一个可分发目录：
+复制配置模板并填入你自己的密钥：
 
 ```powershell
-.\build_exe.ps1
+cp config.example.json config.json
 ```
 
-产物位置：
+编辑 `config.json`，至少填写：
 
-- `dist\voice_input\voice_input.exe`
-- `dist\voice_input\config.json`
+| 字段 | 说明 |
+|------|------|
+| `auth.app_key` | 豆包语音识别 App Key |
+| `auth.access_key` | 豆包语音识别 Access Key |
+| `auth.resource_id` | 资源 ID（默认值一般不用改） |
 
-分发给别人时，至少保留这两个文件在同一目录。
-程序启动时会优先读取 `exe` 同目录下的 `config.json`。
+可选配置：
 
-## 5. 使用方式
+| 字段 | 说明 |
+|------|------|
+| `context.hotwords` | 热词列表，提升特定词汇识别准确率 |
+| `context.prompt_context` | 场景描述，按"从新到旧"排列，最多保留 20 条 |
+| `context.image_url` | 图片上下文（仅支持 1 张，是否有效由豆包接口校验） |
+| `llm_post_edit.enabled` | 是否启用大模型润色（默认关闭） |
+| `llm_post_edit.api_key` | 阿里云百炼 API Key（启用润色时需填写） |
 
-1. 先把光标放到目标输入框。
-2. 按 `Ctrl+Q` 开始说话。
-3. 再按一次 `Ctrl+Q` 停止。
-4. 程序会把最终文本复制到剪贴板，并自动粘贴到当前输入位置。
+> **注意**：`config.json` 包含你的 API 密钥，已在 `.gitignore` 中，不会被提交到 Git。
 
-## 6. 备注
+### 3. 运行
 
-- 全局热键现在走 Windows 原生 `RegisterHotKey`。
-- 如果你有多个麦克风，可以在 `audio.input_device` 里指定设备编号。
-- 如果不希望自动粘贴，可以修改 [voice_input/text_output.py](E:\ollama_proxy\voice_input\text_output.py)。
-- `config.json` 包含真实鉴权信息，分发前建议替换为目标环境自己的配置。
+```powershell
+python main.py
+```
+
+### 4. 使用方式
+
+1. 把光标放到目标输入框
+2. 按 `Ctrl+Q`（或右 Alt / 鼠标中键）开始说话
+3. 再按一次停止录音
+4. 程序自动将识别结果粘贴到当前输入位置
+
+## 打包为 EXE
+
+```powershell
+.\build_exe.ps1 [-PythonExe "你的python路径"]
+```
+
+产物在 `dist\voice_input\` 目录，分发时至少保留 `voice_input.exe` 和 `config.json` 在同一目录。
+
+## 配置说明
+
+### 音频设置 (`audio`)
+
+| 字段 | 默认值 | 说明 |
+|------|--------|------|
+| `sample_rate` | 16000 | 采样率 |
+| `channels` | 1 | 声道数 |
+| `segment_ms` | 200 | 每段音频时长（毫秒） |
+| `max_record_seconds` | 300 | 最长录音时间（秒），超时自动停止 |
+| `mute_system_volume_while_recording` | true | 录音时静音系统音量，结束后恢复 |
+| `input_device` | null | 麦克风设备编号，null 为系统默认 |
+
+### 识别请求 (`request`)
+
+| 字段 | 默认值 | 说明 |
+|------|--------|------|
+| `enable_nonstream` | true | 启用二遍识别（更准确） |
+| `enable_itn` | true | 逆文本正则化（数字、日期等） |
+| `enable_punc` | true | 自动标点 |
+| `enable_ddc` | true | 顺滑功能 |
+| `final_result_timeout_seconds` | 15 | 停止录音后等待最终结果的超时时间 |
+
+### 大模型润色 (`llm_post_edit`)
+
+当识别文本长度超过 `min_chars` 时，调用大模型做一次轻度润色（修正识别错误、去口头语、整理结构）。
+
+| 字段 | 默认值 | 说明 |
+|------|--------|------|
+| `enabled` | false | 是否启用 |
+| `min_chars` | 40 | 触发润色的最少字符数 |
+| `base_url` | (阿里云百炼) | OpenAI 兼容接口地址 |
+| `model` | qwen3.5-plus | 模型名称 |
+| `system_prompt` | (内置) | 系统提示词，可自定义 |
+
+### 界面设置 (`ui`)
+
+| 字段 | 默认值 | 说明 |
+|------|--------|------|
+| `width` | 460 | 悬浮窗宽度 |
+| `height` | 88 | 悬浮窗高度 |
+| `margin_bottom` | 64 | 距屏幕底部距离 |
+| `opacity` | 0.9 | 窗口不透明度 |
+
+## 项目结构
+
+```
+ASR_IME/
+├── main.py                  # 入口
+├── config.example.json      # 配置模板
+├── requirements.txt         # Python 依赖
+├── build_exe.ps1            # PyInstaller 打包脚本
+├── voice_input/
+│   ├── app.py               # 主应用：热键注册、录音控制、会话管理
+│   ├── asr_client.py        # 豆包 ASR WebSocket 客户端
+│   ├── protocol.py          # 豆包二进制协议编解码
+│   ├── audio_capture.py     # 麦克风录音
+│   ├── overlay.py           # 悬浮字幕窗（PyQt6）
+│   ├── text_output.py       # 剪贴板写入 + 模拟粘贴
+│   ├── llm_post_edit.py     # 大模型润色（OpenAI 兼容接口）
+│   ├── input_hooks.py       # 右 Alt / 鼠标中键的低级输入钩子
+│   ├── system_audio.py      # 系统音量控制（录音时静音）
+│   └── config.py            # 配置文件加载
+└── 参考文档.md               # 豆包 ASR API 参考
+```
+
+## 依赖
+
+- Python 3.10+
+- PyQt6 - GUI 框架
+- aiohttp - WebSocket 通信
+- sounddevice - 麦克风录音
+- pycaw / comtypes - Windows 音量控制
+- pynput - 输入钩子
+- openai - 大模型调用（OpenAI 兼容接口）
+- pyperclip - 剪贴板操作
+
+## License
+
+个人项目，仅供学习参考。

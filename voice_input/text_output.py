@@ -15,6 +15,7 @@ def get_foreground_window() -> int:
 
 
 def paste_text(text: str, paste_delay_ms: int, target_hwnd: int | None = None) -> None:
+    """将文本写入剪贴板，切换到目标窗口，模拟 Ctrl+V 粘贴。"""
     if not text.strip():
         return
 

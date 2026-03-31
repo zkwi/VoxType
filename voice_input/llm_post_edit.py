@@ -9,6 +9,12 @@ logger = logging.getLogger(__name__)
 
 
 class AliyunLlmPostEditor:
+    """通过 OpenAI 兼容接口调用大模型，对 ASR 识别结果做轻度润色。
+
+    默认使用阿里云百炼（DashScope），也可替换为任何 OpenAI 兼容的接口。
+    润色失败时静默回退到原文，不影响正常使用。
+    """
+
     def __init__(self, config: dict[str, Any]) -> None:
         self.config = config
 
