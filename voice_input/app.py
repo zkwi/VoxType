@@ -8,7 +8,7 @@ import threading
 from collections import deque
 from pathlib import Path
 
-from PyQt6.QtCore import QAbstractNativeEventFilter, QObject, QTimer, pyqtSignal
+from PyQt6.QtCore import QObject, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction, QCursor
 from PyQt6.QtWidgets import QApplication, QMenu, QStyle, QSystemTrayIcon
 
@@ -74,23 +74,51 @@ class UiBridge(QObject):
     session_finished = pyqtSignal()
 
 
-class NativeHotkeyFilter(QAbstractNativeEventFilter):
-    """拦截 Windows 原生 WM_HOTKEY 消息，触发录音切换。"""
+class GlobalHotkeyThread(threading.Thread):
+    """在独立线程里注册全局热键并直接消费 WM_HOTKEY。"""
 
-    def __init__(self, callback) -> None:
-        super().__init__()
-        self.callback = callback
+    def __init__(self, event: threading.Event, hotkey: str):
+        super().__init__(daemon=True)
+        self.event = event
+        self.hotkey = hotkey
+        self._thread_id: int | None = None
+        self._ready = threading.Event()
+        self.register_error: str | None = None
 
-    def nativeEventFilter(self, event_type, message):
-        if isinstance(event_type, bytes):
-            event_type = event_type.decode(errors="ignore")
-        if event_type not in {"windows_generic_MSG", "windows_dispatcher_MSG"}:
-            return False, 0
-        msg = wintypes.MSG.from_address(int(message))
-        if msg.message == WM_HOTKEY and msg.wParam == HOTKEY_ID:
-            self.callback()
-            return True, 0
-        return False, 0
+    def run(self) -> None:
+        self._thread_id = ctypes.windll.kernel32.GetCurrentThreadId()
+        try:
+            modifiers, vk = parse_hotkey(self.hotkey)
+            if not user32.RegisterHotKey(None, HOTKEY_ID, modifiers, vk):
+                error_code = ctypes.GetLastError()
+                self.register_error = f"注册全局热键失败: {self.hotkey} (WinError={error_code})"
+                return
+            self._ready.set()
+
+            msg = wintypes.MSG()
+            while user32.GetMessageW(ctypes.byref(msg), None, 0, 0) > 0:
+                if msg.message == WM_HOTKEY and msg.wParam == HOTKEY_ID:
+                    self.event.set()
+                    continue
+                user32.TranslateMessage(ctypes.byref(msg))
+                user32.DispatchMessageW(ctypes.byref(msg))
+        except Exception as exc:
+            self.register_error = str(exc)
+        finally:
+            if self._thread_id is not None:
+                user32.UnregisterHotKey(None, HOTKEY_ID)
+            self._ready.set()
+
+    def wait_until_ready(self, timeout: float = 1.0) -> None:
+        self._ready.wait(timeout)
+        if self.register_error:
+            raise RuntimeError(self.register_error)
+        if not self._ready.is_set():
+            raise RuntimeError(f"注册全局热键超时: {self.hotkey}")
+
+    def stop(self) -> None:
+        if self._thread_id is not None:
+            user32.PostThreadMessageW(self._thread_id, 0x0012, 0, 0)  # WM_QUIT
 
 
 class VoiceInputApp:
@@ -148,9 +176,9 @@ class VoiceInputApp:
         self.stop_grace_timer = QTimer()
         self.stop_grace_timer.setSingleShot(True)
         self.stop_grace_timer.timeout.connect(self._force_stop_recording)
-        self.hotkey_filter: NativeHotkeyFilter | None = None
         self.tray_menu: QMenu | None = None
         self.input_hook_event = threading.Event()
+        self.hotkey_thread: GlobalHotkeyThread | None = None
         self.input_hook_thread: InputHookThread | None = None
         self.input_poll_timer = QTimer()
         self.input_poll_timer.setInterval(50)
@@ -341,6 +369,9 @@ class VoiceInputApp:
             if worker.is_alive():
                 logging.warning("识别线程退出超时，程序将继续退出")
         self.input_poll_timer.stop()
+        if self.hotkey_thread is not None:
+            self.hotkey_thread.stop()
+            self.hotkey_thread = None
         if self.input_hook_thread is not None:
             self.input_hook_thread.stop()
             self.input_hook_thread = None
@@ -372,14 +403,10 @@ class VoiceInputApp:
 
     def run(self) -> None:
         hotkey = self.config.get("hotkey", "ctrl+q")
-        modifiers, vk = parse_hotkey(hotkey)
-        if not user32.RegisterHotKey(None, HOTKEY_ID, modifiers, vk):
-            raise RuntimeError(f"注册全局热键失败: {hotkey}")
-
-        self.hotkey_filter = NativeHotkeyFilter(lambda: self.bridge.toggle_requested.emit())
-        self.qt_app.installNativeEventFilter(self.hotkey_filter)
+        self.hotkey_thread = GlobalHotkeyThread(self.input_hook_event, hotkey)
+        self.hotkey_thread.start()
+        self.hotkey_thread.wait_until_ready()
         self._start_input_hooks()
-        self.qt_app.aboutToQuit.connect(lambda: user32.UnregisterHotKey(None, HOTKEY_ID))
         self.tray_icon.show()
         self._show_startup_tray_message()
         self.qt_app.exec()
