@@ -291,16 +291,9 @@ class VoiceInputApp:
         context_config = self.config.get("context", {})
         prompt_contexts = [
             str(item.get("text", "")).strip()
-            for item in context_config.get("recent_context", [])
+            for item in context_config.get("prompt_context", [])
             if str(item.get("text", "")).strip()
         ]
-        prompt_contexts.extend(
-            [
-                str(item.get("text", "")).strip()
-                for item in context_config.get("prompt_context", [])
-                if str(item.get("text", "")).strip()
-            ]
-        )
         polished = await self.llm_post_editor.polish(
             final_text,
             hotwords=hotwords,
@@ -333,10 +326,18 @@ class VoiceInputApp:
             return
         context_config["recent_context"] = [{"text": text} for text in self.recent_context_history]
 
+    @staticmethod
+    def _sanitize_recent_context_text(text: str) -> str:
+        # recent context 只用于轻微提示，不应把上一轮长文本原样灌回识别链路
+        flattened = " ".join(str(text).split()).strip()
+        if not flattened:
+            return ""
+        return flattened[:160].rstrip()
+
     def _remember_recent_context(self, text: str) -> None:
         if not self.config["context"].get("enable_recent_context", True):
             return
-        cleaned = text.strip()
+        cleaned = self._sanitize_recent_context_text(text)
         if not cleaned:
             return
         self.recent_context_history.appendleft(cleaned)
