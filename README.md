@@ -54,13 +54,20 @@ cp config.example.json config.json
 | `context.image_url` | 图片上下文（仅支持 1 张，是否有效由豆包接口校验） |
 | `llm_post_edit.enabled` | 是否启用大模型润色（默认关闭） |
 | `llm_post_edit.api_key` | 阿里云百炼 API Key（启用润色时需填写） |
+| `debug.print_transcript_to_console` | 是否在 Python 控制台打印最终转写结果，默认 `true` |
 
 > **注意**：`config.json` 包含你的 API 密钥，已在 `.gitignore` 中，不会被提交到 Git。
 
 ### 3. 运行
 
 ```powershell
-python main.py
+.\run.ps1
+```
+
+如果你想临时关闭 Python 控制台里的转写结果打印：
+
+```powershell
+.\run.ps1 -PrintTranscriptToConsole $false
 ```
 
 ### 4. 使用方式

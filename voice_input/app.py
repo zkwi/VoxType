@@ -252,6 +252,7 @@ class VoiceInputApp:
             final_text = asyncio.run(self._recognize_and_post_edit())
             self.latest_text = final_text
             if final_text:
+                self._print_transcript_to_console(final_text)
                 self._remember_recent_context(final_text)
                 paste_text(
                     final_text,
@@ -313,6 +314,17 @@ class VoiceInputApp:
         if result.endswith("。") or result.endswith("."):
             result = result[:-1].rstrip()
         return result
+
+    def _should_print_transcript_to_console(self) -> bool:
+        env_value = os.getenv("VOICE_INPUT_PRINT_TRANSCRIPT_TO_CONSOLE")
+        if env_value is not None:
+            return env_value.strip().lower() not in {"0", "false", "no", "off"}
+        return bool(self.config.get("debug", {}).get("print_transcript_to_console", True))
+
+    def _print_transcript_to_console(self, text: str) -> None:
+        if not self._should_print_transcript_to_console():
+            return
+        print(f"[转写结果] {text}", flush=True)
 
     def _refresh_recent_context_config(self) -> None:
         context_config = self.config.setdefault("context", {})

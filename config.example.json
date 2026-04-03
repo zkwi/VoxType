@@ -67,5 +67,8 @@
   "tray": {
     "show_startup_message": true,
     "startup_message_timeout_ms": 6000
+  },
+  "debug": {
+    "print_transcript_to_console": true
   }
 }
