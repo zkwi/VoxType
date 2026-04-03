@@ -28,9 +28,11 @@ class MicrophoneRecorder:
         self._stop_event = threading.Event()
         self._stream: sd.RawInputStream | None = None
         self.started_at = 0.0
+        self.stopped_at = 0.0
 
     def start(self) -> None:
         self.started_at = time.time()
+        self.stopped_at = 0.0
         self._stop_event.clear()
         self._queue = queue.Queue()
 
@@ -53,6 +55,8 @@ class MicrophoneRecorder:
         self._stream.start()
 
     def stop(self) -> None:
+        if self.started_at and not self.stopped_at:
+            self.stopped_at = time.time()
         self._stop_event.set()
         if self._stream is not None:
             self._stream.stop()
@@ -72,3 +76,10 @@ class MicrophoneRecorder:
         if not self.started_at:
             return False
         return (time.time() - self.started_at) >= self.max_record_seconds
+
+    @property
+    def duration_seconds(self) -> float:
+        if not self.started_at:
+            return 0.0
+        end_time = self.stopped_at or time.time()
+        return max(0.0, end_time - self.started_at)
