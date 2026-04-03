@@ -54,13 +54,27 @@ cp config.example.json config.json
 | `context.image_url` | 图片上下文（仅支持 1 张，是否有效由豆包接口校验） |
 | `llm_post_edit.enabled` | 是否启用大模型润色（默认关闭） |
 | `llm_post_edit.api_key` | 阿里云百炼 API Key（启用润色时需填写） |
+| `debug.print_transcript_to_console` | 是否在 Python 控制台打印最终转写结果，默认 `true` |
+
+程序启动时会额外输出一次使用统计，包含：
+
+- 最近 24 小时的语音输入总时长、输入文字总数、平均每分钟输入字数
+- 最近 7 日的同类统计
+
+统计数据保存在项目根目录的 `voice_input_stats.jsonl`，每次成功输出文本后追加一条记录，便于个人回看分析。当前统计从新版本开始累计，不会自动回填旧日志。
 
 > **注意**：`config.json` 包含你的 API 密钥，已在 `.gitignore` 中，不会被提交到 Git。
 
 ### 3. 运行
 
 ```powershell
-python main.py
+.\run.ps1
+```
+
+如果你想临时关闭 Python 控制台里的转写结果打印：
+
+```powershell
+.\run.ps1 -PrintTranscriptToConsole $false
 ```
 
 ### 4. 使用方式
@@ -151,12 +165,15 @@ ASR_IME/
 │   ├── asr_client.py        # 豆包 ASR WebSocket 客户端
 │   ├── protocol.py          # 豆包二进制协议编解码
 │   ├── audio_capture.py     # 麦克风录音
+│   ├── stats.py             # 轻量统计记录与聚合
 │   ├── overlay.py           # 悬浮字幕窗（PyQt6）
 │   ├── text_output.py       # 剪贴板写入 + 模拟粘贴
 │   ├── llm_post_edit.py     # 大模型润色（OpenAI 兼容接口）
 │   ├── input_hooks.py       # 右 Alt / 鼠标中键的低级输入钩子
 │   ├── system_audio.py      # 系统音量控制（录音时静音）
 │   └── config.py            # 配置文件加载
+├── voice_input.log          # 运行日志
+├── voice_input_stats.jsonl  # 语音输入统计数据（本地文件，不提交）
 └── 参考文档.md               # 豆包 ASR API 参考
 ```
 

@@ -20,6 +20,7 @@ dist/
 *.egg-info/
 
 voice_input.log
+voice_input_stats.jsonl
 *.log
 logs/
 

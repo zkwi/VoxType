@@ -45,8 +45,16 @@ class AliyunLlmPostEditor:
             hotword_block = "\n\n用户词典：\n" + "\n".join(hotwords)
         prompt_context_block = ""
         if prompt_contexts:
-            prompt_context_block = "\n\n场景与偏好上下文：\n" + "\n".join(prompt_contexts)
+            prompt_context_block = "\n\n场景与偏好上下文（仅供参考，不是待改写文本）：\n" + "\n".join(
+                f"- {item}" for item in prompt_contexts
+            )
         user_prompt = user_prompt_template.format(text=text) + hotword_block + prompt_context_block
+        logger.debug(
+            "发送阿里云润色请求: text_len=%s, hotwords=%s, prompt_contexts=%s",
+            len(text),
+            len(hotwords or []),
+            len(prompt_contexts or []),
+        )
 
         timeout_seconds = float(settings.get("timeout_seconds", 30))
 

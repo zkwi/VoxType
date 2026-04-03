@@ -52,6 +52,12 @@ class DoubaoAsrClient:
             # 文档要求 context_data 按从新到旧排列，最多 20 条。
             payload["context_type"] = "dialog_ctx"
             payload["context_data"] = context_data[:20]
+            logger.debug(
+                "发送豆包上下文: recent=%s, prompt=%s, total=%s",
+                len(recent_context),
+                len(prompt_context),
+                len(payload["context_data"]),
+            )
 
         if not payload:
             return None

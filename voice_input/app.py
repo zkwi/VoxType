@@ -1,6 +1,7 @@
 import asyncio
 import ctypes
 from ctypes import wintypes
+from datetime import datetime
 import logging
 import os
 import sys
@@ -18,11 +19,13 @@ from voice_input.config import AppConfig
 from voice_input.input_hooks import InputHookThread
 from voice_input.llm_post_edit import AliyunLlmPostEditor
 from voice_input.overlay import FloatingCaption
+from voice_input.stats import StatsStore, UsageStats
 from voice_input.system_audio import SystemVolumeController
 from voice_input.text_output import get_foreground_window, paste_text
 
 
 LOG_PATH = Path("voice_input.log")
+STATS_PATH = Path("voice_input_stats.jsonl")
 
 # Windows API 相关
 user32 = ctypes.windll.user32
@@ -161,6 +164,7 @@ class VoiceInputApp:
         self.asr_client = DoubaoAsrClient(self.config)
         self.llm_post_editor = AliyunLlmPostEditor(self.config)
         self.system_volume = SystemVolumeController()
+        self.stats_store = StatsStore(STATS_PATH)
         self.recording = False
         self.worker_thread: threading.Thread | None = None
         self.stop_event = threading.Event()
@@ -252,12 +256,14 @@ class VoiceInputApp:
             final_text = asyncio.run(self._recognize_and_post_edit())
             self.latest_text = final_text
             if final_text:
+                self._print_transcript_to_console(final_text)
                 self._remember_recent_context(final_text)
                 paste_text(
                     final_text,
                     paste_delay_ms=self.config["typing"].get("paste_delay_ms", 120),
                     target_hwnd=self.target_hwnd,
                 )
+                self._record_usage_stats(final_text)
         except Exception as exc:
             logging.exception("识别流程失败: %s", exc)
             self.bridge.update_text.emit(f"识别失败: {exc}")
@@ -290,16 +296,9 @@ class VoiceInputApp:
         context_config = self.config.get("context", {})
         prompt_contexts = [
             str(item.get("text", "")).strip()
-            for item in context_config.get("recent_context", [])
+            for item in context_config.get("prompt_context", [])
             if str(item.get("text", "")).strip()
         ]
-        prompt_contexts.extend(
-            [
-                str(item.get("text", "")).strip()
-                for item in context_config.get("prompt_context", [])
-                if str(item.get("text", "")).strip()
-            ]
-        )
         polished = await self.llm_post_editor.polish(
             final_text,
             hotwords=hotwords,
@@ -314,6 +313,48 @@ class VoiceInputApp:
             result = result[:-1].rstrip()
         return result
 
+    def _should_print_transcript_to_console(self) -> bool:
+        env_value = os.getenv("VOICE_INPUT_PRINT_TRANSCRIPT_TO_CONSOLE")
+        if env_value is not None:
+            return env_value.strip().lower() not in {"0", "false", "no", "off"}
+        return bool(self.config.get("debug", {}).get("print_transcript_to_console", True))
+
+    def _print_transcript_to_console(self, text: str) -> None:
+        if not self._should_print_transcript_to_console():
+            return
+        print(f"[转写结果] {text}", flush=True)
+
+    def _record_usage_stats(self, text: str) -> None:
+        try:
+            self.stats_store.append_event(
+                text=text,
+                duration_seconds=self.recorder.duration_seconds,
+                created_at=datetime.now(),
+            )
+        except Exception as exc:
+            logging.warning("写入统计数据失败: %s", exc)
+
+    @staticmethod
+    def _format_stats_line(label: str, stats: UsageStats) -> str:
+        return (
+            f"[统计][{label}] "
+            f"语音输入总时长 {stats.total_minutes_int} 分钟，"
+            f"输入文字总数 {stats.total_chars}，"
+            f"平均每分钟输入字数 {stats.avg_chars_per_minute:.1f}"
+        )
+
+    def _print_startup_stats(self) -> None:
+        try:
+            recent_24h = self.stats_store.summarize_recent_hours(24)
+            recent_7d = self.stats_store.summarize_recent_days(7)
+            for line in [
+                self._format_stats_line("最近24小时", recent_24h),
+                self._format_stats_line("最近7日", recent_7d),
+            ]:
+                logging.info(line)
+        except Exception as exc:
+            logging.warning("读取统计数据失败: %s", exc)
+
     def _refresh_recent_context_config(self) -> None:
         context_config = self.config.setdefault("context", {})
         if not context_config.get("enable_recent_context", True):
@@ -321,10 +362,18 @@ class VoiceInputApp:
             return
         context_config["recent_context"] = [{"text": text} for text in self.recent_context_history]
 
+    @staticmethod
+    def _sanitize_recent_context_text(text: str) -> str:
+        # recent context 只用于轻微提示，不应把上一轮长文本原样灌回识别链路
+        flattened = " ".join(str(text).split()).strip()
+        if not flattened:
+            return ""
+        return flattened[:160].rstrip()
+
     def _remember_recent_context(self, text: str) -> None:
         if not self.config["context"].get("enable_recent_context", True):
             return
-        cleaned = text.strip()
+        cleaned = self._sanitize_recent_context_text(text)
         if not cleaned:
             return
         self.recent_context_history.appendleft(cleaned)
@@ -407,6 +456,7 @@ class VoiceInputApp:
         self.hotkey_thread.start()
         self.hotkey_thread.wait_until_ready()
         self._start_input_hooks()
+        self._print_startup_stats()
         self.tray_icon.show()
         self._show_startup_tray_message()
         self.qt_app.exec()
