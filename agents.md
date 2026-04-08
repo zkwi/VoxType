@@ -9,7 +9,7 @@
 **ASR_IME** 是一个 Windows 桌面语音输入工具（输入法辅助）。  
 用户按下热键后，程序录制麦克风音频，通过豆包（字节跳动）流式 ASR WebSocket 接口进行实时语音识别，识别完成后可选调用阿里云百炼大模型做轻度润色，最终将文本复制到剪贴板并粘贴到当前输入框。
 
-**语言 / 运行环境：** Python 3.10+，仅支持 Windows  
+**语言 / 运行环境：** Python 3.11+，仅支持 Windows  
 **框架 / 核心依赖：** PyQt6（GUI）、aiohttp（WebSocket）、sounddevice（录音）、openai SDK（LLM 润色）、pynput（输入钩子）、pycaw / comtypes（音量控制）、pyperclip（剪贴板）
 
 ---
@@ -19,8 +19,8 @@
 ```
 ASR_IME/
 ├── main.py                   # 入口，调用 voice_input.app.main()
-├── config.example.json       # 配置模板（不含密钥）
-├── config.json               # 实际配置（含密钥，已被 .gitignore 忽略）
+├── config.example.toml       # 配置模板（不含密钥）
+├── config.toml               # 实际配置（含密钥，已被 .gitignore 忽略）
 ├── requirements.txt
 ├── run.ps1                   # 开发运行脚本
 ├── build_exe.ps1             # PyInstaller 打包脚本
@@ -37,7 +37,7 @@ ASR_IME/
 │   ├── input_hooks.py       # 低级输入钩子：右 Alt / 鼠标中键（pynput）
 │   ├── system_audio.py      # 录音时静音 / 恢复系统音量（pycaw）
 │   ├── stats.py             # 使用统计记录与聚合（JSONL 追加）
-│   └── config.py            # 配置加载（JSON → dict，带默认值）
+│   └── config.py            # 配置加载（TOML → dict，带默认值）
 ├── scripts/
 │   ├── scan_secrets.py      # 本地密钥扫描（pre-commit 钩子）
 │   └── enable_git_hooks.ps1 # 启用 Git pre-commit 钩子
@@ -92,46 +92,62 @@ ASR_IME/
 
 ---
 
-## 配置结构（`config.json`）
+## 配置结构（`config.toml`）
 
-```jsonc
-{
-  "auth": { "app_key": "", "access_key": "", "resource_id": "" },  // 豆包 ASR 认证
-  "hotkey": "ctrl+q",                     // 全局热键（支持 ctrl/alt/shift/win 组合）
-  "audio": {
-    "sample_rate": 16000, "channels": 1,
-    "segment_ms": 200,                    // 每次发送音频块时长
-    "max_record_seconds": 300,
-    "stop_grace_ms": 500,                 // 松开热键到实际停录的缓冲
-    "mute_system_volume_while_recording": true,
-    "input_device": null
-  },
-  "request": {
-    "ws_url": "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async",
-    "enable_nonstream": true,             // 二遍识别开关
-    "enable_itn": true, "enable_punc": true, "enable_ddc": true,
-    "final_result_timeout_seconds": 15
-  },
-  "context": {
-    "enable_recent_context": true,
-    "recent_context_rounds": 5,           // 轮次上下文滚动保留条数
-    "hotwords": [],                        // 热词列表
-    "prompt_context": [],                  // 场景提示（按新→旧排列，最多 20 条）
-    "image_url": null
-  },
-  "typing": { "paste_delay_ms": 120 },
-  "llm_post_edit": {
-    "enabled": false, "min_chars": 40,
-    "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-    "model": "qwen3.5-plus", "enable_thinking": false
-  },
-  "ui": { "width": 460, "height": 88, "margin_bottom": 64, "opacity": 0.9 },
-  "tray": { "show_startup_message": true },
-  "debug": { "print_transcript_to_console": true }
-}
+```toml
+hotkey = "ctrl+q"
+
+[auth]
+app_key = ""
+access_key = ""
+resource_id = ""
+
+[audio]
+sample_rate = 16000
+channels = 1
+segment_ms = 200
+max_record_seconds = 300
+stop_grace_ms = 500
+mute_system_volume_while_recording = true
+
+[request]
+ws_url = "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async"
+enable_nonstream = true
+enable_itn = true
+enable_punc = true
+enable_ddc = true
+final_result_timeout_seconds = 15
+
+[context]
+enable_recent_context = true
+recent_context_rounds = 5
+hotwords = []
+
+[typing]
+paste_delay_ms = 120
+paste_method = "ctrl_v"
+
+[llm_post_edit]
+enabled = false
+min_chars = 40
+base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+model = "qwen3.5-plus"
+enable_thinking = false
+
+[ui]
+width = 460
+height = 88
+margin_bottom = 64
+opacity = 0.9
+
+[tray]
+show_startup_message = true
+
+[debug]
+print_transcript_to_console = true
 ```
 
-> **重要**：`config.json` 已在 `.gitignore` 中，永远不要提交真实密钥。
+> **重要**：`config.toml` 已在 `.gitignore` 中，永远不要提交真实密钥。
 
 ---
 
@@ -144,7 +160,7 @@ ASR_IME/
 - **asyncio**：ASR 和 LLM 处理已在独立线程的 `asyncio.run()` 中，不在主线程 event loop 上运行
 
 ### 新增功能原则
-1. **新增配置项** → 在 `config.example.json` 同步添加带注释的示例值，并在 `config.py` 设置合理默认值
+1. **新增配置项** → 在 `config.example.toml` 同步添加带注释的示例值，并在 `config.py` 设置合理默认值
 2. **新增 UI 状态** → 通过 `UiBridge` 新增 `pyqtSignal`，在 `overlay.py` 中对应处理
 3. **新增外部 API 调用** → 独立封装为 `voice_input/xxx.py` 模块，保持 `app.py` 职责单一
 4. **新增热键触发逻辑** → 统一经过 `toggle_recording()` / `start_recording()` / `stop_recording()` 入口

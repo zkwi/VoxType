@@ -1,0 +1,128 @@
+# 配置模板，复制为 config.toml 后按需修改
+# 不要把真实密钥提交到 Git
+
+# 全局热键，当前只支持 ctrl / alt / shift / win + 单个字符键
+hotkey = "ctrl+q"
+
+[auth]
+# 豆包 ASR 的认证信息，三项都需要填写
+app_key = "你的豆包 App Key"
+access_key = "你的豆包 Access Key"
+resource_id = "volc.seedasr.sauc.duration"
+
+[audio]
+# 录音采样率，豆包常用 16000；一般不建议改
+sample_rate = 16000
+# 单声道即可
+channels = 1
+# 每次发送到 ASR 的音频块时长，越小越实时
+segment_ms = 200
+# 单次最长录音秒数
+max_record_seconds = 300
+# 松开热键后额外保留一点尾音
+stop_grace_ms = 500
+# 录音时是否自动静音系统音量
+mute_system_volume_while_recording = true
+# 指定麦克风设备；不用时保持注释掉或留空
+# input_device = 1
+
+[request]
+# 豆包流式 ASR WebSocket 地址，通常保持默认
+ws_url = "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async"
+model_name = "bigmodel"
+# 是否开启二遍识别；通常建议开启
+enable_nonstream = true
+enable_itn = true
+enable_punc = true
+enable_ddc = true
+show_utterances = true
+result_type = "full"
+enable_accelerate_text = false
+accelerate_score = 0
+end_window_size = 1200
+# force_to_speech_time = 800
+# 停录后等待最终结果的超时时间
+final_result_timeout_seconds = 15
+
+[context]
+# 是否把最近几轮输入内容作为上下文提示
+enable_recent_context = true
+# 最近上下文保留轮数
+recent_context_rounds = 5
+# 可选图片 URL；不用就保持注释掉
+# image_url = "https://example.com/demo.png"
+hotwords = [
+  "示例热词1",
+  "示例热词2",
+]
+
+[[context.prompt_context]]
+# 额外场景提示，告诉模型你常说哪些主题
+text = "描述你的常见使用场景，帮助 ASR 更准确地识别"
+
+[typing]
+# 复制文本后、尝试切回原窗口前的等待时间
+paste_delay_ms = 120
+# 粘贴方式：ctrl_v / shift_insert / clipboard_only
+paste_method = "ctrl_v"
+
+[llm_post_edit]
+# 是否启用大模型润色；关闭时只做 ASR
+enabled = false
+# 文字短于这个长度就不润色
+min_chars = 40
+base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+api_key = "你的阿里云百炼 API Key"
+# 使用的润色模型
+model = "qwen3.5-plus"
+timeout_seconds = 30
+# 是否开启 thinking；通常关闭更快
+enable_thinking = false
+system_prompt = """
+你是语音输入助手。
+
+场景：用户通过语音输入文字，语音识别（ASR）将语音转为文本后交给你处理。
+你的输出将直接粘贴到用户的光标位置。永远只输出处理后的文本，不要与用户对话。如果无需处理，原样输出。
+
+任务：
+1. 修正明显的语音识别错误
+2. 在不改变原意的前提下，对必要文本进行轻度润色、轻度改写或重写，使表达更清晰自然
+3. 删除无意义的口头语、语气词和明显重复
+4. 当文本较长、层次较多或明显属于口述长句时，可以主动分段、分行、分点整理，让结构更清晰
+5. 不要扩写，不要新增事实，不要改变用户立场和语气，不要编造任何内容
+6. 保留专有名词、数字、百分比、金融和编程术语
+7. 如果原文本身已经简洁清楚，就尽量少改
+8. 自动去掉结尾的句号
+9. 最终只返回处理后的文本，不要输出任何解释、标题或多余内容
+"""
+user_prompt_template = """
+以下是用户通过语音转写得到的文本，请按要求直接输出处理后的最终文本：
+
+{text}
+
+处理要求：
+- 如果文本较短且表达清楚，尽量少改
+- 如果文本较长、信息点较多、层次较乱，优先进行结构化整理，可按语义分段、分行、分点
+- 如果存在明显识别错误、口头语、重复、语序混乱，可做必要的轻度改写，使其更清晰自然
+- 不要输出解释，不要输出标题，不要输出任何额外说明
+"""
+
+[ui]
+# 悬浮窗宽高
+width = 460
+height = 88
+# 悬浮窗距屏幕底部边距
+margin_bottom = 64
+# 悬浮窗透明度
+opacity = 0.9
+# 长文本滚动刷新间隔
+scroll_interval_ms = 1200
+
+[tray]
+# 启动后是否显示托盘提示
+show_startup_message = true
+startup_message_timeout_ms = 6000
+
+[debug]
+# 是否把最终转写结果同时打印到控制台
+print_transcript_to_console = true

@@ -20,8 +20,8 @@ if ($LASTEXITCODE -ne 0) { throw "安装 pyinstaller 失败" }
 & $PythonExe -m PyInstaller --clean --noconfirm voice_input.spec
 if ($LASTEXITCODE -ne 0) { throw "PyInstaller 打包失败" }
 
-Copy-Item -LiteralPath ".\config.json" -Destination ".\dist\voice_input\config.json" -Force
+Copy-Item -LiteralPath ".\config.toml" -Destination ".\dist\voice_input\config.toml" -Force
 
 Write-Host ""
 Write-Host "构建完成：dist\\voice_input\\voice_input.exe"
-Write-Host "分发时请一起带上：dist\\voice_input\\config.json"
+Write-Host "分发时请一起带上：dist\\voice_input\\config.toml"

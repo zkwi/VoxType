@@ -6,8 +6,15 @@ import pyperclip
 
 user32 = ctypes.windll.user32
 KEYEVENTF_KEYUP = 0x0002
+KEYEVENTF_EXTENDEDKEY = 0x0001
+MAPVK_VK_TO_VSC = 0
 VK_CONTROL = 0x11
+VK_SHIFT = 0x10
 VK_V = 0x56
+VK_INSERT = 0x2D
+PASTE_METHOD_CTRL_V = "ctrl_v"
+PASTE_METHOD_SHIFT_INSERT = "shift_insert"
+PASTE_METHOD_CLIPBOARD_ONLY = "clipboard_only"
 
 
 def get_foreground_window() -> int:
@@ -32,26 +39,64 @@ def _activate_target_window(target_hwnd: int | None, paste_delay_ms: int) -> Non
 
 
 def _send_ctrl_v() -> None:
+    _send_key_combo(VK_CONTROL, VK_V)
+
+
+def _send_shift_insert() -> None:
+    _send_key_combo(VK_SHIFT, VK_INSERT, key_extended=True)
+
+
+def _send_key_event(virtual_key: int, *, key_up: bool = False, extended: bool = False) -> None:
+    scan_code = user32.MapVirtualKeyW(virtual_key, MAPVK_VK_TO_VSC)
+    flags = 0
+    if extended:
+        flags |= KEYEVENTF_EXTENDEDKEY
+    if key_up:
+        flags |= KEYEVENTF_KEYUP
+    user32.keybd_event(virtual_key, scan_code, flags, 0)
+
+
+def _send_key_combo(modifier_vk: int, key_vk: int, *, key_extended: bool = False) -> None:
     key_interval = 0.01
-    user32.keybd_event(VK_V, 0, KEYEVENTF_KEYUP, 0)
-    user32.keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, 0)
-    time.sleep(key_interval)
     try:
-        user32.keybd_event(VK_CONTROL, 0, 0, 0)
+        _send_key_event(modifier_vk)
         time.sleep(key_interval)
-        user32.keybd_event(VK_V, 0, 0, 0)
+        _send_key_event(key_vk, extended=key_extended)
         time.sleep(key_interval)
-        user32.keybd_event(VK_V, 0, KEYEVENTF_KEYUP, 0)
+        _send_key_event(key_vk, key_up=True, extended=key_extended)
         time.sleep(key_interval)
     finally:
-        user32.keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, 0)
+        _send_key_event(modifier_vk, key_up=True)
 
 
-def paste_text(text: str, paste_delay_ms: int, target_hwnd: int | None = None) -> None:
-    """将文本写入剪贴板，切换到目标窗口，再用 keybd_event 模拟 Ctrl+V。"""
+def _normalize_paste_method(paste_method: str | None) -> str:
+    valid_methods = {
+        PASTE_METHOD_CTRL_V,
+        PASTE_METHOD_SHIFT_INSERT,
+        PASTE_METHOD_CLIPBOARD_ONLY,
+    }
+    if paste_method in valid_methods:
+        return paste_method
+    return PASTE_METHOD_CTRL_V
+
+
+def paste_text(
+    text: str,
+    paste_delay_ms: int,
+    target_hwnd: int | None = None,
+    paste_method: str = PASTE_METHOD_CTRL_V,
+) -> None:
+    """将文本写入剪贴板，并按配置决定是否自动粘贴。"""
     if not text.strip():
         return
 
     pyperclip.copy(text)
+    normalized_method = _normalize_paste_method(paste_method)
+    if normalized_method == PASTE_METHOD_CLIPBOARD_ONLY:
+        return
+
     _activate_target_window(target_hwnd, paste_delay_ms)
+    if normalized_method == PASTE_METHOD_SHIFT_INSERT:
+        _send_shift_insert()
+        return
     _send_ctrl_v()
