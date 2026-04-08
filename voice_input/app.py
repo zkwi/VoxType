@@ -101,6 +101,7 @@ class GlobalHotkeyThread(threading.Thread):
             msg = wintypes.MSG()
             while user32.GetMessageW(ctypes.byref(msg), None, 0, 0) > 0:
                 if msg.message == WM_HOTKEY and msg.wParam == HOTKEY_ID:
+                    logging.info("输入触发来源: 全局热键 %s", self.hotkey)
                     self.event.set()
                     continue
                 user32.TranslateMessage(ctypes.byref(msg))

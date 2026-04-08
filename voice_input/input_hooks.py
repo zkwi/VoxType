@@ -9,6 +9,7 @@ import logging
 import threading
 
 user32 = ctypes.windll.user32
+ULONG_PTR = ctypes.c_ulonglong if ctypes.sizeof(ctypes.c_void_p) == 8 else ctypes.c_ulong
 
 # 常量
 WH_KEYBOARD_LL = 13
@@ -18,6 +19,9 @@ WM_SYSKEYUP = 0x0105
 WM_MBUTTONDOWN = 0x0207
 WM_MBUTTONUP = 0x0208
 VK_RMENU = 0xA5  # 右侧 Alt
+LLKHF_INJECTED = 0x10
+LLKHF_LOWER_IL_INJECTED = 0x02
+LLMHF_INJECTED = 0x00000001
 
 # 正确的签名: LRESULT CALLBACK proc(int nCode, WPARAM wParam, LPARAM lParam)
 HOOKPROC = ctypes.WINFUNCTYPE(
@@ -40,8 +44,26 @@ class KBDLLHOOKSTRUCT(ctypes.Structure):
         ("scanCode", wt.DWORD),
         ("flags", wt.DWORD),
         ("time", wt.DWORD),
-        ("dwExtraInfo", ctypes.POINTER(ctypes.c_ulong)),
+        ("dwExtraInfo", ULONG_PTR),
     ]
+
+
+class MSLLHOOKSTRUCT(ctypes.Structure):
+    _fields_ = [
+        ("pt", wt.POINT),
+        ("mouseData", wt.DWORD),
+        ("flags", wt.DWORD),
+        ("time", wt.DWORD),
+        ("dwExtraInfo", ULONG_PTR),
+    ]
+
+
+def _is_injected_keyboard_event(flags: int) -> bool:
+    return bool(flags & (LLKHF_INJECTED | LLKHF_LOWER_IL_INJECTED))
+
+
+def _is_injected_mouse_event(flags: int) -> bool:
+    return bool(flags & LLMHF_INJECTED)
 
 
 class InputHookThread(threading.Thread):
@@ -97,13 +119,23 @@ class InputHookThread(threading.Thread):
         if nCode >= 0 and wParam in (WM_KEYUP, WM_SYSKEYUP):
             kb = KBDLLHOOKSTRUCT.from_address(lParam)
             if kb.vkCode == VK_RMENU:
+                if _is_injected_keyboard_event(kb.flags):
+                    logging.info("忽略注入的右 Alt 事件")
+                    return user32.CallNextHookEx(None, nCode, wParam, lParam)
+                logging.info("输入触发来源: 右 Alt")
                 self.event.set()
         return user32.CallNextHookEx(None, nCode, wParam, lParam)
 
     def _mouse_callback(self, nCode, wParam, lParam):
         # wParam 是整数: WM_MBUTTONDOWN / WM_MBUTTONUP 等
         if nCode >= 0:
+            mouse = MSLLHOOKSTRUCT.from_address(lParam)
+            if _is_injected_mouse_event(mouse.flags):
+                if wParam in (WM_MBUTTONDOWN, WM_MBUTTONUP):
+                    logging.info("忽略注入的鼠标中键事件")
+                return user32.CallNextHookEx(None, nCode, wParam, lParam)
             if wParam == WM_MBUTTONDOWN:
+                logging.info("输入触发来源: 鼠标中键")
                 self.event.set()
                 return 1  # 吞掉中键按下
             if wParam == WM_MBUTTONUP:
