@@ -23,7 +23,7 @@ Windows 桌面语音输入工具，按下热键即可语音输入到任意应用
 
 ### 1. 安装依赖
 
-需要 Python 3.10+：
+需要 Python 3.11+：
 
 ```powershell
 pip install -r requirements.txt
@@ -34,10 +34,10 @@ pip install -r requirements.txt
 复制配置模板并填入你自己的密钥：
 
 ```powershell
-cp config.example.json config.json
+cp config.example.toml config.toml
 ```
 
-编辑 `config.json`，至少填写：
+编辑 `config.toml`，至少填写：
 
 | 字段 | 说明 |
 |------|------|
@@ -63,7 +63,7 @@ cp config.example.json config.json
 
 统计数据保存在项目根目录的 `voice_input_stats.jsonl`，每次成功输出文本后追加一条记录，便于个人回看分析。当前统计从新版本开始累计，不会自动回填旧日志。
 
-> **注意**：`config.json` 包含你的 API 密钥，已在 `.gitignore` 中，不会被提交到 Git。
+> **注意**：`config.toml` 包含你的 API 密钥，已在 `.gitignore` 中，不会被提交到 Git。
 
 ### 3. 运行
 
@@ -90,7 +90,7 @@ cp config.example.json config.json
 .\build_exe.ps1 [-PythonExe "你的python路径"]
 ```
 
-产物在 `dist\voice_input\` 目录，分发时至少保留 `voice_input.exe` 和 `config.json` 在同一目录。
+产物在 `dist\voice_input\` 目录，分发时至少保留 `voice_input.exe` 和 `config.toml` 在同一目录。
 
 ## 本地安全检查
 
@@ -106,7 +106,7 @@ python .\scripts\scan_secrets.py
 .\scripts\enable_git_hooks.ps1
 ```
 
-启用后，Git 会在 `pre-commit` 阶段自动运行 `scripts/scan_secrets.py --staged`，只检查本次已暂存、准备提交的文件。像 `config.json` 这类已被 `.gitignore` 忽略、且未加入暂存区的本地文件，不会拦截提交。
+启用后，Git 会在 `pre-commit` 阶段自动运行 `scripts/scan_secrets.py --staged`，只检查本次已暂存、准备提交的文件。像 `config.toml` 这类已被 `.gitignore` 忽略、且未加入暂存区的本地文件，不会拦截提交。
 
 ## 配置说明
 
@@ -157,7 +157,7 @@ python .\scripts\scan_secrets.py
 ```
 ASR_IME/
 ├── main.py                  # 入口
-├── config.example.json      # 配置模板
+├── config.example.toml      # 配置模板
 ├── requirements.txt         # Python 依赖
 ├── build_exe.ps1            # PyInstaller 打包脚本
 ├── voice_input/
@@ -179,7 +179,7 @@ ASR_IME/
 
 ## 依赖
 
-- Python 3.10+
+- Python 3.11+
 - PyQt6 - GUI 框架
 - aiohttp - WebSocket 通信
 - sounddevice - 麦克风录音

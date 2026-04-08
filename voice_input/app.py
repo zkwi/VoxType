@@ -10,7 +10,7 @@ from collections import deque
 from pathlib import Path
 
 from PyQt6.QtCore import QObject, QTimer, pyqtSignal
-from PyQt6.QtGui import QAction, QCursor
+from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import QApplication, QMenu, QStyle, QSystemTrayIcon
 
 from voice_input.asr_client import DoubaoAsrClient
@@ -101,6 +101,7 @@ class GlobalHotkeyThread(threading.Thread):
             msg = wintypes.MSG()
             while user32.GetMessageW(ctypes.byref(msg), None, 0, 0) > 0:
                 if msg.message == WM_HOTKEY and msg.wParam == HOTKEY_ID:
+                    logging.info("输入触发来源: 全局热键 %s", self.hotkey)
                     self.event.set()
                     continue
                 user32.TranslateMessage(ctypes.byref(msg))
@@ -189,14 +190,6 @@ class VoiceInputApp:
         self.input_poll_timer.timeout.connect(self._poll_input_hook)
         self.tray_icon = self._create_tray_icon()
 
-    @staticmethod
-    def _should_run_llm_post_edit(config: dict) -> bool:
-        settings = config.get("llm_post_edit", {})
-        if not settings.get("enabled", False):
-            return False
-        min_chars = int(settings.get("min_chars", 100) or 0)
-        return min_chars > 0
-
     def toggle_recording(self) -> None:
         if self.recording:
             self.stop_recording()
@@ -258,10 +251,12 @@ class VoiceInputApp:
             if final_text:
                 self._print_transcript_to_console(final_text)
                 self._remember_recent_context(final_text)
+                typing_config = self.config.get("typing", {})
                 paste_text(
                     final_text,
-                    paste_delay_ms=self.config["typing"].get("paste_delay_ms", 120),
+                    paste_delay_ms=typing_config.get("paste_delay_ms", 120),
                     target_hwnd=self.target_hwnd,
+                    paste_method=typing_config.get("paste_method", "ctrl_v"),
                 )
                 self._record_usage_stats(final_text)
         except Exception as exc:
@@ -287,10 +282,10 @@ class VoiceInputApp:
         if not final_text:
             return ""
 
-        if self._should_run_llm_post_edit(self.config):
-            min_chars = int(self.config.get("llm_post_edit", {}).get("min_chars", 100) or 0)
-            if len(final_text.strip()) >= min_chars:
-                self.bridge.update_text.emit("识别完成，正在调用大模型润色...")
+        llm_settings = self.config.get("llm_post_edit", {})
+        min_chars = int(llm_settings.get("min_chars", 100) or 0)
+        if llm_settings.get("enabled", False) and len(final_text.strip()) >= min_chars:
+            self.bridge.update_text.emit("识别完成，正在调用大模型润色...")
 
         hotwords = list(self.config.get("context", {}).get("hotwords", []))
         context_config = self.config.get("context", {})

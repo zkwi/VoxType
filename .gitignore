@@ -32,9 +32,9 @@ logs/
 Thumbs.db
 Desktop.ini
 
-config.json
-config.local.json
-config.*.local.json
+config.toml
+config.local.toml
+config.*.local.toml
 .env
 .env.*
 !.env.example

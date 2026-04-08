@@ -28,7 +28,7 @@ class DoubaoAsrClient:
     def _build_context_payload(self) -> str | None:
         context_config = self.config.get("context", {})
         hotwords = [word for word in context_config.get("hotwords", []) if str(word).strip()]
-        prompt_context = context_config.get("prompt_context") or context_config.get("dialog_context") or []
+        prompt_context = context_config.get("prompt_context") or []
         recent_context = context_config.get("recent_context") or []
         image_url = context_config.get("image_url")
 
@@ -77,10 +77,15 @@ class DoubaoAsrClient:
             "show_utterances": request_config.get("show_utterances", True),
             "result_type": request_config.get("result_type", "full"),
         }
-        self._set_optional_request_value(request_payload, request_config, "enable_accelerate_text")
-        self._set_optional_request_value(request_payload, request_config, "accelerate_score")
-        self._set_optional_request_value(request_payload, request_config, "end_window_size")
-        self._set_optional_request_value(request_payload, request_config, "force_to_speech_time")
+        for key in [
+            "enable_accelerate_text",
+            "accelerate_score",
+            "end_window_size",
+            "force_to_speech_time",
+        ]:
+            value = request_config.get(key)
+            if value is not None:
+                request_payload[key] = value
         if context_payload:
             request_payload["corpus"] = {"context": context_payload}
 
@@ -104,16 +109,6 @@ class DoubaoAsrClient:
             "X-Api-Resource-Id": auth.get("resource_id", "volc.seedasr.sauc.duration"),
             "X-Api-Connect-Id": str(uuid.uuid4()),
         }
-
-    @staticmethod
-    def _set_optional_request_value(
-        payload: dict[str, Any],
-        request_config: dict[str, Any],
-        key: str,
-    ) -> None:
-        value = request_config.get(key)
-        if value is not None:
-            payload[key] = value
 
     @staticmethod
     def _extract_display_text(payload_msg: dict[str, Any] | None) -> str:
@@ -196,11 +191,10 @@ class DoubaoAsrClient:
 
                 async def sender() -> None:
                     """持续读取麦克风音频块并发送到 WebSocket。"""
-                    loop = asyncio.get_running_loop()
                     while True:
                         if stop_event and stop_event.is_set():
                             break
-                        chunk = await loop.run_in_executor(None, next_or_none, audio_chunks)
+                        chunk = await asyncio.to_thread(next, audio_chunks, None)
                         if chunk is None:
                             break
                         await ws.send_bytes(build_audio_request(self.seq, chunk, is_last=False))
@@ -262,10 +256,3 @@ class DoubaoAsrClient:
             return self._post_process_final_text(definitive_text)
         logger.warning("未提取到二遍 definite 结果，本次不输出最终文本")
         return ""
-
-
-def next_or_none(iterator):
-    try:
-        return next(iterator)
-    except StopIteration:
-        return None
