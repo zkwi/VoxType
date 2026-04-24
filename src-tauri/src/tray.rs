@@ -1,15 +1,13 @@
 use crate::session::SessionController;
 use crate::{app_log, config};
-use std::{thread, time::Duration};
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Manager};
 use tauri_plugin_opener::OpenerExt;
 
 const OPEN_CONFIG_ID: &str = "open_config";
 const OPEN_SETUP_GUIDE_ID: &str = "open_setup_guide";
 const EXIT_ID: &str = "exit";
-const STARTUP_TOAST_LABEL: &str = "startup-toast";
 
 pub fn setup_tray(app: &AppHandle) -> Result<(), String> {
     let open_config = MenuItem::with_id(app, OPEN_CONFIG_ID, "打开配置文件", true, None::<&str>)
@@ -62,7 +60,7 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-pub fn show_startup_message(app: &AppHandle) {
+pub fn show_startup_message() {
     let Ok(loaded) = config::load_config() else {
         return;
     };
@@ -74,11 +72,6 @@ pub fn show_startup_message(app: &AppHandle) {
         "声写已启动，按 {} / 右Alt / 鼠标中键 开始/停止语音输入",
         loaded.data.hotkey.to_uppercase()
     ));
-    show_startup_toast(
-        app,
-        &loaded.data.hotkey,
-        loaded.data.tray.startup_message_timeout_ms,
-    );
 }
 
 fn open_config_file(app: &AppHandle) {
@@ -115,63 +108,4 @@ fn show_main_window(app: &AppHandle) {
     if let Err(err) = window.set_focus() {
         app_log::warn(format!("聚焦主窗口失败: {}", err));
     }
-}
-
-fn show_startup_toast(app: &AppHandle, hotkey: &str, timeout_ms: u64) {
-    if let Some(window) = app.get_webview_window(STARTUP_TOAST_LABEL) {
-        let _ = window.close();
-    }
-
-    let url = format!("/?toast=1&hotkey={}", encode_query_component(hotkey));
-    let window =
-        match WebviewWindowBuilder::new(app, STARTUP_TOAST_LABEL, WebviewUrl::App(url.into()))
-            .title("ASR Startup")
-            .inner_size(342.0, 70.0)
-            .resizable(false)
-            .decorations(false)
-            .always_on_top(true)
-            .skip_taskbar(true)
-            .transparent(true)
-            .visible(false)
-            .build()
-        {
-            Ok(window) => window,
-            Err(err) => {
-                app_log::warn(format!("创建启动提示窗口失败: {}", err));
-                return;
-            }
-        };
-
-    let width = 342;
-    let height = 70;
-    let _ = window.set_size(PhysicalSize::new(width, height));
-    if let Ok(Some(monitor)) = window.primary_monitor() {
-        let position = monitor.position();
-        let size = monitor.size();
-        let x = position.x + size.width.saturating_sub(width + 22) as i32;
-        let y = position.y + size.height.saturating_sub(height + 48) as i32;
-        let _ = window.set_position(PhysicalPosition::new(x, y));
-    }
-    let _ = window.show();
-
-    let app = app.clone();
-    let timeout_ms = timeout_ms.max(1000);
-    thread::spawn(move || {
-        thread::sleep(Duration::from_millis(timeout_ms));
-        if let Some(window) = app.get_webview_window(STARTUP_TOAST_LABEL) {
-            let _ = window.close();
-        }
-    });
-}
-
-fn encode_query_component(value: &str) -> String {
-    value
-        .bytes()
-        .flat_map(|byte| match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                vec![byte as char]
-            }
-            other => format!("%{other:02X}").chars().collect(),
-        })
-        .collect()
 }

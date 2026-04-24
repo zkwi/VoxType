@@ -11,10 +11,13 @@ pub fn open(app: &AppHandle) -> Result<(), String> {
 }
 
 pub fn open_if_config_missing(app: &AppHandle) {
+    app_log::info("配置文件检查开始。");
     let Ok(loaded) = config::load_config() else {
+        app_log::warn("读取配置文件失败，跳过自动打开配置指南。");
         return;
     };
     if loaded.exists {
+        app_log::info(format!("配置文件已存在: {}", loaded.path));
         return;
     }
 

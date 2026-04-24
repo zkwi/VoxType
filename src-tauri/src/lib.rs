@@ -107,6 +107,25 @@ fn toggle_recording(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    std::panic::set_hook(Box::new(|panic_info| {
+        let location = panic_info
+            .location()
+            .map(|loc| format!("{}:{}", loc.file(), loc.line()))
+            .unwrap_or_else(|| "unknown location".to_string());
+        let payload = panic_info
+            .payload()
+            .downcast_ref::<&str>()
+            .map(|value| (*value).to_string())
+            .or_else(|| {
+                panic_info
+                    .payload()
+                    .downcast_ref::<String>()
+                    .map(|value| value.to_string())
+            })
+            .unwrap_or_else(|| "unknown panic payload".to_string());
+        app_log::warn(format!("panic at {}: {}", location, payload));
+    }));
+
     if let Err(err) = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             app_log::info("检测到重复启动，已唤起现有主窗口。");
@@ -138,14 +157,25 @@ pub fn run() {
                 "VoxType Tauri client started. version={}",
                 env!("CARGO_PKG_VERSION")
             ));
+            app_log::info("startup stage: create overlay begin");
             let _ = overlay::create_overlay_window(app.handle());
+            app_log::info("startup stage: create overlay done");
+            app_log::info("startup stage: setup tray begin");
             if let Err(err) = tray::setup_tray(app.handle()) {
                 app_log::warn(err);
             }
-            tray::show_startup_message(app.handle());
+            app_log::info("startup stage: setup tray done");
+            app_log::info("startup stage: startup message begin");
+            tray::show_startup_message();
+            app_log::info("startup stage: startup message done");
+            app_log::info("startup stage: setup guide check begin");
             setup_guide::open_if_config_missing(app.handle());
+            app_log::info("startup stage: setup guide check done");
+            app_log::info("startup stage: global hotkey thread start");
             hotkey::start_global_hotkey_thread(app.handle().clone());
+            app_log::info("startup stage: input hook thread start");
             hotkey::start_input_hook_thread(app.handle().clone());
+            app_log::info("startup stage: setup complete");
             Ok(())
         })
         .on_window_event(|window, event| {
