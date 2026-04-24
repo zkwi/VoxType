@@ -36,14 +36,37 @@ fn get_app_snapshot() -> Result<AppSnapshot, String> {
 
 #[tauri::command]
 fn load_app_config() -> Result<LoadedConfig, String> {
-    config::load_config()
+    match config::load_config() {
+        Ok(loaded) => {
+            app_log::info(format!("配置加载完成: exists={}", loaded.exists));
+            Ok(loaded)
+        }
+        Err(err) => {
+            app_log::warn(format!("配置加载失败: {}", err));
+            Err(err)
+        }
+    }
 }
 
 #[tauri::command]
 fn save_app_config(config: AppConfig) -> Result<LoadedConfig, String> {
-    let loaded = config::save_config(config)?;
-    hotkey::refresh_trigger_config_from(&loaded.data.triggers);
-    Ok(loaded)
+    match config::save_config(config) {
+        Ok(loaded) => {
+            hotkey::refresh_trigger_config_from(&loaded.data.triggers);
+            app_log::info(format!(
+                "配置保存完成: hotkey_enabled={}, middle_mouse_enabled={}, right_alt_enabled={}, llm_enabled={}",
+                loaded.data.triggers.hotkey_enabled,
+                loaded.data.triggers.middle_mouse_enabled,
+                loaded.data.triggers.right_alt_enabled,
+                loaded.data.llm_post_edit.enabled
+            ));
+            Ok(loaded)
+        }
+        Err(err) => {
+            app_log::warn(format!("配置保存失败: {}", err));
+            Err(err)
+        }
+    }
 }
 
 #[tauri::command]

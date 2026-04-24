@@ -1680,8 +1680,8 @@
             </div>
             <div class="form-grid">
               <label><span>{t("resourceId")}</span><input bind:value={config.auth.resource_id} /></label>
-              <label><span>{t("appKey")}</span><input bind:value={config.auth.app_key} /></label>
-              <label><span>{t("accessKey")}</span><input bind:value={config.auth.access_key} /></label>
+              <label><span>{t("appKey")}</span><input autocomplete="off" bind:value={config.auth.app_key} /></label>
+              <label><span>{t("accessKey")}</span><input type="password" autocomplete="off" bind:value={config.auth.access_key} /></label>
             </div>
           </div>
 
@@ -1751,7 +1751,7 @@
               <label><span>{t("timeout")}</span><input type="number" bind:value={config.llm_post_edit.timeout_seconds} /></label>
               <label><span>Base URL</span><input bind:value={config.llm_post_edit.base_url} /></label>
               <label><span>{t("model")}</span><input bind:value={config.llm_post_edit.model} /></label>
-              <label><span>API Key</span><input bind:value={config.llm_post_edit.api_key} /></label>
+              <label><span>API Key</span><input type="password" autocomplete="off" bind:value={config.llm_post_edit.api_key} /></label>
             </div>
             <label><span>{t("systemPrompt")}</span><textarea bind:value={config.llm_post_edit.system_prompt}></textarea></label>
             <label><span>{t("userPromptTemplate")}</span><textarea bind:value={config.llm_post_edit.user_prompt_template}></textarea></label>
@@ -2080,6 +2080,7 @@
     align-items: center;
     gap: 10px;
     min-width: 0;
+    overflow: hidden;
     color: var(--text-main);
     font-size: 15px;
     font-weight: 400;
@@ -2087,8 +2088,20 @@
   }
 
   .window-title strong {
+    min-width: 0;
+    overflow: hidden;
     font-size: 16px;
     font-weight: 700;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .window-title > span:last-child {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--text-secondary);
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .window-title-mark {
@@ -2146,6 +2159,7 @@
   .window-controls .tray-action {
     display: inline-flex;
     width: auto;
+    max-width: 170px;
     gap: 9px;
     padding: 0 12px;
     color: var(--text-secondary);
@@ -2153,6 +2167,13 @@
     border-color: var(--border);
     font-size: 14px;
     font-weight: 500;
+  }
+
+  .window-controls .tray-action span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .window-controls button.close:hover {
@@ -2212,6 +2233,13 @@
     font-size: 15px;
     font-weight: 500;
     transition: all 160ms ease;
+  }
+
+  nav button span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .ui-compact nav button {
@@ -2395,6 +2423,16 @@
     background: var(--bg-page);
   }
 
+  .content::-webkit-scrollbar {
+    width: 10px;
+  }
+
+  .content::-webkit-scrollbar-thumb {
+    background: #cbd8e7;
+    border: 3px solid var(--bg-page);
+    border-radius: 999px;
+  }
+
   .content > section,
   .content > header {
     width: min(100%, 1120px);
@@ -2529,13 +2567,17 @@
 
   .voice-hero::after {
     position: absolute;
-    right: -82px;
-    bottom: -122px;
-    width: 240px;
-    height: 240px;
+    inset: 0;
     content: "";
-    background: rgba(255, 255, 255, 0.08);
-    border-radius: 999px;
+    background: linear-gradient(
+      118deg,
+      transparent 0%,
+      transparent 62%,
+      rgba(255, 255, 255, 0.12) 62%,
+      rgba(255, 255, 255, 0.06) 74%,
+      transparent 74%
+    );
+    pointer-events: none;
   }
 
   .mic-orb {
@@ -2600,6 +2642,12 @@
     font-weight: 800;
   }
 
+  .hero-status strong {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    line-height: 1.18;
+  }
+
   .ui-compact .hero-status {
     gap: 10px;
     margin-bottom: 5px;
@@ -2637,6 +2685,7 @@
     font-size: 19px;
     font-weight: 700;
     line-height: 1.25;
+    overflow-wrap: anywhere;
   }
 
   .ui-compact .voice-copy h4 {
@@ -2649,6 +2698,7 @@
     color: rgba(255, 255, 255, 0.86);
     font-size: 14px;
     line-height: 1.35;
+    overflow-wrap: anywhere;
   }
 
   .ui-compact .voice-copy p {
@@ -2672,7 +2722,14 @@
     font-size: 13px;
     font-weight: 600;
     max-width: 138px;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .shortcut-help :global(svg) {
+    flex: 0 0 auto;
   }
 
   .ui-compact .shortcut-help {
@@ -2750,6 +2807,10 @@
     border-radius: var(--radius-md);
     cursor: pointer;
     transition: all 160ms ease;
+  }
+
+  .trigger-item > div {
+    min-width: 0;
   }
 
   .trigger-item:hover {
@@ -2968,6 +3029,11 @@
     color: var(--text-secondary);
     font-size: 12px;
     line-height: 1.35;
+    overflow-wrap: anywhere;
+  }
+
+  .usage-tip :global(svg) {
+    flex: 0 0 auto;
   }
 
   .ui-compact .usage-tip {
@@ -3006,6 +3072,8 @@
   }
 
   .form-panel {
+    display: grid;
+    gap: 14px;
     padding: 18px;
     border-radius: 18px;
     box-shadow: none;
@@ -3028,7 +3096,6 @@
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 10px;
-    margin-top: 14px;
   }
 
   .check {
@@ -3037,6 +3104,9 @@
     align-items: center;
     gap: 10px;
     min-height: 38px;
+    min-width: 0;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
   }
 
   .check input {
@@ -3048,7 +3118,6 @@
   .section-heading {
     display: grid;
     gap: 4px;
-    margin-bottom: 14px;
   }
 
   .section-heading h3 {
@@ -3077,6 +3146,12 @@
     border-radius: 10px;
   }
 
+  select,
+  input {
+    min-width: 0;
+    text-overflow: ellipsis;
+  }
+
   textarea {
     min-height: 84px;
     padding: 10px 12px;
@@ -3093,6 +3168,7 @@
 
   .form-actions {
     display: flex;
+    flex-wrap: wrap;
     gap: 12px;
     grid-column: 1 / -1;
     justify-content: flex-end;
@@ -3116,6 +3192,7 @@
 
   .setup-alert {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
     gap: 16px;
@@ -3138,6 +3215,7 @@
 
   .setup-actions {
     display: flex;
+    flex-wrap: wrap;
     gap: 10px;
     flex: 0 0 auto;
   }
@@ -3182,7 +3260,7 @@
     font-size: 20px;
     font-weight: 800;
     line-height: 1.2;
-    white-space: nowrap;
+    overflow-wrap: anywhere;
   }
 
   .history-card span {
@@ -3206,6 +3284,7 @@
     display: grid;
     gap: 0;
     min-width: 0;
+    overflow: hidden;
   }
 
   .day-list-head,
@@ -3234,12 +3313,16 @@
   .day-list span {
     color: var(--text-secondary);
     font-size: 14px;
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
 
   .day-list strong {
     color: var(--text-main);
     font-size: 15px;
     font-weight: 800;
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
 
   .day-list-head span:nth-child(n + 2),

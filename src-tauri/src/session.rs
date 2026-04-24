@@ -71,6 +71,10 @@ impl SessionController {
             } else {
                 "未找到 config.toml。请先在配置页填写豆包认证信息并保存，或复制 config.example.toml 为 config.toml 后手动编辑。"
             };
+            app_log::warn(format!(
+                "录音启动被拦截: config_exists={}, auth_ready=false",
+                loaded.exists
+            ));
             let state = SessionState {
                 recording: false,
                 message: message.to_string(),
@@ -106,6 +110,12 @@ impl SessionController {
             (None, None)
         };
         let started_at = Instant::now();
+        app_log::info(format!(
+            "录音启动请求: max_seconds={}, stop_grace_ms={}, mute_system_volume={}",
+            max_seconds,
+            loaded.data.audio.stop_grace_ms,
+            loaded.data.audio.mute_system_volume_while_recording
+        ));
         if let Some(app) = app.as_ref() {
             overlay::show_for_recording(app, &loaded.data.ui);
             let starting = SessionState {

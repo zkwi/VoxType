@@ -1,4 +1,4 @@
-use crate::config::TypingConfig;
+use crate::{app_log, config::TypingConfig};
 use std::mem::size_of;
 use std::thread;
 use std::time::Duration;
@@ -19,15 +19,28 @@ pub fn output_text(text: &str, typing: &TypingConfig) -> Result<(), String> {
     if text.trim().is_empty() {
         return Ok(());
     }
+    app_log::info(format!(
+        "准备输出文本: chars={}, method={}",
+        text.chars().count(),
+        typing.paste_method
+    ));
     write_clipboard_text(text)?;
     if typing.paste_method == "clipboard_only" {
+        app_log::info("文本已写入剪贴板: method=clipboard_only");
         return Ok(());
     }
     thread::sleep(Duration::from_millis(typing.paste_delay_ms));
-    match typing.paste_method.as_str() {
+    let result = match typing.paste_method.as_str() {
         "shift_insert" => send_shortcut(VK_SHIFT, VK_INSERT, true),
         _ => send_shortcut(VK_CONTROL, VK_V, false),
+    };
+    if result.is_ok() {
+        app_log::info(format!(
+            "粘贴快捷键已发送: method={}, delay_ms={}",
+            typing.paste_method, typing.paste_delay_ms
+        ));
     }
+    result
 }
 
 fn write_clipboard_text(text: &str) -> Result<(), String> {

@@ -1,16 +1,25 @@
-use crate::config::AppConfig;
+use crate::{app_log, config::AppConfig};
 use serde_json::{json, Value};
 use std::time::Duration;
 
 pub async fn polish(config: &AppConfig, text: &str) -> String {
     let settings = &config.llm_post_edit;
-    if !settings.enabled || text.trim().chars().count() < settings.min_chars {
+    if !settings.enabled {
+        return text.to_string();
+    }
+    let input_chars = text.trim().chars().count();
+    if input_chars < settings.min_chars {
+        app_log::info(format!(
+            "LLM polish skipped: chars={} min_chars={}",
+            input_chars, settings.min_chars
+        ));
         return text.to_string();
     }
     let api_key = settings.api_key.trim();
     let base_url = settings.base_url.trim().trim_end_matches('/');
     let model = settings.model.trim();
     if api_key.is_empty() || base_url.is_empty() || model.is_empty() {
+        app_log::warn("LLM polish skipped: base_url/api_key/model is not fully configured");
         return text.to_string();
     }
 
@@ -45,9 +54,27 @@ pub async fn polish(config: &AppConfig, text: &str) -> String {
         }
     }
 
+    app_log::info(format!(
+        "LLM polish started: model={}, chars={}",
+        model, input_chars
+    ));
     match call_openai_compatible(config, base_url, api_key, model, &user_prompt).await {
-        Ok(polished) if !polished.trim().is_empty() => polished.trim().to_string(),
-        _ => text.to_string(),
+        Ok(polished) if !polished.trim().is_empty() => {
+            let polished = polished.trim().to_string();
+            app_log::info(format!(
+                "LLM polish finished: output_chars={}",
+                polished.chars().count()
+            ));
+            polished
+        }
+        Ok(_) => {
+            app_log::warn("LLM polish returned empty content, original text kept");
+            text.to_string()
+        }
+        Err(err) => {
+            app_log::warn(format!("LLM polish failed, original text kept: {}", err));
+            text.to_string()
+        }
     }
 }
 
