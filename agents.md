@@ -169,9 +169,9 @@ npm run scan:secrets
 npx tauri build
 ```
 
-`src-tauri/tauri.conf.json` 的 `bundle.windows.webviewInstallMode` 应保持 `embedBootstrapper`，让 NSIS 安装包在干净 Windows 电脑缺少 WebView2 Runtime 时自动安装运行时。绿色版 ZIP 不负责安装系统运行时，发布说明需提醒用户干净电脑优先使用安装包。
+`src-tauri/tauri.conf.json` 的 `bundle.windows.webviewInstallMode` 应保持 `embedBootstrapper`，让 NSIS 安装包在干净 Windows 电脑缺少 WebView2 Runtime 时自动安装运行时。项目不再发布绿色版 ZIP，发布流程只保留安装包。
 
-5. 整理发布产物，安装包取 NSIS 产物，绿色版 ZIP 只打包正式 exe、`config.example.toml`、`README.md` 和 `LICENSE`（如存在），禁止包含：
+5. 整理发布产物，只保留 NSIS 安装包。禁止把以下本地文件放入 Release 资产：
 
 - `config.toml`
 - `*.local.toml`
@@ -191,11 +191,10 @@ git push origin vX.Y.Z
 
 如果当前已经在 `main`，不需要额外合并。若在功能分支，先完成检查和提交，再切回 `main` 并使用用户要求的策略合并或覆盖。
 
-7. 创建 GitHub Release 并上传资产。优先使用 `gh`；若没有安装，则使用 GitHub REST API。资产命名：
+7. 创建 GitHub Release 并上传资产。优先使用 `gh`；若没有安装，则使用 GitHub REST API。只上传安装包，资产命名：
 
 ```text
 VoxType-vX.Y.Z-windows-x64-setup.exe
-VoxType-vX.Y.Z-windows-x64-portable.zip
 ```
 
 Release 说明应简洁列出主要变化和配置提醒，不写任何本地路径、密钥或个人配置。

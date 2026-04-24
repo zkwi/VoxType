@@ -40,9 +40,9 @@
 
 仅面向 Windows 10/11。
 
-普通用户建议下载并运行 `VoxType-*-setup.exe` 安装包。安装包会内置 Microsoft Edge WebView2 Bootstrapper，在系统缺少 WebView2 Runtime 时自动安装运行时。
+普通用户请下载并运行 `VoxType-*-setup.exe` 安装包。安装包会内置 Microsoft Edge WebView2 Bootstrapper，在系统缺少 WebView2 Runtime 时自动安装运行时。
 
-绿色版 ZIP 不会修改系统环境。如果在干净电脑上直接运行绿色版提示缺少 WebView2 Runtime，请改用安装包，或先手动安装 Microsoft Edge WebView2 Runtime。
+项目不再发布绿色版 ZIP。绿色版不会安装系统运行时，容易在干净电脑上出现缺少 WebView2 Runtime 的问题。
 
 运行时还需要 Windows 允许桌面应用访问麦克风。若录音失败，请在“设置 → 隐私和安全性 → 麦克风”中开启麦克风访问权限。
 

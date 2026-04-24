@@ -12,9 +12,9 @@
 
 ## 2. 干净电脑运行环境
 
-推荐在新电脑上使用 `VoxType-*-setup.exe` 安装包。安装包会内置 Microsoft Edge WebView2 Bootstrapper，如果系统缺少 WebView2 Runtime，会在安装时自动安装。
+请在新电脑上使用 `VoxType-*-setup.exe` 安装包。安装包会内置 Microsoft Edge WebView2 Bootstrapper，如果系统缺少 WebView2 Runtime，会在安装时自动安装。
 
-绿色版 ZIP 不会修改系统环境。如果直接运行绿色版时提示缺少 WebView2 Runtime，请改用安装包，或先手动安装 Microsoft Edge WebView2 Runtime。
+项目不再发布绿色版 ZIP。绿色版不会安装系统运行时，容易在干净电脑上出现缺少 WebView2 Runtime 的问题。
 
 声写还需要麦克风权限。如果录音失败，请在 Windows “设置 → 隐私和安全性 → 麦克风”中开启麦克风访问权限，并允许桌面应用访问麦克风。
 
