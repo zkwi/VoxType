@@ -12,11 +12,17 @@
 
 ## 2. 填写豆包 ASR 信息
 
+ASR_IME 使用豆包流式语音识别服务。请先打开豆包官方文档查看接入说明，并在火山引擎控制台获取对应的认证信息：
+
+https://www.volcengine.com/docs/6561/1354869?lang=zh
+
 在配置页的认证区域填写：
 
 - `App Key`
 - `Access Key`
 - `Resource ID`
+
+其中 `App Key` 和 `Access Key` 需要按豆包文档和控制台实际信息填写。没有这两个值时，程序可以启动，但无法开始语音识别。
 
 `Resource ID` 默认使用 `volc.seedasr.sauc.duration`，通常不需要修改。
 
