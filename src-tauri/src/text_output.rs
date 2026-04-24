@@ -8,11 +8,12 @@ use windows::Win32::System::DataExchange::{
 };
 use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, VIRTUAL_KEY,
-    VK_CONTROL, VK_INSERT, VK_SHIFT, VK_V,
+    keybd_event, MapVirtualKeyW, KEYBD_EVENT_FLAGS, KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP,
+    MAPVK_VK_TO_VSC, VIRTUAL_KEY, VK_CONTROL, VK_INSERT, VK_SHIFT, VK_V,
 };
 
 const CF_UNICODETEXT: u32 = 13;
+const KEY_INTERVAL: Duration = Duration::from_millis(10);
 
 pub fn output_text(text: &str, typing: &TypingConfig) -> Result<(), String> {
     if text.trim().is_empty() {
@@ -24,8 +25,8 @@ pub fn output_text(text: &str, typing: &TypingConfig) -> Result<(), String> {
     }
     thread::sleep(Duration::from_millis(typing.paste_delay_ms));
     match typing.paste_method.as_str() {
-        "shift_insert" => send_shortcut(VK_SHIFT, VK_INSERT),
-        _ => send_shortcut(VK_CONTROL, VK_V),
+        "shift_insert" => send_shortcut(VK_SHIFT, VK_INSERT, true),
+        _ => send_shortcut(VK_CONTROL, VK_V, false),
     }
 }
 
@@ -55,36 +56,31 @@ fn write_clipboard_text(text: &str) -> Result<(), String> {
     }
 }
 
-fn send_shortcut(modifier: VIRTUAL_KEY, key: VIRTUAL_KEY) -> Result<(), String> {
-    let inputs = [
-        key_input(modifier, false),
-        key_input(key, false),
-        key_input(key, true),
-        key_input(modifier, true),
-    ];
-    let sent = unsafe { SendInput(&inputs, size_of::<INPUT>() as i32) };
-    if sent == inputs.len() as u32 {
-        Ok(())
-    } else {
-        Err("模拟粘贴快捷键失败".to_string())
-    }
+fn send_shortcut(
+    modifier: VIRTUAL_KEY,
+    key: VIRTUAL_KEY,
+    key_extended: bool,
+) -> Result<(), String> {
+    send_key_event(modifier, false, false);
+    thread::sleep(KEY_INTERVAL);
+    send_key_event(key, false, key_extended);
+    thread::sleep(KEY_INTERVAL);
+    send_key_event(key, true, key_extended);
+    thread::sleep(KEY_INTERVAL);
+    send_key_event(modifier, true, false);
+    Ok(())
 }
 
-fn key_input(key: VIRTUAL_KEY, key_up: bool) -> INPUT {
-    INPUT {
-        r#type: INPUT_KEYBOARD,
-        Anonymous: INPUT_0 {
-            ki: KEYBDINPUT {
-                wVk: key,
-                wScan: 0,
-                dwFlags: if key_up {
-                    KEYEVENTF_KEYUP
-                } else {
-                    Default::default()
-                },
-                time: 0,
-                dwExtraInfo: 0,
-            },
-        },
+fn send_key_event(key: VIRTUAL_KEY, key_up: bool, extended: bool) {
+    let scan_code = unsafe { MapVirtualKeyW(key.0 as u32, MAPVK_VK_TO_VSC) as u8 };
+    let mut flags = KEYBD_EVENT_FLAGS(0);
+    if extended {
+        flags |= KEYEVENTF_EXTENDEDKEY;
+    }
+    if key_up {
+        flags |= KEYEVENTF_KEYUP;
+    }
+    unsafe {
+        keybd_event(key.0 as u8, scan_code, flags, 0);
     }
 }
