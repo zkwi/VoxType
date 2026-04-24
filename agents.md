@@ -171,6 +171,8 @@ npx tauri build
 
 `src-tauri/tauri.conf.json` 的 `bundle.windows.webviewInstallMode` 应保持 `embedBootstrapper`，让 NSIS 安装包在干净 Windows 电脑缺少 WebView2 Runtime 时自动安装运行时。项目不再发布绿色版 ZIP，发布流程只保留安装包。
 
+`bundle.targets` 应保持 `["nsis"]`。`bundle.windows.nsis.languages` 应包含 `SimpChinese`、`TradChinese`、`English`，且 `displayLanguageSelector` 保持 `false`，让安装包自动按 Windows 系统语言选择安装器语言。
+
 5. 整理发布产物，只保留 NSIS 安装包。禁止把以下本地文件放入 Release 资产：
 
 - `config.toml`

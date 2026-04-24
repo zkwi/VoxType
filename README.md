@@ -121,6 +121,8 @@ npx tauri build
 
 NSIS 安装包会嵌入 WebView2 Bootstrapper。首次安装到缺少 WebView2 Runtime 的干净电脑时，安装程序会联网安装该运行时。
 
+安装包内置简体中文、繁体中文和英语。安装时默认根据 Windows 系统语言自动选择安装器语言；不额外弹出语言选择窗口。
+
 正式可执行文件通常位于：
 
 ```text

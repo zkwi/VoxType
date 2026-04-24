@@ -27,10 +27,15 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["nsis"],
     "windows": {
       "webviewInstallMode": {
         "type": "embedBootstrapper"
+      },
+      "nsis": {
+        "languages": ["SimpChinese", "TradChinese", "English"],
+        "displayLanguageSelector": false,
+        "installMode": "currentUser"
       }
     },
     "icon": [
