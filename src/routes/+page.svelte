@@ -569,6 +569,19 @@
   let overlaySmallLayoutLocked = false;
 
   onMount(() => {
+    const logFrontendError = (message: string) => {
+      void invoke("log_frontend_error", { message }).catch(() => undefined);
+    };
+    const onError = (event: ErrorEvent) => {
+      logFrontendError(`${event.message} (${event.filename}:${event.lineno}:${event.colno})`);
+    };
+    const onUnhandledRejection = (event: PromiseRejectionEvent) => {
+      const reason = event.reason instanceof Error ? event.reason.stack || event.reason.message : String(event.reason);
+      logFrontendError(`unhandled rejection: ${reason}`);
+    };
+    window.addEventListener("error", onError);
+    window.addEventListener("unhandledrejection", onUnhandledRejection);
+
     const params = new URLSearchParams(window.location.search);
     isOverlay = params.has("overlay");
     isToast = params.has("toast");
@@ -619,6 +632,8 @@
       if (overlayPoll !== undefined) window.clearInterval(overlayPoll);
       stopOverlayScroll();
       window.removeEventListener("resize", refreshOverlayLayout);
+      window.removeEventListener("error", onError);
+      window.removeEventListener("unhandledrejection", onUnhandledRejection);
       void Promise.all([unlistenSession, unlistenAsr, unlistenPartial, unlistenOverlay, unlistenStats]).then((disposers) => {
         for (const dispose of disposers) dispose();
       });
