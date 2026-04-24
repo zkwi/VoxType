@@ -1,8 +1,0 @@
-PyQt6>=6.7
-aiohttp>=3.11
-sounddevice>=0.5
-pyperclip>=1.9
-pycaw>=20240210
-comtypes>=1.4
-pynput>=1.7
-openai>=1.76

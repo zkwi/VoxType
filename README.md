@@ -1,193 +1,195 @@
-# ASR_IME - 流式语音输入法
+# ASR_IME
 
-Windows 桌面语音输入工具，按下热键即可语音输入到任意应用的输入框。
+ASR_IME 是一个 Windows 桌面语音输入工具。把光标放到任意输入框后，按下全局热键、右 Alt 或鼠标中键开始说话，程序会录制麦克风音频，通过豆包流式 ASR WebSocket 识别语音，并将最终文本写入剪贴板后粘贴到当前输入位置。
 
-**核心特性：**
+当前代码已迁移为根目录 Tauri 项目：Rust 负责全局热键、输入钩子、音频采集、ASR 会话、剪贴板、系统托盘、悬浮字幕窗和系统音量；Svelte 负责主窗口 GUI。
 
-- 热键触发录音（默认 `Ctrl+Q`，也支持右 Alt / 鼠标中键）
-- 流式语音识别（豆包 `bigmodel_async`），支持二遍识别
-- 支持热词直传、上下文、图片上下文
-- 桌面悬浮字幕窗，实时显示识别结果（不抢焦点）
-- 识别完成后自动复制到剪贴板并粘贴到当前输入位置
-- 可选：调用大模型（阿里云百炼）对长文本做轻度润色
+> 这是个人项目，目标是实用、轻量、易修改。请勿把真实密钥、个人热词、上下文或本地日志提交到仓库。
 
-> **声明**：这是一个个人项目，代码全部由 AI 编写，功能并不完善，可能存在 bug。仅供学习参考，请勿用于生产环境。
+## 功能
 
-## 截图
+- 全局触发：默认 `CTRL+Q`，同时支持右 Alt 和鼠标中键。
+- 麦克风采集：使用 Rust `cpal` 采集 PCM 音频，可选择输入设备。
+- 流式识别：对接豆包 `bigmodel_async` WebSocket，支持实时片段和最终结果。
+- 悬浮字幕：录音时在屏幕居下显示实时识别文本，不抢焦点。
+- 自动输入：最终文本写入剪贴板，并用 `Ctrl+V` 或 `Shift+Insert` 粘贴到当前焦点输入框。
+- 可选润色：可调用 OpenAI 兼容接口做轻度后处理。
+- 系统音量：可配置录音期间临时静音系统音量，结束后恢复。
+- 托盘常驻：关闭主窗口时隐藏到托盘，只有托盘菜单“退出”才正式退出。
+- 多语言界面：简体中文、繁体中文、英语，默认简体中文。
 
-| 正在录音 | 转写中 | 识别完成 |
-|:---:|:---:|:---:|
-| ![正在录音](screenshots/正在录音.png) | ![转写中](screenshots/转写中.png) | ![识别完成](screenshots/识别完成.png) |
+## 环境
 
-## 快速开始
+仅面向 Windows 10/11。
 
-### 1. 安装依赖
+需要安装：
 
-需要 Python 3.11+：
+- Node.js 和 npm
+- Rust 工具链
+- WebView2 Runtime，Windows 11 通常已内置
 
-```powershell
-pip install -r requirements.txt
-```
-
-### 2. 准备配置
-
-复制配置模板并填入你自己的密钥：
+如果 Rust 已安装但当前终端找不到 `cargo`，先执行：
 
 ```powershell
-cp config.example.toml config.toml
+$env:PATH="$env:USERPROFILE\.cargo\bin;$env:PATH"
 ```
 
-编辑 `config.toml`，至少填写：
+## 配置
 
-| 字段 | 说明 |
-|------|------|
-| `auth.app_key` | 豆包语音识别 App Key |
-| `auth.access_key` | 豆包语音识别 Access Key |
-| `auth.resource_id` | 资源 ID（默认值一般不用改） |
-
-可选配置：
-
-| 字段 | 说明 |
-|------|------|
-| `context.hotwords` | 热词列表，提升特定词汇识别准确率 |
-| `context.prompt_context` | 场景描述，按"从新到旧"排列，最多保留 20 条 |
-| `context.image_url` | 图片上下文（仅支持 1 张，是否有效由豆包接口校验） |
-| `llm_post_edit.enabled` | 是否启用大模型润色（默认关闭） |
-| `llm_post_edit.api_key` | 阿里云百炼 API Key（启用润色时需填写） |
-| `debug.print_transcript_to_console` | 是否在 Python 控制台打印最终转写结果，默认 `true` |
-
-程序启动时会额外输出一次使用统计，包含：
-
-- 最近 24 小时的语音输入总时长、输入文字总数、平均每分钟输入字数
-- 最近 7 日的同类统计
-
-统计数据保存在项目根目录的 `voice_input_stats.jsonl`，每次成功输出文本后追加一条记录，便于个人回看分析。当前统计从新版本开始累计，不会自动回填旧日志。
-
-> **注意**：`config.toml` 包含你的 API 密钥，已在 `.gitignore` 中，不会被提交到 Git。
-
-### 3. 运行
+复制配置模板：
 
 ```powershell
-.\run.ps1
+Copy-Item .\config.example.toml .\config.toml
 ```
 
-如果你想临时关闭 Python 控制台里的转写结果打印：
+至少填写豆包 ASR 认证信息：
+
+```toml
+[auth]
+app_key = ""
+access_key = ""
+resource_id = "volc.seedasr.sauc.duration"
+```
+
+如果启用大模型润色，还需要填写：
+
+```toml
+[llm_post_edit]
+enabled = true
+api_key = ""
+base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+model = "qwen3.5-plus"
+```
+
+`config.toml`、本地日志和统计文件已被 `.gitignore` 忽略。示例配置和文档只保留占位值，不应写入真实密钥、个人热词或自定义上下文。
+
+## 开发运行
+
+在仓库根目录执行：
 
 ```powershell
-.\run.ps1 -PrintTranscriptToConsole $false
+npm install
+npm run tauri dev
 ```
 
-### 4. 使用方式
+开发服务固定使用：
 
-1. 把光标放到目标输入框
-2. 按 `Ctrl+Q`（或右 Alt / 鼠标中键）开始说话
-3. 再按一次停止录音
-4. 程序自动将识别结果粘贴到当前输入位置
+```text
+http://127.0.0.1:18080
+```
 
-## 打包为 EXE
+没有继续使用 Tauri 模板默认的 `1420` 端口，因为部分 Windows 环境会把相邻端口段保留给系统，导致 Vite 报 `listen EACCES`。
+
+## 构建
+
+调试构建：
 
 ```powershell
-.\build_exe.ps1 [-PythonExe "你的python路径"]
+npx tauri build --debug --no-bundle
 ```
 
-产物在 `dist\voice_input\` 目录，分发时至少保留 `voice_input.exe` 和 `config.toml` 在同一目录。
-
-## 本地安全检查
-
-可以先手动扫描一次仓库里的明显密钥：
+正式构建：
 
 ```powershell
-python .\scripts\scan_secrets.py
+npx tauri build
 ```
 
-如果要在每次提交前自动检查，执行：
+正式可执行文件通常位于：
+
+```text
+src-tauri\target\release\asr-ime-desktop.exe
+```
+
+不要直接用 `cargo build --release` 作为桌面端发布产物；那样不会先构建前端资源，可能导致窗口打开后访问开发地址失败。
+
+## 使用
+
+1. 启动 `ASR_IME Desktop`。
+2. 在配置页检查 ASR 密钥、麦克风和粘贴方式。
+3. 把光标放到目标输入框。
+4. 按 `CTRL+Q`、右 Alt 或鼠标中键开始录音。
+5. 录音时查看屏幕居下悬浮字幕。
+6. 再按一次触发键停止录音。
+7. 程序等待最终识别结果，可选润色，然后自动粘贴到当前焦点输入框。
+
+托盘行为：
+
+- 双击托盘图标：打开主窗口。
+- 托盘菜单“打开主窗口”：显示并聚焦主窗口。
+- 托盘菜单“打开配置”：用系统默认编辑器打开 `config.toml`。
+- 托盘菜单“退出”：停止会话并退出程序。
+
+## 常用命令
+
+```powershell
+# 前端类型检查
+npm run check
+
+# 前端构建
+npm run build
+
+# Rust 检查
+Set-Location .\src-tauri
+cargo check
+
+# Rust 测试
+cargo test
+
+# 本地密钥扫描
+Set-Location ..
+npm run scan:secrets
+```
+
+启用 Git pre-commit 钩子：
 
 ```powershell
 .\scripts\enable_git_hooks.ps1
 ```
 
-启用后，Git 会在 `pre-commit` 阶段自动运行 `scripts/scan_secrets.py --staged`，只检查本次已暂存、准备提交的文件。像 `config.toml` 这类已被 `.gitignore` 忽略、且未加入暂存区的本地文件，不会拦截提交。
+钩子会调用 `scripts/scan-secrets.mjs` 扫描暂存文件，避免误提交本地配置、密钥、热词和上下文。
 
-## 配置说明
+## 目录
 
-### 音频设置 (`audio`)
-
-| 字段 | 默认值 | 说明 |
-|------|--------|------|
-| `sample_rate` | 16000 | 采样率 |
-| `channels` | 1 | 声道数 |
-| `segment_ms` | 200 | 每段音频时长（毫秒） |
-| `max_record_seconds` | 300 | 最长录音时间（秒），超时自动停止 |
-| `mute_system_volume_while_recording` | true | 录音时静音系统音量，结束后恢复 |
-| `input_device` | null | 麦克风设备编号，null 为系统默认 |
-
-### 识别请求 (`request`)
-
-| 字段 | 默认值 | 说明 |
-|------|--------|------|
-| `enable_nonstream` | true | 启用二遍识别（更准确） |
-| `enable_itn` | true | 逆文本正则化（数字、日期等） |
-| `enable_punc` | true | 自动标点 |
-| `enable_ddc` | true | 顺滑功能 |
-| `final_result_timeout_seconds` | 15 | 停止录音后等待最终结果的超时时间 |
-
-### 大模型润色 (`llm_post_edit`)
-
-当识别文本长度超过 `min_chars` 时，调用大模型做一次轻度润色（修正识别错误、去口头语、整理结构）。
-
-| 字段 | 默认值 | 说明 |
-|------|--------|------|
-| `enabled` | false | 是否启用 |
-| `min_chars` | 40 | 触发润色的最少字符数 |
-| `base_url` | (阿里云百炼) | OpenAI 兼容接口地址 |
-| `model` | qwen3.5-plus | 模型名称 |
-| `system_prompt` | (内置) | 系统提示词，可自定义 |
-
-### 界面设置 (`ui`)
-
-| 字段 | 默认值 | 说明 |
-|------|--------|------|
-| `width` | 460 | 悬浮窗宽度 |
-| `height` | 88 | 悬浮窗高度 |
-| `margin_bottom` | 64 | 距屏幕底部距离 |
-| `opacity` | 0.9 | 窗口不透明度 |
-
-## 项目结构
-
-```
+```text
 ASR_IME/
-├── main.py                  # 入口
-├── config.example.toml      # 配置模板
-├── requirements.txt         # Python 依赖
-├── build_exe.ps1            # PyInstaller 打包脚本
-├── voice_input/
-│   ├── app.py               # 主应用：热键注册、录音控制、会话管理
-│   ├── asr_client.py        # 豆包 ASR WebSocket 客户端
-│   ├── protocol.py          # 豆包二进制协议编解码
-│   ├── audio_capture.py     # 麦克风录音
-│   ├── stats.py             # 轻量统计记录与聚合
-│   ├── overlay.py           # 悬浮字幕窗（PyQt6）
-│   ├── text_output.py       # 剪贴板写入 + 模拟粘贴
-│   ├── llm_post_edit.py     # 大模型润色（OpenAI 兼容接口）
-│   ├── input_hooks.py       # 右 Alt / 鼠标中键的低级输入钩子
-│   ├── system_audio.py      # 系统音量控制（录音时静音）
-│   └── config.py            # 配置文件加载
-├── voice_input.log          # 运行日志
-├── voice_input_stats.jsonl  # 语音输入统计数据（本地文件，不提交）
-└── 参考文档.md               # 豆包 ASR API 参考
+├── src/                         # Svelte 主窗口界面
+├── src-tauri/                   # Tauri/Rust 桌面端
+│   ├── src/
+│   │   ├── audio.rs             # 麦克风采集
+│   │   ├── asr.rs               # ASR 请求组装与结果解析
+│   │   ├── asr_ws.rs            # 豆包 WebSocket 会话
+│   │   ├── config.rs            # TOML 配置加载
+│   │   ├── hotkey.rs            # 全局热键与输入钩子
+│   │   ├── llm_post_edit.rs     # LLM 后处理
+│   │   ├── overlay.rs           # 悬浮字幕窗
+│   │   ├── session.rs           # 录音会话状态机
+│   │   ├── stats.rs             # 使用统计
+│   │   ├── system_audio.rs      # 系统音量控制
+│   │   ├── text_output.rs       # 剪贴板与粘贴
+│   │   └── tray.rs              # 系统托盘
+│   ├── capabilities/
+│   ├── icons/
+│   └── tauri.conf.json
+├── static/                      # 静态资源
+├── docs/                        # 接口参考文档
+├── scripts/
+│   ├── enable_git_hooks.ps1
+│   └── scan-secrets.mjs
+├── config.example.toml          # 配置模板，不含真实密钥
+├── package.json
+├── svelte.config.js
+├── tsconfig.json
+└── vite.config.js
 ```
 
-## 依赖
+## 本地文件
 
-- Python 3.11+
-- PyQt6 - GUI 框架
-- aiohttp - WebSocket 通信
-- sounddevice - 麦克风录音
-- pycaw / comtypes - Windows 音量控制
-- pynput - 输入钩子
-- openai - 大模型调用（OpenAI 兼容接口）
-- pyperclip - 剪贴板操作
+以下文件只用于本机运行，不提交：
 
-## License
-
-个人项目，代码全部由 AI 编写，仅供学习参考。
+- `config.toml`
+- `*.local.toml`
+- `voice_input.log`
+- `voice_input_stats.jsonl`
+- `src-tauri/target/`
+- `node_modules/`
+- `build/`
