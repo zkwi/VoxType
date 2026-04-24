@@ -197,6 +197,7 @@
   };
   const defaultOverlayText = "正在录音...";
   const overlayLineHeight = 1.18;
+  const chineseTypingCharsPerMinute = 50;
 
   const navItems: { id: Section; icon: typeof Gauge }[] = [
     { id: "Overview", icon: Gauge },
@@ -216,7 +217,7 @@
       idle: "空闲",
       listeningPreview: "正在监听麦克风，实时字幕显示在屏幕下方。",
       pressHotkey: "按 {hotkey}、右 Alt 或鼠标中键，也可从托盘启动，向任意输入框语音输入。",
-      desktopControl: "桌面控制",
+      desktopControl: "启动方式",
       hotkey: "热键",
       recent24h: "最近 24 小时",
       sessions: "会话数",
@@ -231,7 +232,7 @@
       output: "输出方式",
       outputValue: "剪贴板 + 模拟粘贴",
       trigger: "触发方式",
-      triggerValue: "全局热键 / 右 Alt / 鼠标中键 / 托盘",
+      triggerValue: "右 Alt / 鼠标中键 / 托盘",
       configuration: "配置文件",
       resourceId: "资源 ID",
       appKey: "App Key",
@@ -292,6 +293,8 @@
       chars24h: "24 小时字数",
       chars7d: "7 日字数",
       avgCpm: "平均字/分钟",
+      weeklySavedHours: "每周节省",
+      weeklySavedHoursHint: "按中文输入约 50 字/分钟估算。",
       byDay: "按日统计",
       lastSevenDays: "最近七个自然日。",
       recentRecords: "最近记录",
@@ -317,7 +320,7 @@
       idle: "閒置",
       listeningPreview: "正在監聽麥克風，即時字幕顯示在螢幕下方。",
       pressHotkey: "按 {hotkey}、右 Alt 或滑鼠中鍵，也可從系統匣啟動，向任意輸入框語音輸入。",
-      desktopControl: "桌面控制",
+      desktopControl: "啟動方式",
       hotkey: "快捷鍵",
       recent24h: "最近 24 小時",
       sessions: "會話數",
@@ -332,7 +335,7 @@
       output: "輸出方式",
       outputValue: "剪貼簿 + 模擬貼上",
       trigger: "觸發方式",
-      triggerValue: "全域快捷鍵 / 右 Alt / 滑鼠中鍵 / 系統匣",
+      triggerValue: "右 Alt / 滑鼠中鍵 / 系統匣",
       configuration: "配置檔案",
       resourceId: "資源 ID",
       appKey: "App Key",
@@ -393,6 +396,8 @@
       chars24h: "24 小時字數",
       chars7d: "7 日字數",
       avgCpm: "平均字/分鐘",
+      weeklySavedHours: "每週節省",
+      weeklySavedHoursHint: "按中文輸入約 50 字/分鐘估算。",
       byDay: "按日統計",
       lastSevenDays: "最近七個自然日。",
       recentRecords: "最近記錄",
@@ -418,7 +423,7 @@
       idle: "Idle",
       listeningPreview: "Listening to the microphone. Live captions appear near the bottom of the screen.",
       pressHotkey: "Press {hotkey}, Right Alt, or the middle mouse button, or start from the tray.",
-      desktopControl: "Desktop control",
+      desktopControl: "Start methods",
       hotkey: "Hotkey",
       recent24h: "Recent 24h",
       sessions: "Sessions",
@@ -433,7 +438,7 @@
       output: "Output",
       outputValue: "Clipboard + simulated paste",
       trigger: "Trigger",
-      triggerValue: "Global hotkey / Right Alt / middle mouse / tray",
+      triggerValue: "Right Alt / middle mouse / tray",
       configuration: "Configuration",
       resourceId: "Resource ID",
       appKey: "App Key",
@@ -494,6 +499,8 @@
       chars24h: "24h chars",
       chars7d: "7d chars",
       avgCpm: "Avg cpm",
+      weeklySavedHours: "Weekly saved",
+      weeklySavedHoursHint: "Estimated at 50 Chinese chars/min.",
       byDay: "By day",
       lastSevenDays: "Last seven calendar days.",
       recentRecords: "Recent records",
@@ -534,7 +541,7 @@
   let toastHotkey = $state(initialParams.get("hotkey") || "Ctrl+Q");
   let overlayText = $state(defaultOverlayText);
   let overlayMode = $state<OverlayMode>("single");
-  let overlayFontSize = $state(24);
+  let overlayFontSize = $state(20);
   let overlayLineLimit = $state(1);
   let overlayDisplayLines = $state<string[]>([defaultOverlayText]);
   let overlayTextElement = $state<HTMLDivElement | null>(null);
@@ -705,7 +712,7 @@
     forceSmall: boolean,
   ): { mode: OverlayMode; fontSize: number; lineLimit: number } {
     const compactLength = Array.from(text.replace(/\s/g, "")).length;
-    const singleFont = fontForVisibleLines(1, 24, 20);
+    const singleFont = fontForVisibleLines(1, 20, 18);
     const doubleFont = fontForVisibleLines(2, 16, 14);
 
     if (!forceSmall && wrapOverlayText(text, singleFont).length <= 1 && compactLength <= 18) {
@@ -910,6 +917,17 @@
     if (seconds < 60) return `${seconds.toFixed(1)}s`;
     return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
   }
+
+  function weeklySavedHours() {
+    const typingHours = stats.recent_7d.total_chars / chineseTypingCharsPerMinute / 60;
+    const recordingHours = stats.recent_7d.total_seconds / 3600;
+    return Math.max(0, typingHours - recordingHours);
+  }
+
+  function formatHours(hours: number) {
+    if (hours < 0.05) return "0 h";
+    return `${hours.toFixed(1)} h`;
+  }
 </script>
 
 <svelte:head>
@@ -1024,16 +1042,29 @@
             <span>{t("desktopControl")}</span>
           </div>
           <dl class="control-grid">
-            <div><dt>{t("hotkey")}</dt><dd>{formatHotkey(snapshot.hotkey)}</dd></div>
-            <div><dt>{t("trigger")}</dt><dd>{t("triggerValue")}</dd></div>
+            <div class="control-inline">
+              <div>
+                <dt>{t("hotkey")}</dt>
+                <dd>{formatHotkey(snapshot.hotkey)}</dd>
+              </div>
+              <div>
+                <dt>{t("trigger")}</dt>
+                <dd>{t("triggerValue")}</dd>
+              </div>
+            </div>
           </dl>
         </section>
       </div>
 
       <section class="stats-row" aria-label="Usage summary">
         <article class="stat green"><span>{t("recent24h")}</span><strong>{stats.recent_24h.total_chars} {t("chars")}</strong></article>
-        <article class="stat blue"><span>{t("sessions")}</span><strong>{stats.recent_24h.session_count}</strong></article>
         <article class="stat amber"><span>{t("recent7d")}</span><strong>{stats.recent_7d.total_chars} {t("chars")}</strong></article>
+        <article class="stat blue"><span>{t("avgCpm")}</span><strong>{stats.recent_7d.avg_chars_per_minute.toFixed(1)}</strong></article>
+        <article class="stat blue">
+          <span>{t("weeklySavedHours")}</span>
+          <strong>{formatHours(weeklySavedHours())}</strong>
+          <small>{t("weeklySavedHoursHint")}</small>
+        </article>
       </section>
     {:else if selectedSection === "Settings"}
       <section class="page-grid">
@@ -1148,6 +1179,11 @@
             <article class="stat green"><span>{t("chars24h")}</span><strong>{stats.recent_24h.total_chars}</strong></article>
             <article class="stat blue"><span>{t("chars7d")}</span><strong>{stats.recent_7d.total_chars}</strong></article>
             <article class="stat amber"><span>{t("avgCpm")}</span><strong>{stats.recent_7d.avg_chars_per_minute.toFixed(1)}</strong></article>
+            <article class="stat blue saved-time">
+              <span>{t("weeklySavedHours")}</span>
+              <strong>{formatHours(weeklySavedHours())}</strong>
+              <small>{t("weeklySavedHoursHint")}</small>
+            </article>
           </div>
         </div>
 
@@ -1548,11 +1584,21 @@
     grid-template-columns: 1fr;
     gap: 10px;
   }
-  .control-grid div {
+  .control-grid > div {
     padding: 10px 11px;
     background: #f7fbff;
     border: 1px solid #e4eef8;
     border-radius: 10px;
+  }
+  .control-inline {
+    display: grid;
+    grid-template-columns: minmax(92px, 0.4fr) minmax(0, 1fr);
+    gap: 14px;
+    align-items: center;
+  }
+  .control-inline div + div {
+    padding-left: 14px;
+    border-left: 1px solid #dde8f3;
   }
   .form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .form-grid.compact { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
@@ -1574,10 +1620,11 @@
   input:focus, textarea:focus, select:focus, button:focus-visible { border-color: var(--blue-500); box-shadow: 0 0 0 3px rgba(47, 140, 255, 0.15); }
   .check { display: flex; align-items: center; gap: 9px; color: #344150; font-size: 0.9rem; }
   .check input { width: 38px; min-height: 22px; accent-color: var(--blue-500); }
-  .stats-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 12px 0 0; }
-  .stats-row.nested { margin: 0; }
+  .stats-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 12px 0 0; }
+  .stats-row.nested { grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 0; }
   .stat { padding: 14px 15px; }
   .stat strong { color: #17222e; font-size: 1.18rem; }
+  .stat small { display: block; margin-top: 6px; color: var(--muted); font-size: 0.72rem; line-height: 1.35; }
   .stat.green, .stat.blue, .stat.amber { border-top: 4px solid var(--blue-500); }
   .section-heading h3 { margin-bottom: 5px; color: #17222e; font-size: 1.08rem; font-weight: 600; }
   .section-heading p { margin-bottom: 14px; overflow-wrap: anywhere; color: var(--muted); font-size: 0.88rem; }
@@ -1592,6 +1639,7 @@
     .shell { grid-template-columns: 212px minmax(0, 1fr); }
     .content { padding: 18px 20px; }
     .hero-grid, .page-grid { grid-template-columns: 1fr; }
+    .stats-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .topbar { align-items: flex-start; }
     .live-panel, .control-panel, .form-panel { padding: 16px; }
   }
@@ -1614,6 +1662,7 @@
     .topbar { gap: 12px; margin-bottom: 12px; }
     h2 { font-size: 1.35rem; }
     .stats-row { grid-template-columns: 1fr; }
+    .stats-row.nested { grid-template-columns: 1fr; }
     .form-grid, .form-grid.compact, .toggle-grid { grid-template-columns: 1fr; }
   }
   @media (max-width: 520px) {
@@ -1624,5 +1673,7 @@
     .content { padding: 14px; }
     .topbar { flex-direction: column; align-items: flex-start; }
     .caption-window p { font-size: 0.94rem; }
+    .control-inline { grid-template-columns: 1fr; gap: 10px; }
+    .control-inline div + div { padding-left: 0; padding-top: 10px; border-left: 0; border-top: 1px solid #dde8f3; }
   }
 </style>
