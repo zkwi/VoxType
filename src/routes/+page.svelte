@@ -217,6 +217,11 @@
       idle: "空闲",
       listeningPreview: "正在监听麦克风，实时字幕显示在屏幕下方。",
       pressHotkey: "按 {hotkey}、右 Alt 或鼠标中键，也可从托盘启动，向任意输入框语音输入。",
+      setupRequired: "需要先完成配置",
+      setupMissingFile: "未找到配置文件。请在配置页填写认证信息并保存，或打开配置文件手动编辑。",
+      setupMissingAuth: "ASR 认证信息未填写。请在配置页填写 App Key 和 Access Key 后保存。",
+      setupCta: "去配置",
+      setupGuideCta: "查看配置指南",
       desktopControl: "启动方式",
       hotkey: "热键",
       recent24h: "最近 24 小时",
@@ -320,6 +325,11 @@
       idle: "閒置",
       listeningPreview: "正在監聽麥克風，即時字幕顯示在螢幕下方。",
       pressHotkey: "按 {hotkey}、右 Alt 或滑鼠中鍵，也可從系統匣啟動，向任意輸入框語音輸入。",
+      setupRequired: "需要先完成配置",
+      setupMissingFile: "未找到配置檔案。請在配置頁填寫認證資訊並儲存，或打開配置檔案手動編輯。",
+      setupMissingAuth: "ASR 認證資訊未填寫。請在配置頁填寫 App Key 和 Access Key 後儲存。",
+      setupCta: "去配置",
+      setupGuideCta: "查看配置指南",
       desktopControl: "啟動方式",
       hotkey: "快捷鍵",
       recent24h: "最近 24 小時",
@@ -423,6 +433,11 @@
       idle: "Idle",
       listeningPreview: "Listening to the microphone. Live captions appear near the bottom of the screen.",
       pressHotkey: "Press {hotkey}, Right Alt, or the middle mouse button, or start from the tray.",
+      setupRequired: "Setup required",
+      setupMissingFile: "No config file found. Fill credentials on the Settings page and save, or open the config file manually.",
+      setupMissingAuth: "ASR credentials are missing. Fill App Key and Access Key on the Settings page, then save.",
+      setupCta: "Open Settings",
+      setupGuideCta: "Setup Guide",
       desktopControl: "Start methods",
       hotkey: "Hotkey",
       recent24h: "Recent 24h",
@@ -534,6 +549,7 @@
   let statusMessage = $state(copy["zh-CN"].bridgeLoading);
   let selectedSection = $state<Section>("Overview");
   let saving = $state(false);
+  let configExists = $state(true);
   const initialParams = browser ? new URLSearchParams(window.location.search) : new URLSearchParams();
   let audioDevices = $state<AudioDeviceInfo[]>([]);
   let isOverlay = $state(initialParams.has("overlay"));
@@ -578,6 +594,7 @@
     const unlistenAsr = listen<AsrFinalText>("asr-final-text", (event) => {
       if (event.payload.error) {
         statusMessage = event.payload.error;
+        if (isConfigError(event.payload.error)) selectedSection = "Settings";
         return;
       }
       if (isOverlay && event.payload.text.trim()) {
@@ -822,10 +839,18 @@
     if (snapshotResult) snapshot = snapshotResult;
     if (configResult) {
       config = configResult.data;
+      configExists = configResult.exists;
+      const setupMessage = configSetupMessage(configResult);
+      if (setupMessage) {
+        statusMessage = setupMessage;
+        selectedSection = "Settings";
+      }
     }
     if (statsResult) stats = statsResult;
     if (devicesResult) audioDevices = devicesResult;
-    if (snapshotResult || configResult || statsResult) statusMessage = t("bridgeConnected");
+    if ((snapshotResult || configResult || statsResult) && !configSetupMessage(configResult)) {
+      statusMessage = t("bridgeConnected");
+    }
   }
 
   async function hydrateSession() {
@@ -835,6 +860,11 @@
 
   function applySessionState(state: SessionState) {
     recording = state.recording;
+    if (isConfigError(state.message)) {
+      statusMessage = state.message;
+      selectedSection = "Settings";
+      return;
+    }
     statusMessage = state.recording ? t("previewRecording") : t("previewStopped");
   }
 
@@ -843,6 +873,7 @@
     const result = await safeInvoke<LoadedConfig>("save_app_config", { config });
     if (result) {
       config = result.data;
+      configExists = result.exists;
       statusMessage = t("configSaved");
       await loadAll();
     }
@@ -927,6 +958,34 @@
   function formatHours(hours: number) {
     if (hours < 0.05) return "0 h";
     return `${hours.toFixed(1)} h`;
+  }
+
+  function hasAuth(configValue = config) {
+    return Boolean(configValue.auth.app_key.trim() && configValue.auth.access_key.trim());
+  }
+
+  function configSetupMessage(loaded: LoadedConfig | null) {
+    if (!loaded) return "";
+    if (!loaded.exists) return t("setupMissingFile");
+    if (!hasAuth(loaded.data)) return t("setupMissingAuth");
+    return "";
+  }
+
+  function isConfigError(message: string) {
+    return (
+      message.includes("ASR 未配置") ||
+      message.includes("config.toml") ||
+      message.includes("app_key") ||
+      message.includes("access_key")
+    );
+  }
+
+  function openSettings() {
+    selectedSection = "Settings";
+  }
+
+  async function openSetupGuide() {
+    await safeInvoke<void>("open_setup_guide");
   }
 </script>
 
@@ -1023,6 +1082,18 @@
     {#if selectedSection === "Overview"}
       <div class="hero-grid">
         <section class="live-panel">
+          {#if !configExists || !hasAuth()}
+            <div class="setup-alert">
+              <div>
+                <strong>{t("setupRequired")}</strong>
+                <p>{!configExists ? t("setupMissingFile") : t("setupMissingAuth")}</p>
+              </div>
+              <div class="setup-actions">
+                <button onclick={openSettings}>{t("setupCta")}</button>
+                <button class="secondary" onclick={openSetupGuide}>{t("setupGuideCta")}</button>
+              </div>
+            </div>
+          {/if}
           <div class="caption-window">
             <div class="caption-meta">
               <span class="dot" class:recording></span>
@@ -1071,6 +1142,10 @@
         <div class="form-panel wide">
           <div class="section-heading">
             <h3>{t("configuration")}</h3>
+            {#if !configExists || !hasAuth()}
+              <p class="setup-note">{!configExists ? t("setupMissingFile") : t("setupMissingAuth")}</p>
+              <button class="link-button" onclick={openSetupGuide}>{t("setupGuideCta")}</button>
+            {/if}
           </div>
           <div class="form-grid">
             <label><span>{t("hotkey")}</span><input value={formatHotkey(config.hotkey)} oninput={(event) => setHotkey(event.currentTarget.value)} /></label>
@@ -1574,6 +1649,53 @@
   }
   .live-panel, .control-panel, .form-panel { padding: 16px; }
   .wide { grid-column: 1 / -1; }
+  .setup-alert {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    margin-bottom: 12px;
+    padding: 12px 14px;
+    color: #17395f;
+    background: #eef7ff;
+    border: 1px solid #bfdbff;
+    border-radius: 11px;
+  }
+  .setup-alert strong { display: block; margin-bottom: 3px; color: #10253b; font-size: 0.95rem; }
+  .setup-alert p { margin-bottom: 0; color: #607487; font-size: 0.84rem; line-height: 1.45; }
+  .setup-actions { display: flex; flex: 0 0 auto; gap: 8px; }
+  .setup-actions button {
+    flex: 0 0 auto;
+    min-height: 34px;
+    padding: 0 12px;
+    color: #ffffff;
+    background: var(--blue-500);
+    border-radius: 8px;
+    font-size: 0.86rem;
+    font-weight: 700;
+  }
+  .setup-actions button.secondary {
+    color: #17436d;
+    background: #ffffff;
+    border: 1px solid #bfdbff;
+  }
+  .setup-note {
+    padding: 10px 11px;
+    color: #17436d !important;
+    background: #eef7ff;
+    border: 1px solid #bfdbff;
+    border-radius: 9px;
+  }
+  .link-button {
+    min-height: 32px;
+    padding: 0 10px;
+    color: #17436d;
+    background: #eef7ff;
+    border: 1px solid #bfdbff;
+    border-radius: 8px;
+    font-size: 0.84rem;
+    font-weight: 700;
+  }
   .caption-window { min-height: 76px; padding: 13px 15px; color: #ffffff; background: linear-gradient(135deg, var(--blue-600), #4b9cff); border: 1px solid rgba(255, 255, 255, 0.38); border-radius: 11px; }
   .caption-meta { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; color: #eaf5ff; font-size: 0.8rem; font-weight: 700; }
   .caption-window p { max-width: 680px; margin-bottom: 0; font-size: 0.92rem; line-height: 1.45; }
@@ -1673,6 +1795,9 @@
     .content { padding: 14px; }
     .topbar { flex-direction: column; align-items: flex-start; }
     .caption-window p { font-size: 0.94rem; }
+    .setup-alert { align-items: stretch; flex-direction: column; }
+    .setup-actions { flex-direction: column; }
+    .setup-actions button { width: 100%; }
     .control-inline { grid-template-columns: 1fr; gap: 10px; }
     .control-inline div + div { padding-left: 0; padding-top: 10px; border-left: 0; border-top: 1px solid #dde8f3; }
   }

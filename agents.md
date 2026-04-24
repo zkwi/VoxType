@@ -130,3 +130,70 @@ npx tauri build
 - 提交前运行 `npm run scan:secrets`。
 - 可运行 `.\scripts\enable_git_hooks.ps1` 启用 pre-commit 扫描。
 - 禁止在日志、README、示例配置、测试快照或迁移文档中写入真实密钥、个人热词、最近上下文和用户自定义提示。
+
+## 发布流程
+
+当用户要求“提交、编译、发布、合并到 main”时，默认按以下流程执行，除非用户明确要求其他版本号或分支策略。
+
+1. 确认当前分支与远端状态：
+
+```powershell
+git status --short --branch
+git fetch origin --tags
+git tag --list --sort=-v:refname
+```
+
+2. 选择新版本号。已有 `v0.1.0` 时，下一个修复版本使用 `0.1.1`。同步修改：
+
+- `package.json`
+- `package-lock.json`
+- `src-tauri/Cargo.toml`
+- `src-tauri/Cargo.lock`
+- `src-tauri/tauri.conf.json`
+
+3. 提交前检查，不允许跳过密钥扫描：
+
+```powershell
+npm run check
+Set-Location .\src-tauri
+cargo fmt --check
+cargo check
+cargo test
+Set-Location ..
+npm run scan:secrets
+```
+
+4. 正式构建。必须使用 Tauri 构建，不要单独使用 `cargo build --release` 作为发布产物：
+
+```powershell
+npx tauri build
+```
+
+5. 整理发布产物，安装包取 NSIS 产物，绿色版 ZIP 只打包正式 exe、`config.example.toml`、`README.md` 和 `LICENSE`（如存在），禁止包含：
+
+- `config.toml`
+- `*.local.toml`
+- `voice_input.log`
+- `voice_input_stats.jsonl`
+- 任意真实密钥、热词、上下文或个人配置
+
+6. 提交并推送 main：
+
+```powershell
+git add <需要提交的源码与文档>
+git commit -m "Release vX.Y.Z"
+git push origin main
+git tag vX.Y.Z
+git push origin vX.Y.Z
+```
+
+如果当前已经在 `main`，不需要额外合并。若在功能分支，先完成检查和提交，再切回 `main` 并使用用户要求的策略合并或覆盖。
+
+7. 创建 GitHub Release 并上传资产。优先使用 `gh`；若没有安装，则使用 GitHub REST API。资产命名：
+
+```text
+ASR_IME-Desktop-vX.Y.Z-windows-x64-setup.exe
+ASR_IME-Desktop-vX.Y.Z-windows-x64-portable.zip
+```
+
+Release 说明应简洁列出主要变化和配置提醒，不写任何本地路径、密钥或个人配置。

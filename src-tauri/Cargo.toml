@@ -1,6 +1,6 @@
 [package]
 name = "asr-ime-desktop"
-version = "0.1.0"
+version = "0.1.1"
 description = "Tauri prototype for ASR_IME"
 authors = ["ASR_IME contributors"]
 edition = "2021"

@@ -324,12 +324,29 @@ pub fn resolve_config_path() -> PathBuf {
             return normalize_path(candidate);
         }
     }
-    normalize_path(
-        candidates
-            .first()
-            .cloned()
-            .unwrap_or_else(|| PathBuf::from("config.toml")),
-    )
+
+    if let Ok(cwd) = std::env::current_dir() {
+        if looks_like_project_root(&cwd) {
+            return normalize_path(cwd.join("config.toml"));
+        }
+        if let Some(parent) = cwd.parent() {
+            if looks_like_project_root(parent) {
+                return normalize_path(parent.join("config.toml"));
+            }
+        }
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            for ancestor in dir.ancestors() {
+                if looks_like_project_root(ancestor) {
+                    return normalize_path(ancestor.join("config.toml"));
+                }
+            }
+            return normalize_path(dir.join("config.toml"));
+        }
+    }
+
+    normalize_path(PathBuf::from("config.toml"))
 }
 
 pub fn load_config() -> Result<LoadedConfig, String> {
@@ -402,6 +419,10 @@ fn sanitize_recent_context_text(text: &str) -> String {
 
 fn normalize_path(path: impl AsRef<Path>) -> PathBuf {
     dunce::simplified(path.as_ref()).to_path_buf()
+}
+
+fn looks_like_project_root(path: &Path) -> bool {
+    path.join("package.json").exists() && path.join("src-tauri").is_dir()
 }
 
 fn default_hotkey() -> String {

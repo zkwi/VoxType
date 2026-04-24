@@ -1,6 +1,6 @@
 {
   "name": "asr-ime-desktop",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Windows desktop speech input app built with Tauri, Rust, and Svelte",
   "type": "module",
   "scripts": {

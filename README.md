@@ -54,6 +54,8 @@ $env:PATH="$env:USERPROFILE\.cargo\bin;$env:PATH"
 
 ## 配置
 
+首次使用可以参考配置指南：[Setup Guide](https://github.com/zkwi/ASR_IME/wiki/Setup-Guide)。如果安装版启动时找不到 `config.toml`，程序会自动打开该指南，并引导进入配置页。
+
 复制配置模板：
 
 ```powershell

@@ -7,17 +7,21 @@ use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, Webv
 use tauri_plugin_opener::OpenerExt;
 
 const OPEN_CONFIG_ID: &str = "open_config";
+const OPEN_SETUP_GUIDE_ID: &str = "open_setup_guide";
 const EXIT_ID: &str = "exit";
 const STARTUP_TOAST_LABEL: &str = "startup-toast";
 
 pub fn setup_tray(app: &AppHandle) -> Result<(), String> {
     let open_config = MenuItem::with_id(app, OPEN_CONFIG_ID, "打开配置文件", true, None::<&str>)
         .map_err(|err| format!("创建托盘菜单失败: {}", err))?;
+    let open_setup_guide =
+        MenuItem::with_id(app, OPEN_SETUP_GUIDE_ID, "配置指南", true, None::<&str>)
+            .map_err(|err| format!("创建托盘菜单失败: {}", err))?;
     let separator = PredefinedMenuItem::separator(app)
         .map_err(|err| format!("创建托盘菜单分隔线失败: {}", err))?;
     let exit = MenuItem::with_id(app, EXIT_ID, "退出", true, None::<&str>)
         .map_err(|err| format!("创建托盘菜单失败: {}", err))?;
-    let menu = Menu::with_items(app, &[&open_config, &separator, &exit])
+    let menu = Menu::with_items(app, &[&open_config, &open_setup_guide, &separator, &exit])
         .map_err(|err| format!("创建托盘菜单失败: {}", err))?;
 
     let app_for_event = app.clone();
@@ -27,6 +31,11 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), String> {
         .show_menu_on_left_click(false)
         .on_menu_event(move |app, event| match event.id().as_ref() {
             OPEN_CONFIG_ID => open_config_file(app),
+            OPEN_SETUP_GUIDE_ID => {
+                if let Err(err) = crate::setup_guide::open(app) {
+                    app_log::warn(err);
+                }
+            }
             EXIT_ID => {
                 crate::hotkey::stop_input_threads();
                 let controller = app.state::<SessionController>().inner().clone();
@@ -75,7 +84,17 @@ pub fn show_startup_message(app: &AppHandle) {
 fn open_config_file(app: &AppHandle) {
     match config::load_config() {
         Ok(loaded) => {
-            if let Err(err) = app.opener().open_path(loaded.path, None::<&str>) {
+            let path = loaded.path.clone();
+            if !loaded.exists {
+                match config::save_config(loaded.data) {
+                    Ok(created) => app_log::info(format!("已创建默认配置文件: {}", created.path)),
+                    Err(err) => {
+                        app_log::warn(format!("创建默认配置文件失败: {}", err));
+                        return;
+                    }
+                }
+            }
+            if let Err(err) = app.opener().open_path(path, None::<&str>) {
                 app_log::warn(format!("打开配置文件失败: {}", err));
             }
         }

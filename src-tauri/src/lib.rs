@@ -8,6 +8,7 @@ mod llm_post_edit;
 mod overlay;
 mod protocol;
 mod session;
+mod setup_guide;
 mod stats;
 mod system_audio;
 mod text_output;
@@ -41,6 +42,11 @@ fn load_app_config() -> Result<LoadedConfig, String> {
 #[tauri::command]
 fn save_app_config(config: AppConfig) -> Result<LoadedConfig, String> {
     config::save_config(config)
+}
+
+#[tauri::command]
+fn open_setup_guide(app: AppHandle) -> Result<(), String> {
+    setup_guide::open(&app)
 }
 
 #[tauri::command]
@@ -98,6 +104,7 @@ pub fn run() {
             get_app_snapshot,
             load_app_config,
             save_app_config,
+            open_setup_guide,
             get_usage_stats,
             get_overlay_text,
             list_audio_input_devices,
@@ -113,6 +120,7 @@ pub fn run() {
                 app_log::warn(err);
             }
             tray::show_startup_message(app.handle());
+            setup_guide::open_if_config_missing(app.handle());
             hotkey::start_global_hotkey_thread(app.handle().clone());
             hotkey::start_input_hook_thread(app.handle().clone());
             Ok(())

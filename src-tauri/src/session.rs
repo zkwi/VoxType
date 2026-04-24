@@ -61,9 +61,19 @@ impl SessionController {
         if loaded.data.auth.app_key.trim().is_empty()
             || loaded.data.auth.access_key.trim().is_empty()
         {
-            return Err(
-                "ASR 未配置 app_key/access_key，请先在配置页填写豆包认证信息。".to_string(),
-            );
+            let message = if loaded.exists {
+                "ASR 未配置 app_key/access_key，请先在配置页填写豆包认证信息并保存。"
+            } else {
+                "未找到 config.toml。请先在配置页填写豆包认证信息并保存，或复制 config.example.toml 为 config.toml 后手动编辑。"
+            };
+            let state = SessionState {
+                recording: false,
+                message: message.to_string(),
+            };
+            if let Some(app) = app.as_ref() {
+                emit_state(Some(app), &state);
+            }
+            return Err(message.to_string());
         }
         let generation = {
             let mut inner = self

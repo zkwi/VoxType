@@ -236,9 +236,26 @@ fn dispatch_toggle(app: AppHandle, source: &'static str) {
         app_log::info(format!("输入触发来源: {}", source));
         let controller = app.state::<SessionController>().inner().clone();
         if let Err(err) = controller.toggle(Some(app.clone())) {
+            if is_config_error(&err) {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.unminimize();
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+                if err.contains("config.toml") {
+                    crate::setup_guide::open_if_config_missing(&app);
+                }
+            }
             app_log::warn(format!("{}触发失败: {}", source, err));
         }
     });
+}
+
+fn is_config_error(message: &str) -> bool {
+    message.contains("config.toml")
+        || message.contains("app_key")
+        || message.contains("access_key")
+        || message.contains("豆包认证")
 }
 
 struct ToggleInFlightGuard;
