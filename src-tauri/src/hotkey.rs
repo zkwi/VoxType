@@ -30,7 +30,10 @@ static TOGGLE_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
 pub fn start_global_hotkey_thread(app: AppHandle) {
     thread::spawn(move || {
         if let Err(err) = run_global_hotkey_loop(app.clone()) {
-            app_log::warn(format!("global hotkey thread failed: {}", err));
+            app_log::warn(format!(
+                "global hotkey thread failed: {}。如果提示热键已注册，通常是已有 VoxType 实例或其他软件占用了该快捷键；右 Alt / 鼠标中键仍会继续工作。",
+                err
+            ));
         }
     });
 }
@@ -64,11 +67,13 @@ pub fn stop_input_threads() {
 fn run_global_hotkey_loop(app: AppHandle) -> Result<(), String> {
     let _thread_id = ThreadIdGuard::new(&GLOBAL_HOTKEY_THREAD_ID);
     let loaded = config::load_config()?;
+    let hotkey_text = loaded.data.hotkey.clone();
     let (modifiers, key) = parse_hotkey(&loaded.data.hotkey)?;
     unsafe {
         RegisterHotKey(None, HOTKEY_ID, modifiers, key.0 as u32)
-            .map_err(|err| format!("注册全局热键失败: {}", err))?;
+            .map_err(|err| format!("注册全局热键失败: {}，hotkey={}", err, hotkey_text))?;
     }
+    app_log::info(format!("全局热键已注册: {}", hotkey_text.to_uppercase()));
 
     let mut msg = MSG::default();
     loop {
@@ -168,6 +173,7 @@ fn run_input_hook_loop() -> Result<(), String> {
             return Err(format!("注册鼠标钩子失败: {}", err));
         }
     };
+    app_log::info("输入钩子已注册: 右 Alt / 鼠标中键。");
 
     let mut msg = MSG::default();
     loop {

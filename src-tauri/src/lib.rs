@@ -55,6 +55,11 @@ fn log_frontend_error(message: String) {
 }
 
 #[tauri::command]
+fn log_frontend_event(message: String) {
+    app_log::info(format!("frontend event: {}", message));
+}
+
+#[tauri::command]
 fn get_usage_stats() -> StatsSnapshot {
     stats::load_stats_snapshot()
 }
@@ -119,6 +124,7 @@ pub fn run() {
             save_app_config,
             open_setup_guide,
             log_frontend_error,
+            log_frontend_event,
             get_usage_stats,
             get_overlay_text,
             list_audio_input_devices,
@@ -128,7 +134,10 @@ pub fn run() {
             toggle_recording
         ])
         .setup(|app| {
-            app_log::info("VoxType Tauri client started.");
+            app_log::info(format!(
+                "VoxType Tauri client started. version={}",
+                env!("CARGO_PKG_VERSION")
+            ));
             let _ = overlay::create_overlay_window(app.handle());
             if let Err(err) = tray::setup_tray(app.handle()) {
                 app_log::warn(err);

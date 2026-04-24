@@ -569,9 +569,6 @@
   let overlaySmallLayoutLocked = false;
 
   onMount(() => {
-    const logFrontendError = (message: string) => {
-      void invoke("log_frontend_error", { message }).catch(() => undefined);
-    };
     const onError = (event: ErrorEvent) => {
       logFrontendError(`${event.message} (${event.filename}:${event.lineno}:${event.colno})`);
     };
@@ -586,13 +583,15 @@
     isOverlay = params.has("overlay");
     isToast = params.has("toast");
     toastHotkey = params.get("hotkey") || toastHotkey;
+    logFrontendEvent(
+      `mounted mode=${frontendMode()} viewport=${window.innerWidth}x${window.innerHeight} language=${navigator.language} userAgent=${navigator.userAgent}`,
+    );
     const savedLanguage = localStorage.getItem("voxtype-language");
     if (savedLanguage === "zh-CN" || savedLanguage === "zh-TW" || savedLanguage === "en") {
       language = savedLanguage;
       statusMessage = t("bridgeLoading");
     }
-    void loadAll();
-    void hydrateSession();
+    void bootstrapApp();
     let overlayPoll: number | undefined;
     if (isOverlay) {
       applyOverlayText(overlayText, true);
@@ -628,6 +627,7 @@
     const unlistenStats = listen<StatsSnapshot>("usage-stats-updated", (event) => {
       if (!isOverlay && !isToast) stats = event.payload;
     });
+    logFrontendEvent(`listeners registered mode=${frontendMode()}`);
     return () => {
       if (overlayPoll !== undefined) window.clearInterval(overlayPoll);
       stopOverlayScroll();
@@ -639,6 +639,48 @@
       });
     };
   });
+
+  async function bootstrapApp() {
+    const startedAt = performance.now();
+    logFrontendEvent(`bootstrap started mode=${frontendMode()}`);
+    try {
+      await loadAll();
+      await hydrateSession();
+      logFrontendEvent(
+        `bootstrap completed mode=${frontendMode()} elapsed_ms=${Math.round(performance.now() - startedAt)} config_exists=${configExists} recording=${recording}`,
+      );
+    } catch (error) {
+      logFrontendError(`bootstrap failed: ${formatFrontendError(error)}`);
+    }
+  }
+
+  function frontendMode() {
+    if (isOverlay) return "overlay";
+    if (isToast) return "toast";
+    return "main";
+  }
+
+  function logFrontendEvent(message: string) {
+    void invoke("log_frontend_event", { message: truncateLogMessage(message) }).catch(() => undefined);
+  }
+
+  function logFrontendError(message: string) {
+    void invoke("log_frontend_error", { message: truncateLogMessage(message) }).catch(() => undefined);
+  }
+
+  function truncateLogMessage(message: string) {
+    return message.length > 1200 ? `${message.slice(0, 1200)}...` : message;
+  }
+
+  function formatFrontendError(error: unknown) {
+    if (error instanceof Error) return error.stack || error.message;
+    if (typeof error === "string") return error;
+    try {
+      return JSON.stringify(error);
+    } catch {
+      return String(error);
+    }
+  }
 
   function t(key: CopyKey, values: Record<string, string> = {}) {
     let value = copy[language][key];
@@ -677,6 +719,7 @@
     } catch (error) {
       statusMessage = typeof error === "string" ? error : t("browserPreview");
       console.warn(error);
+      logFrontendError(`invoke failed command=${command}: ${formatFrontendError(error)}`);
       return null;
     }
   }
@@ -845,6 +888,7 @@
   }
 
   async function loadAll() {
+    logFrontendEvent(`loadAll started mode=${frontendMode()}`);
     const [snapshotResult, configResult, statsResult, devicesResult] = await Promise.all([
       safeInvoke<AppSnapshot>("get_app_snapshot"),
       safeInvoke<LoadedConfig>("load_app_config"),
@@ -866,11 +910,18 @@
     if ((snapshotResult || configResult || statsResult) && !configSetupMessage(configResult)) {
       statusMessage = t("bridgeConnected");
     }
+    logFrontendEvent(
+      `loadAll completed mode=${frontendMode()} snapshot=${Boolean(snapshotResult)} config_loaded=${Boolean(configResult)} config_exists=${configResult?.exists ?? false} stats_records=${statsResult?.history.length ?? 0} audio_devices=${devicesResult?.length ?? 0}`,
+    );
   }
 
   async function hydrateSession() {
+    logFrontendEvent(`hydrateSession started mode=${frontendMode()}`);
     const result = await safeInvoke<SessionState>("get_session_state");
     if (result) applySessionState(result);
+    logFrontendEvent(
+      `hydrateSession completed mode=${frontendMode()} state_loaded=${Boolean(result)} recording=${result?.recording ?? false}`,
+    );
   }
 
   function applySessionState(state: SessionState) {
