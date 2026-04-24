@@ -40,11 +40,16 @@
 
 仅面向 Windows 10/11。
 
-需要安装：
+普通用户建议下载并运行 `VoxType-*-setup.exe` 安装包。安装包会内置 Microsoft Edge WebView2 Bootstrapper，在系统缺少 WebView2 Runtime 时自动安装运行时。
+
+绿色版 ZIP 不会修改系统环境。如果在干净电脑上直接运行绿色版提示缺少 WebView2 Runtime，请改用安装包，或先手动安装 Microsoft Edge WebView2 Runtime。
+
+运行时还需要 Windows 允许桌面应用访问麦克风。若录音失败，请在“设置 → 隐私和安全性 → 麦克风”中开启麦克风访问权限。
+
+开发构建需要安装：
 
 - Node.js 和 npm
 - Rust 工具链
-- WebView2 Runtime，Windows 11 通常已内置
 
 如果 Rust 已安装但当前终端找不到 `cargo`，先执行：
 
@@ -113,6 +118,8 @@ npx tauri build --debug --no-bundle
 ```powershell
 npx tauri build
 ```
+
+NSIS 安装包会嵌入 WebView2 Bootstrapper。首次安装到缺少 WebView2 Runtime 的干净电脑时，安装程序会联网安装该运行时。
 
 正式可执行文件通常位于：
 

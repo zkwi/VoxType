@@ -169,6 +169,8 @@ npm run scan:secrets
 npx tauri build
 ```
 
+`src-tauri/tauri.conf.json` 的 `bundle.windows.webviewInstallMode` 应保持 `embedBootstrapper`，让 NSIS 安装包在干净 Windows 电脑缺少 WebView2 Runtime 时自动安装运行时。绿色版 ZIP 不负责安装系统运行时，发布说明需提醒用户干净电脑优先使用安装包。
+
 5. 整理发布产物，安装包取 NSIS 产物，绿色版 ZIP 只打包正式 exe、`config.example.toml`、`README.md` 和 `LICENSE`（如存在），禁止包含：
 
 - `config.toml`
