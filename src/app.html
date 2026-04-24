@@ -8,6 +8,17 @@
     %sveltekit.head%
   </head>
   <body data-sveltekit-preload-data="hover">
+    <div
+      id="boot-fallback"
+      style="position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: #f7fbff; color: #172536; font-family: 'Microsoft YaHei', 'Segoe UI', sans-serif; z-index: 2147483647;"
+    >
+      <div style="max-width: 520px; padding: 28px 32px; border: 1px solid #d8e7f6; border-radius: 16px; background: white; box-shadow: 0 18px 50px rgba(38, 102, 165, 0.14);">
+        <div style="font-size: 24px; font-weight: 700; margin-bottom: 10px;">VoxType 正在加载</div>
+        <div style="font-size: 15px; line-height: 1.7; color: #58708a;">
+          如果长时间停留在此页面，请安装或更新 Microsoft Edge WebView2 Runtime，然后重新打开声写。
+        </div>
+      </div>
+    </div>
     <div style="display: contents">%sveltekit.body%</div>
   </body>
 </html>

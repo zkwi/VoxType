@@ -542,7 +542,7 @@
 
   let measureCanvas: HTMLCanvasElement | undefined;
   let snapshot = $state<AppSnapshot>(fallbackSnapshot);
-  let config = $state<AppConfig>(structuredClone(fallbackConfig));
+  let config = $state<AppConfig>(clonePlain(fallbackConfig));
   let stats = $state<StatsSnapshot>(emptyStats);
   let recording = $state(false);
   let language = $state<Language>("zh-CN");
@@ -578,6 +578,7 @@
     };
     window.addEventListener("error", onError);
     window.addEventListener("unhandledrejection", onUnhandledRejection);
+    document.getElementById("boot-fallback")?.remove();
 
     const params = new URLSearchParams(window.location.search);
     isOverlay = params.has("overlay");
@@ -639,6 +640,10 @@
       });
     };
   });
+
+  function clonePlain<T>(value: T): T {
+    return JSON.parse(JSON.stringify(value)) as T;
+  }
 
   async function bootstrapApp() {
     const startedAt = performance.now();
