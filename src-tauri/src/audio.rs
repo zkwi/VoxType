@@ -21,6 +21,7 @@ pub struct AudioCaptureInfo {
 pub struct AudioDeviceInfo {
     pub index: u32,
     pub name: String,
+    pub is_default: bool,
 }
 
 #[derive(Clone)]
@@ -53,6 +54,7 @@ impl AudioCapture {
 pub fn start_capture(
     audio: &AudioConfig,
     chunk_tx: Option<mpsc::Sender<Vec<u8>>>,
+    level_tx: Option<mpsc::Sender<f32>>,
 ) -> Result<AudioCapture, String> {
     let audio = audio.clone();
     let counters = CaptureCounters {
@@ -65,7 +67,7 @@ pub fn start_capture(
 
     let join_handle = thread::spawn(move || {
         let (stream, device_name, sample_rate, channels) =
-            match start_capture_in_thread(&audio, worker_counters, chunk_tx) {
+            match start_capture_in_thread(&audio, worker_counters, chunk_tx, level_tx) {
                 Ok(result) => result,
                 Err(err) => {
                     let _ = ready_tx.send(Err(err));
@@ -98,16 +100,23 @@ pub fn start_capture(
 
 pub fn list_input_devices() -> Result<Vec<AudioDeviceInfo>, String> {
     let host = cpal::default_host();
+    let default_name = host
+        .default_input_device()
+        .and_then(|device| device.name().ok());
     let devices = host
         .input_devices()
         .map_err(|err| format!("枚举输入设备失败: {}", err))?;
     Ok(devices
         .enumerate()
-        .map(|(index, device)| AudioDeviceInfo {
-            index: index as u32,
-            name: device
+        .map(|(index, device)| {
+            let name = device
                 .name()
-                .unwrap_or_else(|_| format!("Input device {}", index)),
+                .unwrap_or_else(|_| format!("Input device {}", index));
+            AudioDeviceInfo {
+                index: index as u32,
+                is_default: default_name.as_deref() == Some(name.as_str()),
+                name,
+            }
         })
         .collect())
 }
@@ -125,6 +134,7 @@ fn start_capture_in_thread(
     audio: &AudioConfig,
     counters: CaptureCounters,
     chunk_tx: Option<mpsc::Sender<Vec<u8>>>,
+    level_tx: Option<mpsc::Sender<f32>>,
 ) -> Result<(Stream, String, u32, u16), String> {
     let host = cpal::default_host();
     let device = select_input_device(&host, audio.input_device)?;
@@ -147,6 +157,7 @@ fn start_capture_in_thread(
             target_chunk_bytes,
             counters.clone(),
             chunk_tx,
+            level_tx,
             err_fn,
         )?,
         SampleFormat::U16 => build_u16_stream(
@@ -155,6 +166,7 @@ fn start_capture_in_thread(
             target_chunk_bytes,
             counters.clone(),
             chunk_tx,
+            level_tx,
             err_fn,
         )?,
         SampleFormat::U8 => build_u8_stream(
@@ -163,6 +175,7 @@ fn start_capture_in_thread(
             target_chunk_bytes,
             counters.clone(),
             chunk_tx,
+            level_tx,
             err_fn,
         )?,
         SampleFormat::F32 => build_f32_stream(
@@ -171,6 +184,7 @@ fn start_capture_in_thread(
             target_chunk_bytes,
             counters.clone(),
             chunk_tx,
+            level_tx,
             err_fn,
         )?,
         other => return Err(format!("暂不支持的输入采样格式: {:?}", other)),
@@ -235,12 +249,75 @@ fn send_segmented_bytes(tx: &mpsc::Sender<Vec<u8>>, pending: &mut Vec<u8>, targe
     }
 }
 
+fn send_level(tx: &Option<mpsc::Sender<f32>>, level: f32) {
+    if let Some(tx) = tx {
+        let _ = tx.send(level.clamp(0.0, 1.0));
+    }
+}
+
+fn rms_i16(data: &[i16]) -> f32 {
+    if data.is_empty() {
+        return 0.0;
+    }
+    let sum = data
+        .iter()
+        .map(|sample| {
+            let value = *sample as f32 / i16::MAX as f32;
+            value * value
+        })
+        .sum::<f32>();
+    (sum / data.len() as f32).sqrt().clamp(0.0, 1.0)
+}
+
+fn rms_u16(data: &[u16]) -> f32 {
+    if data.is_empty() {
+        return 0.0;
+    }
+    let sum = data
+        .iter()
+        .map(|sample| {
+            let value = (*sample as f32 - 32768.0) / 32768.0;
+            value * value
+        })
+        .sum::<f32>();
+    (sum / data.len() as f32).sqrt().clamp(0.0, 1.0)
+}
+
+fn rms_u8(data: &[u8]) -> f32 {
+    if data.is_empty() {
+        return 0.0;
+    }
+    let sum = data
+        .iter()
+        .map(|sample| {
+            let value = (*sample as f32 - 128.0) / 128.0;
+            value * value
+        })
+        .sum::<f32>();
+    (sum / data.len() as f32).sqrt().clamp(0.0, 1.0)
+}
+
+fn rms_f32(data: &[f32]) -> f32 {
+    if data.is_empty() {
+        return 0.0;
+    }
+    let sum = data
+        .iter()
+        .map(|sample| {
+            let value = sample.clamp(-1.0, 1.0);
+            value * value
+        })
+        .sum::<f32>();
+    (sum / data.len() as f32).sqrt().clamp(0.0, 1.0)
+}
+
 fn build_i16_stream(
     device: &Device,
     config: &StreamConfig,
     target_chunk_bytes: usize,
     counters: CaptureCounters,
     chunk_tx: Option<mpsc::Sender<Vec<u8>>>,
+    level_tx: Option<mpsc::Sender<f32>>,
     err_fn: impl FnMut(cpal::StreamError) + Send + 'static,
 ) -> Result<Stream, String> {
     let channels = config.channels.max(1) as usize;
@@ -254,6 +331,7 @@ fn build_i16_stream(
                 counters
                     .pcm_bytes
                     .fetch_add(frame_count * channels * 2, Ordering::Relaxed);
+                send_level(&level_tx, rms_i16(data));
                 if let Some(tx) = &chunk_tx {
                     for sample in data {
                         pending.extend(sample.to_le_bytes());
@@ -273,6 +351,7 @@ fn build_u16_stream(
     target_chunk_bytes: usize,
     counters: CaptureCounters,
     chunk_tx: Option<mpsc::Sender<Vec<u8>>>,
+    level_tx: Option<mpsc::Sender<f32>>,
     err_fn: impl FnMut(cpal::StreamError) + Send + 'static,
 ) -> Result<Stream, String> {
     let channels = config.channels.max(1) as usize;
@@ -286,6 +365,7 @@ fn build_u16_stream(
                 counters
                     .pcm_bytes
                     .fetch_add(frame_count * channels * 2, Ordering::Relaxed);
+                send_level(&level_tx, rms_u16(data));
                 if let Some(tx) = &chunk_tx {
                     for sample in data {
                         let value = (*sample as i32 - 32768) as i16;
@@ -306,6 +386,7 @@ fn build_u8_stream(
     target_chunk_bytes: usize,
     counters: CaptureCounters,
     chunk_tx: Option<mpsc::Sender<Vec<u8>>>,
+    level_tx: Option<mpsc::Sender<f32>>,
     err_fn: impl FnMut(cpal::StreamError) + Send + 'static,
 ) -> Result<Stream, String> {
     let channels = config.channels.max(1) as usize;
@@ -319,6 +400,7 @@ fn build_u8_stream(
                 counters
                     .pcm_bytes
                     .fetch_add(frame_count * channels * 2, Ordering::Relaxed);
+                send_level(&level_tx, rms_u8(data));
                 if let Some(tx) = &chunk_tx {
                     for sample in data {
                         let value = (*sample as i16 - 128) << 8;
@@ -339,6 +421,7 @@ fn build_f32_stream(
     target_chunk_bytes: usize,
     counters: CaptureCounters,
     chunk_tx: Option<mpsc::Sender<Vec<u8>>>,
+    level_tx: Option<mpsc::Sender<f32>>,
     err_fn: impl FnMut(cpal::StreamError) + Send + 'static,
 ) -> Result<Stream, String> {
     let channels = config.channels.max(1) as usize;
@@ -352,6 +435,7 @@ fn build_f32_stream(
                 counters
                     .pcm_bytes
                     .fetch_add(frame_count * channels * 2, Ordering::Relaxed);
+                send_level(&level_tx, rms_f32(data));
                 if let Some(tx) = &chunk_tx {
                     for sample in data {
                         let value = (sample.clamp(-1.0, 1.0) * i16::MAX as f32) as i16;

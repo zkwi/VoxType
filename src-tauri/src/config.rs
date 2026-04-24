@@ -14,6 +14,8 @@ pub struct AppConfig {
     #[serde(default)]
     pub context: ContextConfig,
     #[serde(default)]
+    pub triggers: TriggerConfig,
+    #[serde(default)]
     pub typing: TypingConfig,
     #[serde(default)]
     pub llm_post_edit: LlmPostEditConfig,
@@ -106,6 +108,16 @@ pub struct TextContext {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TriggerConfig {
+    #[serde(default = "default_true")]
+    pub hotkey_enabled: bool,
+    #[serde(default = "default_true")]
+    pub middle_mouse_enabled: bool,
+    #[serde(default = "default_true")]
+    pub right_alt_enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TypingConfig {
     #[serde(default = "default_paste_delay_ms")]
     pub paste_delay_ms: u64,
@@ -178,6 +190,7 @@ impl Default for AppConfig {
             audio: AudioConfig::default(),
             request: RequestConfig::default(),
             context: ContextConfig::default(),
+            triggers: TriggerConfig::default(),
             typing: TypingConfig::default(),
             llm_post_edit: LlmPostEditConfig::default(),
             ui: UiConfig::default(),
@@ -240,6 +253,16 @@ impl Default for ContextConfig {
             hotwords: Vec::new(),
             prompt_context: Vec::new(),
             recent_context: Vec::new(),
+        }
+    }
+}
+
+impl Default for TriggerConfig {
+    fn default() -> Self {
+        Self {
+            hotkey_enabled: true,
+            middle_mouse_enabled: true,
+            right_alt_enabled: true,
         }
     }
 }

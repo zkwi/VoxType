@@ -18,7 +18,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 
 use crate::app_log;
-use crate::config;
+use crate::config::{self, TriggerConfig};
 use crate::session::SessionController;
 
 const HOTKEY_ID: i32 = 1;
@@ -26,6 +26,22 @@ static GLOBAL_HOTKEY_THREAD_ID: OnceLock<Mutex<Option<u32>>> = OnceLock::new();
 static INPUT_HOOK_THREAD_ID: OnceLock<Mutex<Option<u32>>> = OnceLock::new();
 static HOOK_TRIGGER_TX: OnceLock<Sender<&'static str>> = OnceLock::new();
 static TOGGLE_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
+static HOTKEY_TRIGGER_ENABLED: AtomicBool = AtomicBool::new(true);
+static MIDDLE_MOUSE_TRIGGER_ENABLED: AtomicBool = AtomicBool::new(true);
+static RIGHT_ALT_TRIGGER_ENABLED: AtomicBool = AtomicBool::new(true);
+
+pub fn refresh_trigger_config() {
+    match config::load_config() {
+        Ok(loaded) => refresh_trigger_config_from(&loaded.data.triggers),
+        Err(err) => app_log::warn(format!("读取启动方式配置失败，保留现有触发开关: {}", err)),
+    }
+}
+
+pub fn refresh_trigger_config_from(triggers: &TriggerConfig) {
+    HOTKEY_TRIGGER_ENABLED.store(triggers.hotkey_enabled, Ordering::Release);
+    MIDDLE_MOUSE_TRIGGER_ENABLED.store(triggers.middle_mouse_enabled, Ordering::Release);
+    RIGHT_ALT_TRIGGER_ENABLED.store(triggers.right_alt_enabled, Ordering::Release);
+}
 
 pub fn start_global_hotkey_thread(app: AppHandle) {
     thread::spawn(move || {
@@ -39,6 +55,7 @@ pub fn start_global_hotkey_thread(app: AppHandle) {
 }
 
 pub fn start_input_hook_thread(app: AppHandle) {
+    refresh_trigger_config();
     let (tx, rx) = mpsc::channel::<&'static str>();
     if HOOK_TRIGGER_TX.set(tx).is_err() {
         app_log::warn("输入钩子触发通道已初始化，本次启动请求被忽略。");
@@ -67,6 +84,7 @@ pub fn stop_input_threads() {
 fn run_global_hotkey_loop(app: AppHandle) -> Result<(), String> {
     let _thread_id = ThreadIdGuard::new(&GLOBAL_HOTKEY_THREAD_ID);
     let loaded = config::load_config()?;
+    refresh_trigger_config_from(&loaded.data.triggers);
     let hotkey_text = loaded.data.hotkey.clone();
     let (modifiers, key) = parse_hotkey(&loaded.data.hotkey)?;
     unsafe {
@@ -204,7 +222,10 @@ fn run_input_hook_loop() -> Result<(), String> {
 unsafe extern "system" fn keyboard_hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if code == HC_ACTION as i32 && (wparam.0 as u32 == WM_KEYUP || wparam.0 as u32 == WM_SYSKEYUP) {
         let event = unsafe { *(lparam.0 as *const KBDLLHOOKSTRUCT) };
-        if event.vkCode == VK_RMENU.0 as u32 && !event.flags.contains(LLKHF_INJECTED) {
+        if event.vkCode == VK_RMENU.0 as u32
+            && !event.flags.contains(LLKHF_INJECTED)
+            && trigger_enabled("right_alt")
+        {
             queue_hook_trigger("右 Alt");
         }
     }
@@ -215,7 +236,7 @@ unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: WPARAM, lparam: LPA
     let message = wparam.0 as u32;
     if code == HC_ACTION as i32 && (message == WM_MBUTTONDOWN || message == WM_MBUTTONUP) {
         let event = unsafe { *(lparam.0 as *const MSLLHOOKSTRUCT) };
-        if event.flags & LLMHF_INJECTED == 0 {
+        if event.flags & LLMHF_INJECTED == 0 && trigger_enabled("middle_mouse") {
             if message == WM_MBUTTONDOWN {
                 queue_hook_trigger("鼠标中键");
             }
@@ -225,6 +246,15 @@ unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: WPARAM, lparam: LPA
     unsafe { CallNextHookEx(None, code, wparam, lparam) }
 }
 
+fn trigger_enabled(kind: &'static str) -> bool {
+    match kind {
+        "hotkey" => HOTKEY_TRIGGER_ENABLED.load(Ordering::Acquire),
+        "right_alt" => RIGHT_ALT_TRIGGER_ENABLED.load(Ordering::Acquire),
+        "middle_mouse" => MIDDLE_MOUSE_TRIGGER_ENABLED.load(Ordering::Acquire),
+        _ => true,
+    }
+}
+
 fn queue_hook_trigger(source: &'static str) {
     if let Some(tx) = HOOK_TRIGGER_TX.get() {
         let _ = tx.send(source);
@@ -232,6 +262,10 @@ fn queue_hook_trigger(source: &'static str) {
 }
 
 fn dispatch_toggle(app: AppHandle, source: &'static str) {
+    if source == "全局热键" && !trigger_enabled("hotkey") {
+        app_log::info("忽略全局热键触发：该启动方式已关闭。");
+        return;
+    }
     if TOGGLE_IN_FLIGHT.swap(true, Ordering::AcqRel) {
         app_log::warn(format!("忽略{}触发：上一轮切换仍在处理中", source));
         return;

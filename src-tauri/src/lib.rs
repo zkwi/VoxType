@@ -41,7 +41,9 @@ fn load_app_config() -> Result<LoadedConfig, String> {
 
 #[tauri::command]
 fn save_app_config(config: AppConfig) -> Result<LoadedConfig, String> {
-    config::save_config(config)
+    let loaded = config::save_config(config)?;
+    hotkey::refresh_trigger_config_from(&loaded.data.triggers);
+    Ok(loaded)
 }
 
 #[tauri::command]

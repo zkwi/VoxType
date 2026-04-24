@@ -17,6 +17,11 @@ pub struct SessionState {
     pub message: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct AudioLevel {
+    pub level: f32,
+}
+
 #[derive(Default)]
 struct InnerSession {
     recording: bool,
@@ -94,6 +99,12 @@ impl SessionController {
         };
 
         let (audio_tx, audio_rx) = std::sync::mpsc::channel();
+        let (level_tx, level_rx) = if app.is_some() {
+            let (tx, rx) = std::sync::mpsc::channel();
+            (Some(tx), Some(rx))
+        } else {
+            (None, None)
+        };
         let started_at = Instant::now();
         if let Some(app) = app.as_ref() {
             overlay::show_for_recording(app, &loaded.data.ui);
@@ -108,7 +119,8 @@ impl SessionController {
         } else {
             None
         };
-        let audio_capture = match audio::start_capture(&loaded.data.audio, Some(audio_tx)) {
+        let audio_capture = match audio::start_capture(&loaded.data.audio, Some(audio_tx), level_tx)
+        {
             Ok(capture) => capture,
             Err(err) => {
                 system_audio::safe_restore(volume_state);
@@ -133,6 +145,9 @@ impl SessionController {
             "麦克风采集已启动: device=\"{}\", rate={}Hz, channels={}",
             audio_info.device_name, audio_info.sample_rate, audio_info.channels
         ));
+        if let (Some(app_for_level), Some(level_rx)) = (app.clone(), level_rx) {
+            spawn_audio_level_emitter(app_for_level, level_rx);
+        }
         let mut runtime_config = loaded.data.clone();
         runtime_config.audio.sample_rate = audio_info.sample_rate;
         runtime_config.audio.channels = audio_info.channels;
@@ -284,4 +299,25 @@ pub fn emit_state(app: Option<&AppHandle>, state: &SessionState) {
     if let Some(app) = app {
         let _ = app.emit("session-state-changed", state);
     }
+}
+
+fn spawn_audio_level_emitter(app: AppHandle, level_rx: std::sync::mpsc::Receiver<f32>) {
+    thread::spawn(move || {
+        let mut last_emit = Instant::now()
+            .checked_sub(Duration::from_millis(100))
+            .unwrap_or_else(Instant::now);
+        while let Ok(level) = level_rx.recv() {
+            if last_emit.elapsed() < Duration::from_millis(80) {
+                continue;
+            }
+            let _ = app.emit(
+                "audio-level",
+                AudioLevel {
+                    level: level.clamp(0.0, 1.0),
+                },
+            );
+            last_emit = Instant::now();
+        }
+        let _ = app.emit("audio-level", AudioLevel { level: 0.0 });
+    });
 }

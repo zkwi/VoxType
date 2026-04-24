@@ -54,6 +54,12 @@ recent_context_rounds = 5
 # 不要在模板或文档中填写个人热词；复制到本地 config.toml 后再按需填写
 hotwords = []
 
+[triggers]
+# 启动方式开关；关闭后对应按键不会触发语音输入
+hotkey_enabled = true
+middle_mouse_enabled = true
+right_alt_enabled = true
+
 [typing]
 # 复制文本后、尝试切回原窗口前的等待时间
 paste_delay_ms = 120

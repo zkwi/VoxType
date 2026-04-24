@@ -5,15 +5,25 @@
   import { listen } from "@tauri-apps/api/event";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import {
-    Activity,
+    BarChart3,
+    CalendarDays,
+    Check,
+    ChevronRight,
+    Clock3,
+    Download,
     Gauge,
+    Globe2,
     Keyboard,
     Maximize2,
+    MessageSquareText,
     Mic,
     Minus,
+    PenLine,
     Save,
     Settings,
     ShieldCheck,
+    Sparkles,
+    Zap,
     X as XIcon,
   } from "lucide-svelte";
 
@@ -69,7 +79,8 @@
 
   type AsrPartialText = { text: string };
   type OverlayText = { text: string };
-  type AudioDeviceInfo = { index: number; name: string };
+  type AudioLevel = { level: number };
+  type AudioDeviceInfo = { index: number; name: string; is_default: boolean };
   type OverlayMode = "single" | "double";
 
   type TextContext = { text: string };
@@ -109,6 +120,11 @@
       prompt_context: TextContext[];
       recent_context: TextContext[];
     };
+    triggers: {
+      hotkey_enabled: boolean;
+      middle_mouse_enabled: boolean;
+      right_alt_enabled: boolean;
+    };
     typing: { paste_delay_ms: number; paste_method: string };
     llm_post_edit: {
       enabled: boolean;
@@ -131,6 +147,8 @@
     tray: { show_startup_message: boolean; startup_message_timeout_ms: number };
     debug: { print_transcript_to_console: boolean };
   };
+
+  type TriggerKey = keyof AppConfig["triggers"];
 
   const fallbackConfig: AppConfig = {
     hotkey: "ctrl+q",
@@ -167,6 +185,7 @@
       prompt_context: [],
       recent_context: [],
     },
+    triggers: { hotkey_enabled: true, middle_mouse_enabled: true, right_alt_enabled: true },
     typing: { paste_delay_ms: 120, paste_method: "ctrl_v" },
     llm_post_edit: {
       enabled: false,
@@ -198,23 +217,50 @@
   const defaultOverlayText = "正在录音...";
   const overlayLineHeight = 1.18;
   const chineseTypingCharsPerMinute = 50;
-
+  const micBars = [0, 1, 2, 3, 4, 5];
   const navItems: { id: Section; icon: typeof Gauge }[] = [
     { id: "Overview", icon: Gauge },
     { id: "Settings", icon: Settings },
-    { id: "History", icon: Activity },
+    { id: "History", icon: BarChart3 },
   ];
 
   const copy = {
     "zh-CN": {
       appTitle: "声写",
       language: "语言",
+      minimizeToTray: "最小化到托盘",
       navOverview: "输入",
+      voiceInputTitle: "语音输入",
       navSettings: "配置",
       navHistory: "统计历史",
       topEyebrow: "VoxType",
       recordingPreview: "录音中",
       idle: "空闲",
+      clickStart: "点击开始语音输入",
+      clickStop: "点击停止语音输入",
+      quickStart: "按 {hotkey} 快速启动",
+      speakAnywhere: "在任何输入框直接说话",
+      mixedInput: "支持中英文混合输入",
+      mainHotkey: "主快捷键",
+      enabled: "已启用",
+      disabled: "已关闭",
+      middleMouse: "鼠标中键",
+      rightAlt: "右 Alt 键",
+      todayInput: "今日输入",
+      inputSpeed: "输入速度",
+      savedTime: "节省时间",
+      perMinute: "字每分钟",
+      savedToday: "约节省 {hours} 小时",
+      weeklySavedShort: "本周节省时间",
+      micConnected: "麦克风：{device}",
+      micMonitoring: "正在监听：{device}",
+      micUnavailable: "未检测到麦克风",
+      sidebarMicConnected: "麦克风：已连接",
+      sidebarMicUnavailable: "麦克风：未连接",
+      sidebarShortcut: "快捷键：{hotkey}",
+      usageTipEmpty: "完成一次语音输入后，这里会显示真实使用统计。",
+      usageTipData: "已记录 {sessions} 次语音输入，共 {chars} 字。",
+      waitingVoice: "等待语音输入",
       listeningPreview: "正在监听麦克风，实时字幕显示在屏幕下方。",
       pressHotkey: "按 {hotkey}、右 Alt 或鼠标中键，也可从托盘启动，向任意输入框语音输入。",
       setupRequired: "需要先完成配置",
@@ -222,6 +268,7 @@
       setupMissingAuth: "ASR 认证信息未填写。请在配置页填写 App Key 和 Access Key 后保存。",
       setupCta: "去配置",
       setupGuideCta: "查看配置指南",
+      shortcutSettings: "修改快捷键",
       desktopControl: "启动方式",
       hotkey: "热键",
       recent24h: "最近 24 小时",
@@ -238,6 +285,20 @@
       outputValue: "剪贴板 + 模拟粘贴",
       trigger: "触发方式",
       triggerValue: "右 Alt / 鼠标中键 / 托盘",
+      softwareSettings: "软件相关设置",
+      softwareSettingsDescription: "启动方式、输入输出、悬浮字幕和托盘行为。",
+      doubaoAsrSettings: "豆包 ASR 相关设置",
+      doubaoAsrSettingsDescription: "豆包认证、录音参数、识别请求和上下文增强。",
+      llmSettings: "大模型相关设置",
+      llmSettingsDescription: "可选文本润色能力，未启用时不会影响语音输入主流程。",
+      startAndOutput: "启动与输出",
+      floatingCaptionAndTray: "悬浮字幕与托盘",
+      doubaoAuth: "豆包认证",
+      recordingParams: "录音参数",
+      recognitionOptions: "识别选项",
+      timeColumn: "时间",
+      charsColumn: "字数",
+      durationColumn: "时长",
       configuration: "配置文件",
       resourceId: "资源 ID",
       appKey: "App Key",
@@ -294,14 +355,19 @@
       saveConfig: "保存配置",
       saving: "保存中",
       reload: "重新加载",
-      recentUsage: "近期使用",
+      recentUsage: "输入表现",
       chars24h: "24 小时字数",
       chars7d: "7 日字数",
-      avgCpm: "平均字/分钟",
+      avgCpm: "平均每分钟字数",
       weeklySavedHours: "每周节省",
-      weeklySavedHoursHint: "按中文输入约 50 字/分钟估算。",
+      weeklySavedHoursHint: "按中文输入约每分钟 50 字估算。",
       byDay: "按日统计",
       lastSevenDays: "最近七个自然日。",
+      dateColumn: "日期",
+      dailyInputChars: "输入字数",
+      voiceDuration: "语音时长",
+      averageInputSpeed: "平均输入速度",
+      dailySavedTime: "节省时间",
       recentRecords: "最近记录",
       historyDescription: "最近保存的输入记录。",
       noUsageRecords: "暂无使用记录。",
@@ -310,19 +376,46 @@
       bridgeConnected: "准备就绪。",
       configSaved: "保存成功。",
       previewRecording: "录音中。",
-      previewStopped: "等待快捷键。",
+      previewStopped: "等待语音输入",
       startupToastTitle: "声写已启动",
       startupToastHint: "{hotkey} / 右 Alt / 鼠标中键",
     },
     "zh-TW": {
       appTitle: "聲寫",
       language: "語言",
+      minimizeToTray: "最小化到系統匣",
       navOverview: "輸入",
+      voiceInputTitle: "語音輸入",
       navSettings: "配置",
       navHistory: "統計歷史",
       topEyebrow: "VoxType",
       recordingPreview: "錄音中",
       idle: "閒置",
+      clickStart: "點擊開始語音輸入",
+      clickStop: "點擊停止語音輸入",
+      quickStart: "按 {hotkey} 快速啟動",
+      speakAnywhere: "在任何輸入框直接說話",
+      mixedInput: "支援中英文混合輸入",
+      mainHotkey: "主快捷鍵",
+      enabled: "已啟用",
+      disabled: "已關閉",
+      middleMouse: "滑鼠中鍵",
+      rightAlt: "右 Alt 鍵",
+      todayInput: "今日輸入",
+      inputSpeed: "輸入速度",
+      savedTime: "節省時間",
+      perMinute: "字每分鐘",
+      savedToday: "約節省 {hours} 小時",
+      weeklySavedShort: "本週節省時間",
+      micConnected: "麥克風：{device}",
+      micMonitoring: "正在監聽：{device}",
+      micUnavailable: "未偵測到麥克風",
+      sidebarMicConnected: "麥克風：已連接",
+      sidebarMicUnavailable: "麥克風：未連接",
+      sidebarShortcut: "快捷鍵：{hotkey}",
+      usageTipEmpty: "完成一次語音輸入後，這裡會顯示真實使用統計。",
+      usageTipData: "已記錄 {sessions} 次語音輸入，共 {chars} 字。",
+      waitingVoice: "等待語音輸入",
       listeningPreview: "正在監聽麥克風，即時字幕顯示在螢幕下方。",
       pressHotkey: "按 {hotkey}、右 Alt 或滑鼠中鍵，也可從系統匣啟動，向任意輸入框語音輸入。",
       setupRequired: "需要先完成配置",
@@ -330,6 +423,7 @@
       setupMissingAuth: "ASR 認證資訊未填寫。請在配置頁填寫 App Key 和 Access Key 後儲存。",
       setupCta: "去配置",
       setupGuideCta: "查看配置指南",
+      shortcutSettings: "修改快捷鍵",
       desktopControl: "啟動方式",
       hotkey: "快捷鍵",
       recent24h: "最近 24 小時",
@@ -346,6 +440,20 @@
       outputValue: "剪貼簿 + 模擬貼上",
       trigger: "觸發方式",
       triggerValue: "右 Alt / 滑鼠中鍵 / 系統匣",
+      softwareSettings: "軟體相關設定",
+      softwareSettingsDescription: "啟動方式、輸入輸出、懸浮字幕和系統匣行為。",
+      doubaoAsrSettings: "豆包 ASR 相關設定",
+      doubaoAsrSettingsDescription: "豆包認證、錄音參數、識別請求和上下文增強。",
+      llmSettings: "大模型相關設定",
+      llmSettingsDescription: "可選文字潤飾能力，未啟用時不會影響語音輸入主流程。",
+      startAndOutput: "啟動與輸出",
+      floatingCaptionAndTray: "懸浮字幕與系統匣",
+      doubaoAuth: "豆包認證",
+      recordingParams: "錄音參數",
+      recognitionOptions: "識別選項",
+      timeColumn: "時間",
+      charsColumn: "字數",
+      durationColumn: "時長",
       configuration: "配置檔案",
       resourceId: "資源 ID",
       appKey: "App Key",
@@ -402,14 +510,19 @@
       saveConfig: "儲存配置",
       saving: "儲存中",
       reload: "重新載入",
-      recentUsage: "近期使用",
+      recentUsage: "輸入表現",
       chars24h: "24 小時字數",
       chars7d: "7 日字數",
-      avgCpm: "平均字/分鐘",
+      avgCpm: "平均每分鐘字數",
       weeklySavedHours: "每週節省",
-      weeklySavedHoursHint: "按中文輸入約 50 字/分鐘估算。",
+      weeklySavedHoursHint: "按中文輸入約每分鐘 50 字估算。",
       byDay: "按日統計",
       lastSevenDays: "最近七個自然日。",
+      dateColumn: "日期",
+      dailyInputChars: "輸入字數",
+      voiceDuration: "語音時長",
+      averageInputSpeed: "平均輸入速度",
+      dailySavedTime: "節省時間",
       recentRecords: "最近記錄",
       historyDescription: "最近保存的輸入記錄。",
       noUsageRecords: "暫無使用記錄。",
@@ -418,19 +531,46 @@
       bridgeConnected: "準備就緒。",
       configSaved: "儲存成功。",
       previewRecording: "錄音中。",
-      previewStopped: "等待快捷鍵。",
+      previewStopped: "等待語音輸入",
       startupToastTitle: "聲寫已啟動",
       startupToastHint: "{hotkey} / 右 Alt / 滑鼠中鍵",
     },
     en: {
       appTitle: "VoxType",
       language: "Language",
+      minimizeToTray: "Minimize to tray",
       navOverview: "Input",
+      voiceInputTitle: "Voice input",
       navSettings: "Settings",
       navHistory: "Stats",
       topEyebrow: "VoxType",
       recordingPreview: "Recording",
       idle: "Idle",
+      clickStart: "Click to start voice input",
+      clickStop: "Click to stop voice input",
+      quickStart: "Press {hotkey} to start quickly",
+      speakAnywhere: "Dictate into any input box",
+      mixedInput: "Supports mixed Chinese and English",
+      mainHotkey: "Primary hotkey",
+      enabled: "Enabled",
+      disabled: "Off",
+      middleMouse: "Middle mouse",
+      rightAlt: "Right Alt",
+      todayInput: "Today",
+      inputSpeed: "Input speed",
+      savedTime: "Saved time",
+      perMinute: "chars per min",
+      savedToday: "About {hours} h saved",
+      weeklySavedShort: "Saved this week",
+      micConnected: "Mic: {device}",
+      micMonitoring: "Listening: {device}",
+      micUnavailable: "No microphone detected",
+      sidebarMicConnected: "Mic: connected",
+      sidebarMicUnavailable: "Mic: unavailable",
+      sidebarShortcut: "Shortcut: {hotkey}",
+      usageTipEmpty: "After one dictation, real usage stats will appear here.",
+      usageTipData: "{sessions} dictations recorded, {chars} chars total.",
+      waitingVoice: "Waiting for voice input",
       listeningPreview: "Listening to the microphone. Live captions appear near the bottom of the screen.",
       pressHotkey: "Press {hotkey}, Right Alt, or the middle mouse button, or start from the tray.",
       setupRequired: "Setup required",
@@ -438,6 +578,7 @@
       setupMissingAuth: "ASR credentials are missing. Fill App Key and Access Key on the Settings page, then save.",
       setupCta: "Open Settings",
       setupGuideCta: "Setup Guide",
+      shortcutSettings: "Edit shortcuts",
       desktopControl: "Start methods",
       hotkey: "Hotkey",
       recent24h: "Recent 24h",
@@ -454,6 +595,20 @@
       outputValue: "Clipboard + simulated paste",
       trigger: "Trigger",
       triggerValue: "Right Alt / middle mouse / tray",
+      softwareSettings: "App settings",
+      softwareSettingsDescription: "Launch methods, output behavior, floating captions, and tray behavior.",
+      doubaoAsrSettings: "Doubao ASR settings",
+      doubaoAsrSettingsDescription: "Doubao credentials, recording parameters, recognition requests, and context.",
+      llmSettings: "LLM settings",
+      llmSettingsDescription: "Optional text polishing. When disabled, it does not affect the main dictation flow.",
+      startAndOutput: "Launch and output",
+      floatingCaptionAndTray: "Floating caption and tray",
+      doubaoAuth: "Doubao credentials",
+      recordingParams: "Recording parameters",
+      recognitionOptions: "Recognition options",
+      timeColumn: "Time",
+      charsColumn: "Chars",
+      durationColumn: "Duration",
       configuration: "Configuration",
       resourceId: "Resource ID",
       appKey: "App Key",
@@ -510,14 +665,19 @@
       saveConfig: "Save config",
       saving: "Saving",
       reload: "Reload",
-      recentUsage: "Recent usage",
+      recentUsage: "Input performance",
       chars24h: "24h chars",
       chars7d: "7d chars",
       avgCpm: "Avg cpm",
       weeklySavedHours: "Weekly saved",
-      weeklySavedHoursHint: "Estimated at 50 Chinese chars/min.",
+      weeklySavedHoursHint: "Estimated at 50 Chinese chars per min.",
       byDay: "By day",
       lastSevenDays: "Last seven calendar days.",
+      dateColumn: "Date",
+      dailyInputChars: "Input chars",
+      voiceDuration: "Voice time",
+      averageInputSpeed: "Avg input speed",
+      dailySavedTime: "Saved time",
       recentRecords: "Recent records",
       historyDescription: "Recently saved dictation records.",
       noUsageRecords: "No usage records yet.",
@@ -526,7 +686,7 @@
       bridgeConnected: "Ready.",
       configSaved: "Saved.",
       previewRecording: "Recording.",
-      previewStopped: "Waiting for shortcut.",
+      previewStopped: "Waiting for voice input",
       startupToastTitle: "VoxType is running",
       startupToastHint: "{hotkey} / Right Alt / middle mouse",
     },
@@ -550,11 +710,12 @@
   let selectedSection = $state<Section>("Overview");
   let saving = $state(false);
   let configExists = $state(true);
+  let audioLevel = $state(0);
   const initialParams = browser ? new URLSearchParams(window.location.search) : new URLSearchParams();
   let audioDevices = $state<AudioDeviceInfo[]>([]);
   let isOverlay = $state(initialParams.has("overlay"));
   let isToast = $state(initialParams.has("toast"));
-  let toastHotkey = $state(initialParams.get("hotkey") || "Ctrl+Q");
+  let toastHotkey = $state(initialParams.get("hotkey") || "Ctrl + Q");
   let overlayText = $state(defaultOverlayText);
   let overlayMode = $state<OverlayMode>("single");
   let overlayFontSize = $state(20);
@@ -567,6 +728,7 @@
   let overlayScrollTimer: number | undefined;
   let overlayPollPending = false;
   let overlaySmallLayoutLocked = false;
+  let uiCompact = $state(false);
 
   onMount(() => {
     const onError = (event: ErrorEvent) => {
@@ -584,8 +746,10 @@
     isOverlay = params.has("overlay");
     isToast = params.has("toast");
     toastHotkey = params.get("hotkey") || toastHotkey;
+    refreshMainDensity();
+    window.addEventListener("resize", refreshMainDensity);
     logFrontendEvent(
-      `mounted mode=${frontendMode()} viewport=${window.innerWidth}x${window.innerHeight} language=${navigator.language} userAgent=${navigator.userAgent}`,
+      `mounted mode=${frontendMode()} viewport=${window.innerWidth}x${window.innerHeight} dpr=${window.devicePixelRatio.toFixed(2)} compact=${uiCompact} language=${navigator.language} userAgent=${navigator.userAgent}`,
     );
     const savedLanguage = localStorage.getItem("voxtype-language");
     if (savedLanguage === "zh-CN" || savedLanguage === "zh-TW" || savedLanguage === "en") {
@@ -601,41 +765,56 @@
         void refreshOverlayText();
       }, 80);
     }
-    const unlistenSession = listen<SessionState>("session-state-changed", (event) => {
-      applySessionState(event.payload);
-    });
-    const unlistenAsr = listen<AsrFinalText>("asr-final-text", (event) => {
-      if (event.payload.error) {
-        statusMessage = event.payload.error;
-        if (isConfigError(event.payload.error)) selectedSection = "Settings";
-        return;
-      }
-      if (isOverlay && event.payload.text.trim()) {
-        applyOverlayText(event.payload.text);
-      }
-      statusMessage = t("previewStopped");
-    });
-    const unlistenPartial = listen<AsrPartialText>("asr-partial-text", (event) => {
-      if (event.payload.text.trim()) {
-        if (isOverlay) {
+    let unlisteners: Array<Promise<() => void>> = [];
+    if (hasTauriApi()) {
+      const unlistenSession = listen<SessionState>("session-state-changed", (event) => {
+        applySessionState(event.payload);
+      });
+      const unlistenAsr = listen<AsrFinalText>("asr-final-text", (event) => {
+        if (event.payload.error) {
+          statusMessage = event.payload.error;
+          if (isConfigError(event.payload.error)) selectedSection = "Settings";
+          return;
+        }
+        if (isOverlay && event.payload.text.trim()) {
           applyOverlayText(event.payload.text);
         }
-      }
-    });
-    const unlistenOverlay = listen<OverlayText>("overlay-text", (event) => {
-      applyOverlayText(event.payload.text || defaultOverlayText);
-    });
-    const unlistenStats = listen<StatsSnapshot>("usage-stats-updated", (event) => {
-      if (!isOverlay && !isToast) stats = event.payload;
-    });
-    logFrontendEvent(`listeners registered mode=${frontendMode()}`);
+        statusMessage = t("previewStopped");
+      });
+      const unlistenPartial = listen<AsrPartialText>("asr-partial-text", (event) => {
+        if (event.payload.text.trim()) {
+          if (isOverlay) {
+            applyOverlayText(event.payload.text);
+          }
+        }
+      });
+      const unlistenOverlay = listen<OverlayText>("overlay-text", (event) => {
+        applyOverlayText(event.payload.text || defaultOverlayText);
+      });
+      const unlistenStats = listen<StatsSnapshot>("usage-stats-updated", (event) => {
+        if (!isOverlay && !isToast) stats = event.payload;
+      });
+      const unlistenAudioLevel = listen<AudioLevel>("audio-level", (event) => {
+        audioLevel = clampAudioLevel(event.payload.level);
+      });
+      unlisteners = [
+        unlistenSession,
+        unlistenAsr,
+        unlistenPartial,
+        unlistenOverlay,
+        unlistenStats,
+        unlistenAudioLevel,
+      ];
+      logFrontendEvent(`listeners registered mode=${frontendMode()}`);
+    }
     return () => {
       if (overlayPoll !== undefined) window.clearInterval(overlayPoll);
       stopOverlayScroll();
+      window.removeEventListener("resize", refreshMainDensity);
       window.removeEventListener("resize", refreshOverlayLayout);
       window.removeEventListener("error", onError);
       window.removeEventListener("unhandledrejection", onUnhandledRejection);
-      void Promise.all([unlistenSession, unlistenAsr, unlistenPartial, unlistenOverlay, unlistenStats]).then((disposers) => {
+      void Promise.all(unlisteners).then((disposers) => {
         for (const dispose of disposers) dispose();
       });
     };
@@ -643,6 +822,14 @@
 
   function clonePlain<T>(value: T): T {
     return JSON.parse(JSON.stringify(value)) as T;
+  }
+
+  function refreshMainDensity() {
+    if (isOverlay || isToast) {
+      uiCompact = false;
+      return;
+    }
+    uiCompact = window.innerHeight <= 820 || window.innerWidth <= 1260;
   }
 
   async function bootstrapApp() {
@@ -665,11 +852,17 @@
     return "main";
   }
 
+  function hasTauriApi() {
+    return browser && typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+  }
+
   function logFrontendEvent(message: string) {
+    if (!hasTauriApi()) return;
     void invoke("log_frontend_event", { message: truncateLogMessage(message) }).catch(() => undefined);
   }
 
   function logFrontendError(message: string) {
+    if (!hasTauriApi()) return;
     void invoke("log_frontend_error", { message: truncateLogMessage(message) }).catch(() => undefined);
   }
 
@@ -719,6 +912,10 @@
   }
 
   async function safeInvoke<T>(command: string, args?: Record<string, unknown>): Promise<T | null> {
+    if (!hasTauriApi()) {
+      statusMessage = t("browserPreview");
+      return null;
+    }
     try {
       return await invoke<T>(command, args);
     } catch (error) {
@@ -727,6 +924,11 @@
       logFrontendError(`invoke failed command=${command}: ${formatFrontendError(error)}`);
       return null;
     }
+  }
+
+  async function toggleRecordingFromUi() {
+    const result = await safeInvoke<SessionState>("toggle_recording");
+    if (result) applySessionState(result);
   }
 
   async function refreshOverlayText() {
@@ -931,6 +1133,7 @@
 
   function applySessionState(state: SessionState) {
     recording = state.recording;
+    if (!state.recording) audioLevel = 0;
     if (isConfigError(state.message)) {
       statusMessage = state.message;
       selectedSection = "Settings";
@@ -939,24 +1142,105 @@
     statusMessage = state.recording ? t("previewRecording") : t("previewStopped");
   }
 
-  async function saveConfig() {
+  async function persistConfig() {
+    if (saving) return null;
     saving = true;
-    const result = await safeInvoke<LoadedConfig>("save_app_config", { config });
-    if (result) {
-      config = result.data;
-      configExists = result.exists;
-      statusMessage = t("configSaved");
-      await loadAll();
+    try {
+      const result = await safeInvoke<LoadedConfig>("save_app_config", { config });
+      if (result) {
+        config = result.data;
+        configExists = result.exists;
+        statusMessage = t("configSaved");
+      }
+      return result;
+    } finally {
+      saving = false;
     }
-    saving = false;
+  }
+
+  async function saveConfig() {
+    const result = await persistConfig();
+    if (result) await loadAll();
+  }
+
+  async function toggleTrigger(key: TriggerKey) {
+    if (saving) return;
+    const previous = config.triggers[key];
+    config.triggers[key] = !previous;
+    const result = await persistConfig();
+    if (!result) config.triggers[key] = previous;
+  }
+
+  function triggerLabel(enabled: boolean) {
+    return enabled ? t("enabled") : t("disabled");
+  }
+
+  function clampAudioLevel(value: number) {
+    if (!Number.isFinite(value)) return 0;
+    return Math.max(0, Math.min(1, value));
+  }
+
+  function meterLevel() {
+    return recording ? clampAudioLevel(audioLevel * 3.2) : 0;
+  }
+
+  function micBarHeight(index: number) {
+    const level = meterLevel();
+    const quietHeights = [5, 7, 9, 11, 9, 7];
+    const activeHeights = [7, 11, 15, 19, 16, 12];
+    const threshold = 0.08 + index * 0.105;
+    const target = level >= threshold ? activeHeights[index] : quietHeights[index];
+    return `${target}px`;
+  }
+
+  function micBarOpacity(index: number) {
+    if (!recording) return "0.45";
+    const level = meterLevel();
+    return level >= 0.08 + index * 0.105 ? "1" : "0.38";
+  }
+
+  function currentAudioDevice() {
+    if (audioDevices.length === 0) return null;
+    if (config.audio.input_device !== null && config.audio.input_device !== undefined) {
+      const configured = audioDevices.find((device) => device.index === config.audio.input_device);
+      if (configured) return configured;
+    }
+    return audioDevices.find((device) => device.is_default) ?? audioDevices[0];
+  }
+
+  function micStatusText() {
+    const device = currentAudioDevice();
+    if (!device) return t("micUnavailable");
+    return recording
+      ? t("micMonitoring", { device: device.name })
+      : t("micConnected", { device: device.name });
+  }
+
+  function sidebarMicStatusText() {
+    return currentAudioDevice() ? t("sidebarMicConnected") : t("sidebarMicUnavailable");
+  }
+
+  function usageTipText() {
+    if (stats.recent_7d.session_count <= 0) return t("usageTipEmpty");
+    return t("usageTipData", {
+      sessions: formatNumber(stats.recent_7d.session_count),
+      chars: formatNumber(stats.recent_7d.total_chars),
+    });
   }
 
   function formatHotkey(value: string) {
     return value
       .split("+")
-      .map((part) => part.trim().toUpperCase())
+      .map((part) => {
+        const normalized = part.trim().toLowerCase();
+        if (normalized === "ctrl" || normalized === "control") return "Ctrl";
+        if (normalized === "alt") return "Alt";
+        if (normalized === "shift") return "Shift";
+        if (normalized === "win" || normalized === "meta") return "Win";
+        return part.trim().toUpperCase();
+      })
       .filter(Boolean)
-      .join("+");
+      .join(" + ");
   }
 
   function setHotkey(value: string) {
@@ -1020,15 +1304,69 @@
     return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
   }
 
+  function formatNumber(value: number) {
+    return new Intl.NumberFormat(language).format(Math.round(value || 0));
+  }
+
+  function inputStatus() {
+    if (isConfigError(statusMessage)) return "error";
+    return recording ? "listening" : "idle";
+  }
+
+  function inputStatusLabel() {
+    const status = inputStatus();
+    if (status === "error") return t("setupRequired");
+    return recording ? t("recordingPreview") : t("idle");
+  }
+
+  function inputStatusDesc() {
+    const status = inputStatus();
+    if (status === "error") return statusMessage;
+    return recording ? t("previewRecording") : t("previewStopped");
+  }
+
   function weeklySavedHours() {
     const typingHours = stats.recent_7d.total_chars / chineseTypingCharsPerMinute / 60;
     const recordingHours = stats.recent_7d.total_seconds / 3600;
     return Math.max(0, typingHours - recordingHours);
   }
 
+  function savedHoursForUsage(usage: UsageStats) {
+    const typingHours = usage.total_chars / chineseTypingCharsPerMinute / 60;
+    const recordingHours = usage.total_seconds / 3600;
+    return Math.max(0, typingHours - recordingHours);
+  }
+
   function formatHours(hours: number) {
     if (hours < 0.05) return "0 h";
     return `${hours.toFixed(1)} h`;
+  }
+
+  function formatSavedHours(hours: number) {
+    const value = hours < 0.05 ? "0" : hours.toFixed(1);
+    if (language === "en") return `${value} h`;
+    return `${value} ${language === "zh-TW" ? "小時" : "小时"}`;
+  }
+
+  function localDateKey(date: Date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+
+  function recentSevenDayRows() {
+    const byDay = new Map(stats.by_day.map((day) => [day.day, day.stats]));
+    const today = new Date();
+    return Array.from({ length: 7 }, (_, index) => {
+      const date = new Date(today);
+      date.setDate(today.getDate() - (6 - index));
+      const day = localDateKey(date);
+      return {
+        day,
+        stats: byDay.get(day) ?? emptyUsage(),
+      };
+    });
   }
 
   function hasAuth(configValue = config) {
@@ -1092,13 +1430,18 @@
     </section>
   </main>
 {:else}
-<div class="app-frame">
-<header class="window-titlebar">
+<div class:ui-compact={uiCompact} class="app-frame">
+<header class="window-titlebar" data-tauri-drag-region>
   <div class="window-title" data-tauri-drag-region>
     <span class="window-title-mark"><Mic size={12} strokeWidth={2.6} /></span>
+    <strong data-tauri-drag-region>{t("appTitle")}</strong>
     <span data-tauri-drag-region>VoxType</span>
   </div>
   <div class="window-controls">
+    <button class="tray-action" aria-label={t("minimizeToTray")} title={t("minimizeToTray")} onclick={closeWindow}>
+      <Download size={15} />
+      <span>{t("minimizeToTray")}</span>
+    </button>
     <button aria-label="最小化" title="最小化" onclick={minimizeWindow}><Minus size={13} /></button>
     <button aria-label="最大化或还原" title="最大化或还原" onclick={toggleMaximizeWindow}><Maximize2 size={12} /></button>
     <button class="close" aria-label="关闭" title="关闭" onclick={closeWindow}><XIcon size={14} /></button>
@@ -1106,14 +1449,6 @@
 </header>
 <main class="shell">
   <aside class="sidebar">
-    <div class="brand">
-      <div class="brand-mark"><Mic size={22} /></div>
-      <div>
-        <p class="eyebrow">VoxType</p>
-        <h1>{t("appTitle")}</h1>
-      </div>
-    </div>
-
     <nav aria-label="Main sections">
       {#each navItems as item}
         {@const Icon = item.icon}
@@ -1133,16 +1468,29 @@
       </select>
     </label>
 
-    <section class="bridge-card">
+    <section class:error={inputStatus() === "error"} class:listening={recording} class="bridge-card">
       <div class="bridge-top">
-        <span class="pulse" class:recording></span>
-        <span>{recording ? t("recordingPreview") : t("idle")}</span>
+        <span class="pulse" class:recording class:error={inputStatus() === "error"}></span>
+        <span>{inputStatusLabel()}</span>
       </div>
-      <p>{statusMessage}</p>
+      <p>{inputStatusDesc()}</p>
+      <div class:active={recording} class="mic-line">
+        <span title={micStatusText()}>{sidebarMicStatusText()}</span>
+        {#if recording}
+          {#each micBars as bar}
+            <i style:height={micBarHeight(bar)} style:opacity={micBarOpacity(bar)}></i>
+          {/each}
+        {/if}
+      </div>
+      <div class="shortcut-line">{t("sidebarShortcut", { hotkey: formatHotkey(snapshot.hotkey) })}</div>
     </section>
   </aside>
 
-  <section class="content">
+  <section
+    class:overview-content={selectedSection === "Overview"}
+    class:setup-required={!configExists || !hasAuth()}
+    class="content"
+  >
     <header class="topbar">
       <div>
         <p class="eyebrow">{t("topEyebrow")}</p>
@@ -1151,166 +1499,264 @@
     </header>
 
     {#if selectedSection === "Overview"}
-      <div class="hero-grid">
-        <section class="live-panel">
-          {#if !configExists || !hasAuth()}
-            <div class="setup-alert">
-              <div>
-                <strong>{t("setupRequired")}</strong>
-                <p>{!configExists ? t("setupMissingFile") : t("setupMissingAuth")}</p>
-              </div>
-              <div class="setup-actions">
-                <button onclick={openSettings}>{t("setupCta")}</button>
-                <button class="secondary" onclick={openSetupGuide}>{t("setupGuideCta")}</button>
-              </div>
+      <section class="voice-card">
+        <div class="section-title-row">
+          <h3>{t("voiceInputTitle")}</h3>
+        </div>
+        {#if !configExists || !hasAuth()}
+          <div class="setup-alert">
+            <div>
+              <strong>{t("setupRequired")}</strong>
+              <p>{!configExists ? t("setupMissingFile") : t("setupMissingAuth")}</p>
             </div>
-          {/if}
-          <div class="caption-window">
-            <div class="caption-meta">
-              <span class="dot" class:recording></span>
-              <span>{recording ? t("recordingPreview") : t("idle")}</span>
+            <div class="setup-actions">
+              <button onclick={openSettings}>{t("setupCta")}</button>
+              <button class="secondary" onclick={openSetupGuide}>{t("setupGuideCta")}</button>
             </div>
-            <p>
-              {recording
-                ? t("listeningPreview")
-                : t("pressHotkey", { hotkey: formatHotkey(snapshot.hotkey) })}
-            </p>
           </div>
-        </section>
-
-        <section class="control-panel">
-          <div class="panel-title">
-            <Keyboard size={18} />
-            <span>{t("desktopControl")}</span>
-          </div>
-          <dl class="control-grid">
-            <div class="control-inline">
-              <div>
-                <dt>{t("hotkey")}</dt>
-                <dd>{formatHotkey(snapshot.hotkey)}</dd>
-              </div>
-              <div>
-                <dt>{t("trigger")}</dt>
-                <dd>{t("triggerValue")}</dd>
-              </div>
+        {/if}
+        <div class:listening={recording} class:error={inputStatus() === "error"} class="voice-hero">
+          <button class:listening={recording} class="mic-orb" aria-label={recording ? t("clickStop") : t("clickStart")} onclick={toggleRecordingFromUi}>
+            <span class="mic-ring"><Mic size={uiCompact ? 34 : 42} strokeWidth={2.15} /></span>
+          </button>
+          <div class="voice-copy">
+            <div class="hero-status">
+              <span class="hero-dot" class:listening={recording} class:error={inputStatus() === "error"}></span>
+              <strong>{inputStatusLabel()}</strong>
             </div>
-          </dl>
-        </section>
-      </div>
+            <h4>{recording ? t("clickStop") : t("clickStart")}</h4>
+            <p>{t("quickStart", { hotkey: formatHotkey(snapshot.hotkey) })}</p>
+            <div class="hero-features">
+              <span><MessageSquareText size={17} />{t("speakAnywhere")}</span>
+              <span><Globe2 size={17} />{t("mixedInput")}</span>
+            </div>
+          </div>
+          <button class="shortcut-help" onclick={() => (selectedSection = "Settings")}>
+            {t("shortcutSettings")}
+            <ChevronRight size={16} />
+          </button>
+        </div>
+      </section>
 
-      <section class="stats-row" aria-label="Usage summary">
-        <article class="stat green"><span>{t("recent24h")}</span><strong>{stats.recent_24h.total_chars} {t("chars")}</strong></article>
-        <article class="stat amber"><span>{t("recent7d")}</span><strong>{stats.recent_7d.total_chars} {t("chars")}</strong></article>
-        <article class="stat blue"><span>{t("avgCpm")}</span><strong>{stats.recent_7d.avg_chars_per_minute.toFixed(1)}</strong></article>
-        <article class="stat blue">
-          <span>{t("weeklySavedHours")}</span>
-          <strong>{formatHours(weeklySavedHours())}</strong>
-          <small>{t("weeklySavedHoursHint")}</small>
-        </article>
+      <section class="launch-card">
+        <div class="section-title-row">
+          <div>
+            <Keyboard size={20} />
+            <h3>{t("desktopControl")}</h3>
+          </div>
+          <button class="link-action" onclick={() => (selectedSection = "Settings")}>
+            {t("shortcutSettings")} <ChevronRight size={16} />
+          </button>
+        </div>
+        <div class="trigger-grid">
+          <label
+            class:active={config.triggers.hotkey_enabled}
+            class:disabled={saving}
+            class="trigger-item"
+          >
+            <input class="trigger-input" type="checkbox" checked={config.triggers.hotkey_enabled} disabled={saving} onchange={() => toggleTrigger("hotkey_enabled")} />
+            <span class="trigger-check">
+              {#if config.triggers.hotkey_enabled}<Check size={uiCompact ? 18 : 24} />{/if}
+            </span>
+            <div>
+              <strong>{formatHotkey(snapshot.hotkey)}</strong>
+              <p>{config.triggers.hotkey_enabled ? t("mainHotkey") : t("disabled")}</p>
+            </div>
+          </label>
+          <label
+            class:active={config.triggers.middle_mouse_enabled}
+            class:disabled={saving}
+            class="trigger-item soft"
+          >
+            <input class="trigger-input" type="checkbox" checked={config.triggers.middle_mouse_enabled} disabled={saving} onchange={() => toggleTrigger("middle_mouse_enabled")} />
+            <span class="trigger-check">
+              {#if config.triggers.middle_mouse_enabled}<Check size={uiCompact ? 18 : 24} />{/if}
+            </span>
+            <div>
+              <strong>{t("middleMouse")}</strong>
+              <p>{triggerLabel(config.triggers.middle_mouse_enabled)}</p>
+            </div>
+          </label>
+          <label
+            class:active={config.triggers.right_alt_enabled}
+            class:disabled={saving}
+            class="trigger-item soft"
+          >
+            <input class="trigger-input" type="checkbox" checked={config.triggers.right_alt_enabled} disabled={saving} onchange={() => toggleTrigger("right_alt_enabled")} />
+            <span class="trigger-check">
+              {#if config.triggers.right_alt_enabled}<Check size={uiCompact ? 18 : 24} />{/if}
+            </span>
+            <div>
+              <strong>{t("rightAlt")}</strong>
+              <p>{triggerLabel(config.triggers.right_alt_enabled)}</p>
+            </div>
+          </label>
+        </div>
+      </section>
+
+      <section class="performance-card">
+        <div class="section-title-row">
+          <h3>{t("recentUsage")}</h3>
+        </div>
+        <div class="stats-row" aria-label="Usage summary">
+          <article class="stat-card blue">
+            <span class="stat-icon"><PenLine size={uiCompact ? 16 : 20} /></span>
+            <p>{t("todayInput")}</p>
+            <strong>{formatNumber(stats.recent_24h.total_chars)} {t("chars")}</strong>
+            <small>{t("savedToday", { hours: formatHours(stats.recent_24h.total_chars / chineseTypingCharsPerMinute / 60).replace(" h", "") })}</small>
+          </article>
+          <article class="stat-card purple">
+            <span class="stat-icon"><CalendarDays size={uiCompact ? 16 : 20} /></span>
+            <p>{t("recent7d")}</p>
+            <strong>{formatNumber(stats.recent_7d.total_chars)} {t("chars")}</strong>
+            <small>{t("savedToday", { hours: formatHours(stats.recent_7d.total_chars / chineseTypingCharsPerMinute / 60).replace(" h", "") })}</small>
+          </article>
+          <article class="stat-card green">
+            <span class="stat-icon"><Zap size={uiCompact ? 16 : 20} /></span>
+            <p>{t("inputSpeed")}</p>
+            <strong>{stats.recent_7d.avg_chars_per_minute.toFixed(0)} {t("perMinute")}</strong>
+            <small>{t("avgCpm")}</small>
+          </article>
+          <article class="stat-card orange">
+            <span class="stat-icon"><Clock3 size={uiCompact ? 16 : 20} /></span>
+            <p>{t("savedTime")}</p>
+            <strong>{formatSavedHours(weeklySavedHours())}</strong>
+            <small>{t("weeklySavedShort")}</small>
+          </article>
+        </div>
+        <p class="usage-tip"><Sparkles size={15} />{usageTipText()}</p>
       </section>
     {:else if selectedSection === "Settings"}
-      <section class="page-grid">
-        <div class="form-panel wide">
-          <div class="section-heading">
-            <h3>{t("configuration")}</h3>
-            {#if !configExists || !hasAuth()}
-              <p class="setup-note">{!configExists ? t("setupMissingFile") : t("setupMissingAuth")}</p>
-              <button class="link-button" onclick={openSetupGuide}>{t("setupGuideCta")}</button>
-            {/if}
+      <section class="settings-stack">
+        <section class="settings-group">
+          <div class="settings-group-heading">
+            <h3>{t("softwareSettings")}</h3>
+            <p>{t("softwareSettingsDescription")}</p>
           </div>
-          <div class="form-grid">
-            <label><span>{t("hotkey")}</span><input value={formatHotkey(config.hotkey)} oninput={(event) => setHotkey(event.currentTarget.value)} /></label>
-            <label><span>{t("resourceId")}</span><input bind:value={config.auth.resource_id} /></label>
-            <label><span>{t("appKey")}</span><input bind:value={config.auth.app_key} /></label>
-            <label><span>{t("accessKey")}</span><input bind:value={config.auth.access_key} /></label>
-          </div>
-        </div>
 
-        <div class="form-panel">
-          <div class="section-heading"><h3>{t("audio")}</h3><p>{t("audioDescription")}</p></div>
-          <div class="form-grid compact">
-            <label><span>{t("sampleRate")}</span><input type="number" bind:value={config.audio.sample_rate} /></label>
-            <label><span>{t("channels")}</span><input type="number" bind:value={config.audio.channels} /></label>
-            <label><span>{t("segmentMs")}</span><input type="number" bind:value={config.audio.segment_ms} /></label>
-            <label><span>{t("maxSeconds")}</span><input type="number" bind:value={config.audio.max_record_seconds} /></label>
-            <label><span>{t("stopGraceMs")}</span><input type="number" bind:value={config.audio.stop_grace_ms} /></label>
-            <label>
-              <span>{t("inputDevice")}</span>
-              <select value={config.audio.input_device ?? ""} onchange={(event) => setInputDevice(event.currentTarget.value)}>
-                <option value="">{t("defaultInputDevice")}</option>
-                {#if audioDevices.length === 0}
-                  <option value="" disabled>{t("noAudioDevices")}</option>
-                {/if}
-                {#each audioDevices as device}
-                  <option value={device.index}>{device.index}: {device.name}</option>
-                {/each}
-              </select>
-            </label>
+          <div class="form-panel">
+            <div class="section-heading"><h3>{t("startAndOutput")}</h3><p>{t("typingDescription")}</p></div>
+            <div class="form-grid">
+              <label><span>{t("hotkey")}</span><input value={formatHotkey(config.hotkey)} oninput={(event) => setHotkey(event.currentTarget.value)} /></label>
+              <label><span>{t("pasteDelayMs")}</span><input type="number" bind:value={config.typing.paste_delay_ms} /></label>
+              <label><span>{t("pasteMethod")}</span><select bind:value={config.typing.paste_method}><option value="ctrl_v">Ctrl + V</option><option value="shift_insert">Shift + Insert</option><option value="clipboard_only">{t("clipboardOnly")}</option></select></label>
+            </div>
+            <div class="toggle-grid">
+              <label class="check"><input type="checkbox" bind:checked={config.triggers.hotkey_enabled} />{t("mainHotkey")}</label>
+              <label class="check"><input type="checkbox" bind:checked={config.triggers.middle_mouse_enabled} />{t("middleMouse")}</label>
+              <label class="check"><input type="checkbox" bind:checked={config.triggers.right_alt_enabled} />{t("rightAlt")}</label>
+            </div>
           </div>
-          <label class="check"><input type="checkbox" bind:checked={config.audio.mute_system_volume_while_recording} />{t("muteSystemAudio")}</label>
-        </div>
 
-        <div class="form-panel">
-          <div class="section-heading"><h3>{t("asrRequest")}</h3><p>{t("asrDescription")}</p></div>
-          <label><span>{t("websocketUrl")}</span><input bind:value={config.request.ws_url} /></label>
-          <div class="form-grid compact">
-            <label><span>{t("model")}</span><input bind:value={config.request.model_name} /></label>
-            <label><span>{t("finalTimeout")}</span><input type="number" bind:value={config.request.final_result_timeout_seconds} /></label>
+          <div class="form-panel">
+            <div class="section-heading"><h3>{t("floatingCaptionAndTray")}</h3><p>{t("interfaceDescription")}</p></div>
+            <div class="form-grid">
+              <label><span>{t("width")}</span><input type="number" bind:value={config.ui.width} /></label>
+              <label><span>{t("height")}</span><input type="number" bind:value={config.ui.height} /></label>
+              <label><span>{t("marginBottom")}</span><input type="number" bind:value={config.ui.margin_bottom} /></label>
+              <label><span>{t("opacity")}</span><input type="number" step="0.05" bind:value={config.ui.opacity} /></label>
+              <label><span>{t("scrollInterval")}</span><input type="number" bind:value={config.ui.scroll_interval_ms} /></label>
+              <label><span>{t("startupTimeout")}</span><input type="number" bind:value={config.tray.startup_message_timeout_ms} /></label>
+            </div>
+            <div class="toggle-grid">
+              <label class="check"><input type="checkbox" bind:checked={config.tray.show_startup_message} />{t("showStartupMessage")}</label>
+            </div>
           </div>
-          <div class="toggle-grid">
-            <label class="check"><input type="checkbox" bind:checked={config.request.enable_nonstream} />{t("secondPass")}</label>
-            <label class="check"><input type="checkbox" bind:checked={config.request.enable_itn} />{t("itn")}</label>
-            <label class="check"><input type="checkbox" bind:checked={config.request.enable_punc} />{t("punctuation")}</label>
-            <label class="check"><input type="checkbox" bind:checked={config.request.enable_ddc} />{t("ddc")}</label>
+        </section>
+
+        <section class="settings-group">
+          <div class="settings-group-heading">
+            <h3>{t("doubaoAsrSettings")}</h3>
+            <p>{t("doubaoAsrSettingsDescription")}</p>
           </div>
-        </div>
 
-        <div class="form-panel">
-          <div class="section-heading"><h3>{t("context")}</h3><p>{t("contextDescription")}</p></div>
-          <label><span>{t("hotwords")}</span><textarea value={config.context.hotwords.join("\n")} oninput={(event) => updateHotwords(event.currentTarget.value)}></textarea></label>
-          <label><span>{t("promptContext")}</span><textarea value={config.context.prompt_context.map((item) => item.text).join("\n")} oninput={(event) => updatePromptContext(event.currentTarget.value)}></textarea></label>
-          <label><span>{t("imageUrl")}</span><input value={config.context.image_url ?? ""} oninput={(event) => setOptionalImageUrl(event.currentTarget.value)} /></label>
-          <label class="check"><input type="checkbox" bind:checked={config.context.enable_recent_context} />{t("useRecentContext")}</label>
-        </div>
-
-        <div class="form-panel">
-          <div class="section-heading"><h3>{t("typing")}</h3><p>{t("typingDescription")}</p></div>
-          <div class="form-grid compact">
-            <label><span>{t("pasteDelayMs")}</span><input type="number" bind:value={config.typing.paste_delay_ms} /></label>
-            <label><span>{t("pasteMethod")}</span><select bind:value={config.typing.paste_method}><option value="ctrl_v">Ctrl+V</option><option value="shift_insert">Shift+Insert</option><option value="clipboard_only">{t("clipboardOnly")}</option></select></label>
+          <div class="form-panel">
+            <div class="section-heading">
+              <h3>{t("doubaoAuth")}</h3>
+              {#if !configExists || !hasAuth()}
+                <p class="setup-note">{!configExists ? t("setupMissingFile") : t("setupMissingAuth")}</p>
+                <button class="link-button" onclick={openSetupGuide}>{t("setupGuideCta")}</button>
+              {/if}
+            </div>
+            <div class="form-grid">
+              <label><span>{t("resourceId")}</span><input bind:value={config.auth.resource_id} /></label>
+              <label><span>{t("appKey")}</span><input bind:value={config.auth.app_key} /></label>
+              <label><span>{t("accessKey")}</span><input bind:value={config.auth.access_key} /></label>
+            </div>
           </div>
-        </div>
 
-        <div class="form-panel">
-          <div class="section-heading"><h3>{t("llmPostEdit")}</h3><p>{t("llmDescription")}</p></div>
-          <label class="check"><input type="checkbox" bind:checked={config.llm_post_edit.enabled} />{t("enablePolishing")}</label>
-          <div class="form-grid compact">
-            <label><span>{t("minChars")}</span><input type="number" bind:value={config.llm_post_edit.min_chars} /></label>
-            <label><span>{t("timeout")}</span><input type="number" bind:value={config.llm_post_edit.timeout_seconds} /></label>
+          <div class="form-panel">
+            <div class="section-heading"><h3>{t("recordingParams")}</h3><p>{t("audioDescription")}</p></div>
+            <div class="form-grid">
+              <label><span>{t("sampleRate")}</span><input type="number" bind:value={config.audio.sample_rate} /></label>
+              <label><span>{t("channels")}</span><input type="number" bind:value={config.audio.channels} /></label>
+              <label><span>{t("segmentMs")}</span><input type="number" bind:value={config.audio.segment_ms} /></label>
+              <label><span>{t("maxSeconds")}</span><input type="number" bind:value={config.audio.max_record_seconds} /></label>
+              <label><span>{t("stopGraceMs")}</span><input type="number" bind:value={config.audio.stop_grace_ms} /></label>
+              <label>
+                <span>{t("inputDevice")}</span>
+                <select value={config.audio.input_device ?? ""} onchange={(event) => setInputDevice(event.currentTarget.value)}>
+                  <option value="">{t("defaultInputDevice")}</option>
+                  {#if audioDevices.length === 0}
+                    <option value="" disabled>{t("noAudioDevices")}</option>
+                  {/if}
+                  {#each audioDevices as device}
+                    <option value={device.index}>{device.index}: {device.name}</option>
+                  {/each}
+                </select>
+              </label>
+            </div>
+            <div class="toggle-grid">
+              <label class="check"><input type="checkbox" bind:checked={config.audio.mute_system_volume_while_recording} />{t("muteSystemAudio")}</label>
+            </div>
           </div>
-          <label><span>Base URL</span><input bind:value={config.llm_post_edit.base_url} /></label>
-          <label><span>{t("model")}</span><input bind:value={config.llm_post_edit.model} /></label>
-          <label><span>API Key</span><input bind:value={config.llm_post_edit.api_key} /></label>
-          <label><span>{t("systemPrompt")}</span><textarea bind:value={config.llm_post_edit.system_prompt}></textarea></label>
-          <label><span>{t("userPromptTemplate")}</span><textarea bind:value={config.llm_post_edit.user_prompt_template}></textarea></label>
-        </div>
 
-        <div class="form-panel">
-          <div class="section-heading"><h3>{t("interface")}</h3><p>{t("interfaceDescription")}</p></div>
-          <div class="form-grid compact">
-            <label><span>{t("width")}</span><input type="number" bind:value={config.ui.width} /></label>
-            <label><span>{t("height")}</span><input type="number" bind:value={config.ui.height} /></label>
-            <label><span>{t("marginBottom")}</span><input type="number" bind:value={config.ui.margin_bottom} /></label>
-            <label><span>{t("opacity")}</span><input type="number" step="0.05" bind:value={config.ui.opacity} /></label>
-            <label><span>{t("scrollInterval")}</span><input type="number" bind:value={config.ui.scroll_interval_ms} /></label>
+          <div class="form-panel">
+            <div class="section-heading"><h3>{t("recognitionOptions")}</h3><p>{t("asrDescription")}</p></div>
+            <label><span>{t("websocketUrl")}</span><input bind:value={config.request.ws_url} /></label>
+            <div class="form-grid">
+              <label><span>{t("model")}</span><input bind:value={config.request.model_name} /></label>
+              <label><span>{t("finalTimeout")}</span><input type="number" bind:value={config.request.final_result_timeout_seconds} /></label>
+            </div>
+            <div class="toggle-grid">
+              <label class="check"><input type="checkbox" bind:checked={config.request.enable_nonstream} />{t("secondPass")}</label>
+              <label class="check"><input type="checkbox" bind:checked={config.request.enable_itn} />{t("itn")}</label>
+              <label class="check"><input type="checkbox" bind:checked={config.request.enable_punc} />{t("punctuation")}</label>
+              <label class="check"><input type="checkbox" bind:checked={config.request.enable_ddc} />{t("ddc")}</label>
+            </div>
           </div>
-        </div>
 
-        <div class="form-panel">
-          <div class="section-heading"><h3>{t("tray")}</h3><p>{t("trayDescription")}</p></div>
-          <label class="check"><input type="checkbox" bind:checked={config.tray.show_startup_message} />{t("showStartupMessage")}</label>
-          <label><span>{t("startupTimeout")}</span><input type="number" bind:value={config.tray.startup_message_timeout_ms} /></label>
-        </div>
+          <div class="form-panel">
+            <div class="section-heading"><h3>{t("context")}</h3><p>{t("contextDescription")}</p></div>
+            <label><span>{t("hotwords")}</span><textarea value={config.context.hotwords.join("\n")} oninput={(event) => updateHotwords(event.currentTarget.value)}></textarea></label>
+            <label><span>{t("promptContext")}</span><textarea value={config.context.prompt_context.map((item) => item.text).join("\n")} oninput={(event) => updatePromptContext(event.currentTarget.value)}></textarea></label>
+            <label><span>{t("imageUrl")}</span><input value={config.context.image_url ?? ""} oninput={(event) => setOptionalImageUrl(event.currentTarget.value)} /></label>
+            <div class="toggle-grid">
+              <label class="check"><input type="checkbox" bind:checked={config.context.enable_recent_context} />{t("useRecentContext")}</label>
+            </div>
+          </div>
+        </section>
+
+        <section class="settings-group">
+          <div class="settings-group-heading">
+            <h3>{t("llmSettings")}</h3>
+            <p>{t("llmSettingsDescription")}</p>
+          </div>
+
+          <div class="form-panel">
+            <div class="section-heading"><h3>{t("llmPostEdit")}</h3><p>{t("llmDescription")}</p></div>
+            <label class="check"><input type="checkbox" bind:checked={config.llm_post_edit.enabled} />{t("enablePolishing")}</label>
+            <div class="form-grid">
+              <label><span>{t("minChars")}</span><input type="number" bind:value={config.llm_post_edit.min_chars} /></label>
+              <label><span>{t("timeout")}</span><input type="number" bind:value={config.llm_post_edit.timeout_seconds} /></label>
+              <label><span>Base URL</span><input bind:value={config.llm_post_edit.base_url} /></label>
+              <label><span>{t("model")}</span><input bind:value={config.llm_post_edit.model} /></label>
+              <label><span>API Key</span><input bind:value={config.llm_post_edit.api_key} /></label>
+            </div>
+            <label><span>{t("systemPrompt")}</span><textarea bind:value={config.llm_post_edit.system_prompt}></textarea></label>
+            <label><span>{t("userPromptTemplate")}</span><textarea bind:value={config.llm_post_edit.user_prompt_template}></textarea></label>
+          </div>
+        </section>
 
         <div class="form-actions">
           <button class="primary" onclick={saveConfig} disabled={saving}><Save size={16} />{saving ? t("saving") : t("saveConfig")}</button>
@@ -1318,48 +1764,53 @@
         </div>
       </section>
     {:else if selectedSection === "History"}
-      <section class="page-grid">
-        <div class="form-panel">
-          <div class="section-heading"><h3>{t("recentUsage")}</h3><p>{t("lastSevenDays")}</p></div>
-          <div class="stats-row nested">
-            <article class="stat green"><span>{t("chars24h")}</span><strong>{stats.recent_24h.total_chars}</strong></article>
-            <article class="stat blue"><span>{t("chars7d")}</span><strong>{stats.recent_7d.total_chars}</strong></article>
-            <article class="stat amber"><span>{t("avgCpm")}</span><strong>{stats.recent_7d.avg_chars_per_minute.toFixed(1)}</strong></article>
-            <article class="stat blue saved-time">
-              <span>{t("weeklySavedHours")}</span>
-              <strong>{formatHours(weeklySavedHours())}</strong>
-              <small>{t("weeklySavedHoursHint")}</small>
-            </article>
-          </div>
-        </div>
-
-        <div class="form-panel">
+      <section class="history-page">
+      <section class="history-summary">
+        <article class="history-card blue">
+          <p>{t("todayInput")}</p>
+          <strong>{formatNumber(stats.recent_24h.total_chars)} {t("chars")}</strong>
+          <span>{t("savedToday", { hours: formatHours(stats.recent_24h.total_chars / chineseTypingCharsPerMinute / 60).replace(" h", "") })}</span>
+        </article>
+        <article class="history-card purple">
+          <p>{t("recent7d")}</p>
+          <strong>{formatNumber(stats.recent_7d.total_chars)} {t("chars")}</strong>
+          <span>{t("savedToday", { hours: formatHours(weeklySavedHours()).replace(" h", "") })}</span>
+        </article>
+        <article class="history-card green">
+          <p>{t("avgCpm")}</p>
+          <strong>{stats.recent_7d.avg_chars_per_minute.toFixed(0)} {t("perMinute")}</strong>
+          <span>{t("weeklySavedHoursHint")}</span>
+        </article>
+        <article class="history-card orange">
+          <p>{t("savedTime")}</p>
+          <strong>{formatSavedHours(weeklySavedHours())}</strong>
+          <span>{t("weeklySavedShort")}</span>
+        </article>
+      </section>
+      <section class="daily-panel form-panel">
           <div class="section-heading"><h3>{t("byDay")}</h3><p>{t("lastSevenDays")}</p></div>
           <div class="day-list">
-            {#each stats.by_day as day}
-              <div><span>{day.day}</span><strong>{day.stats.total_chars} {t("chars")}</strong></div>
+            <div class="day-list-head">
+              <span>{t("dateColumn")}</span>
+              <span>{t("dailyInputChars")}</span>
+              <span>{t("voiceDuration")}</span>
+              <span>{t("averageInputSpeed")}</span>
+              <span>{t("dailySavedTime")}</span>
+            </div>
+            {#each recentSevenDayRows() as day}
+              <article>
+                <span>{day.day}</span>
+                <strong>{formatNumber(day.stats.total_chars)} {t("chars")}</strong>
+                <span>{formatSeconds(day.stats.total_seconds)}</span>
+                <span>{day.stats.avg_chars_per_minute.toFixed(0)} {t("perMinute")}</span>
+                <strong>{formatSavedHours(savedHoursForUsage(day.stats))}</strong>
+              </article>
             {/each}
           </div>
-        </div>
-
-        <div class="form-panel wide">
-          <div class="section-heading"><h3>{t("recentRecords")}</h3><p>{t("historyDescription")}</p></div>
-          <div class="history-list">
-            {#if stats.history.length === 0}
-              <p class="empty">{t("noUsageRecords")}</p>
-            {:else}
-              {#each stats.history as event}
-                <article>
-                  <span>{event.created_at}</span>
-                  <strong>{event.text_chars} {t("chars")}</strong>
-                  <em>{formatSeconds(event.duration_seconds)}</em>
-                </article>
-              {/each}
-            {/if}
-          </div>
-        </div>
+      </section>
       </section>
     {/if}
+
   </section>
 </main>
 </div>
@@ -1553,323 +2004,1299 @@
       to { opacity: 1; transform: translateY(0) scale(1); }
     }
   }
-  :global(button), :global(input), :global(textarea), :global(select) { font: inherit; }
+  :global(button), :global(input), :global(textarea), :global(select) {
+    font: inherit;
+    transition: all 160ms ease;
+  }
+  :global(button) {
+    cursor: pointer;
+    border: 0;
+    background: transparent;
+  }
+  :global(:root) {
+    --primary: #2f80ed;
+    --primary-hover: #256fe0;
+    --primary-light: #eaf3ff;
+    --gradient-start: #2f80ed;
+    --gradient-end: #7c3aed;
+    --text-main: #111827;
+    --text-secondary: #64748b;
+    --text-muted: #94a3b8;
+    --bg-page: #f8fafc;
+    --bg-sidebar: #f3f8ff;
+    --bg-card: #ffffff;
+    --border: #dde6f3;
+    --border-strong: #cbd5e1;
+    --success: #10b981;
+    --warning: #f59e0b;
+    --danger: #ef4444;
+    --radius-sm: 8px;
+    --radius-md: 12px;
+    --radius-lg: 16px;
+    --radius-xl: 24px;
+    --shadow-card: 0 8px 24px rgba(15, 23, 42, 0.06);
+    --shadow-soft: 0 4px 12px rgba(15, 23, 42, 0.08);
+  }
+
+  :global(html:not(:has(.overlay-root)):not(:has(.toast-root))),
+  :global(body:not(:has(.overlay-root)):not(:has(.toast-root))) {
+    background: var(--bg-page);
+    font-family: "Microsoft YaHei", "Segoe UI", "PingFang SC", "SF Pro Display", "Noto Sans CJK SC", sans-serif;
+  }
+
   .app-frame {
     display: grid;
-    grid-template-rows: 36px minmax(0, 1fr);
+    grid-template-rows: 48px minmax(0, 1fr);
     width: 100vw;
     height: 100vh;
     overflow: hidden;
-    background: var(--canvas);
+    background: var(--bg-page);
   }
+
+  .app-frame.ui-compact {
+    grid-template-rows: 44px minmax(0, 1fr);
+  }
+
   .window-titlebar {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    min-width: 0;
-    padding: 0 8px 0 14px;
-    color: #40566b;
-    background: linear-gradient(180deg, #f9fbfd 0%, #edf5fc 100%);
-    border-bottom: 1px solid #dbe5ee;
+    height: 48px;
+    padding: 0 18px;
+    background: #ffffff;
+    border-bottom: 1px solid var(--border);
+    box-shadow: 0 1px 0 rgba(15, 23, 42, 0.02);
     user-select: none;
+    -webkit-app-region: drag;
   }
+
+  .ui-compact .window-titlebar {
+    height: 44px;
+    padding: 0 16px;
+  }
+
   .window-title {
     display: flex;
     align-items: center;
-    gap: 8px;
-    flex: 1 1 auto;
+    gap: 10px;
     min-width: 0;
-    height: 100%;
-    color: #455f78;
-    font-size: 0.78rem;
-    font-weight: 800;
-    letter-spacing: 0.02em;
+    color: var(--text-main);
+    font-size: 15px;
+    font-weight: 400;
+    text-transform: none;
   }
+
+  .window-title strong {
+    font-size: 16px;
+    font-weight: 700;
+  }
+
   .window-title-mark {
     display: grid;
-    width: 20px;
-    height: 20px;
+    width: 28px;
+    height: 28px;
+    flex: 0 0 auto;
     place-items: center;
     color: #ffffff;
-    background: var(--blue-500);
-    border: 2px solid #ffffff;
-    border-radius: 50%;
-    box-shadow: 0 0 0 4px rgba(47, 140, 255, 0.14);
+    background: linear-gradient(135deg, var(--gradient-start), var(--gradient-end));
+    border: 0;
+    border-radius: 10px;
+    box-shadow: 0 6px 16px rgba(47, 128, 237, 0.24);
   }
+
   .window-controls {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 8px;
+    flex: 0 0 auto;
+    -webkit-app-region: no-drag;
   }
+
   .window-controls button {
-    display: grid;
-    width: 34px;
-    height: 26px;
-    place-items: center;
-    color: #4d5e70;
-    background: transparent;
-    border-radius: 7px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    color: var(--text-main);
+    background: #ffffff;
+    border: 1px solid transparent;
+    border-radius: 10px;
+    transition: all 160ms ease;
+    -webkit-app-region: no-drag;
   }
-  .window-controls button:hover { background: rgba(47, 140, 255, 0.12); color: #17436d; }
-  .window-controls button.close:hover { background: #e85d67; color: #ffffff; }
+
+  .ui-compact .window-controls button {
+    width: 30px;
+    height: 30px;
+  }
+
+  .ui-compact .window-controls .tray-action {
+    width: auto;
+    padding: 0 10px;
+    font-size: 13px;
+  }
+
+  .window-controls button:hover {
+    color: var(--text-main);
+    background: #f1f5f9;
+    border-color: var(--border);
+  }
+
+  .window-controls .tray-action {
+    display: inline-flex;
+    width: auto;
+    gap: 9px;
+    padding: 0 12px;
+    color: var(--text-secondary);
+    background: #fbfdff;
+    border-color: var(--border);
+    font-size: 14px;
+    font-weight: 500;
+  }
+
+  .window-controls button.close:hover {
+    color: #ffffff;
+    background: var(--danger);
+    border-color: var(--danger);
+  }
+
   .shell {
     display: grid;
-    grid-template-columns: 220px minmax(0, 1fr);
-    width: 100%;
-    height: 100%;
+    grid-template-columns: 230px minmax(0, 1fr);
     min-height: 0;
-    margin: 0;
     overflow: hidden;
-    background: var(--canvas);
-    border: 0;
-    border-radius: 0;
-    box-shadow: none;
+    background: var(--bg-page);
   }
+
+  .ui-compact .shell {
+    grid-template-columns: 212px minmax(0, 1fr);
+  }
+
   .sidebar {
     display: flex;
     flex-direction: column;
     gap: 14px;
     min-width: 0;
-    padding: 20px 10px 14px;
-    color: var(--ink);
-    background: linear-gradient(180deg, #d8f1ff 0%, #e9f7ff 100%);
+    min-height: 0;
+    padding: 18px 20px;
     overflow: hidden;
+    background: var(--bg-sidebar);
+    border-right: 1px solid var(--border);
   }
-  .brand { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 0 10px; }
-  .brand-mark {
+
+  .ui-compact .sidebar {
+    gap: 11px;
+    padding: 14px 16px;
+  }
+
+  nav {
     display: grid;
-    width: 38px;
-    height: 38px;
-    place-items: center;
-    color: #ffffff;
-    background: var(--blue-500);
-    border: 3px solid #ffffff;
-    border-radius: 50%;
-    box-shadow: 0 2px 8px rgba(47, 140, 255, 0.28);
+    gap: 8px;
   }
-  .eyebrow { margin: 0 0 4px; color: #5e7892; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; }
-  h1, h2, h3, p { margin-top: 0; }
-  h1 { margin-bottom: 0; font-size: 1.12rem; font-weight: 800; white-space: nowrap; }
-  nav { display: grid; gap: 6px; padding: 0; }
-  button { border: 0; cursor: pointer; }
+
+  .ui-compact nav {
+    gap: 6px;
+  }
+
   nav button {
     display: flex;
     align-items: center;
-    gap: 14px;
-    width: calc(100% - 14px);
+    width: 100%;
     min-height: 42px;
-    margin: 0 7px;
+    margin: 0;
     padding: 0 14px;
-    color: #26323e;
-    background: transparent;
-    border-radius: 12px;
-    text-align: left;
-    font-size: 0.98rem;
+    gap: 12px;
+    color: var(--text-main);
+    border-radius: var(--radius-md);
+    font-size: 15px;
     font-weight: 500;
+    transition: all 160ms ease;
   }
-  nav button:hover { background: rgba(255, 255, 255, 0.58); }
+
+  .ui-compact nav button {
+    min-height: 38px;
+    padding: 0 12px;
+    font-size: 14px;
+  }
+
+  nav button:hover {
+    color: var(--primary);
+    background: var(--primary-light);
+  }
+
   nav button.active {
     color: #ffffff;
-    background: var(--blue-500);
-    box-shadow: 0 10px 22px rgba(47, 140, 255, 0.24);
+    background: var(--primary);
+    box-shadow: 0 12px 28px rgba(47, 128, 237, 0.24);
   }
+
   .language-control {
     display: grid;
-    gap: 7px;
-    margin: 2px 7px 0;
+    gap: 10px;
+    margin: 6px 0 0;
   }
-  .language-control span {
-    color: #5e7892;
-    font-size: 0.72rem;
+
+  .ui-compact .language-control {
+    gap: 8px;
+    margin-top: 4px;
+  }
+
+  .language-control span,
+  label span,
+  .stat-card p,
+  .history-card p {
+    color: var(--text-secondary);
+    font-size: 14px;
     font-weight: 700;
-    text-transform: uppercase;
+    text-transform: none;
   }
+
   .language-control select {
+    width: 100%;
+    min-height: 38px;
+    padding: 0 12px;
+    color: var(--text-main);
+    background: #ffffff;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    font-size: 15px;
+  }
+
+  .ui-compact .language-control select {
     min-height: 34px;
-    padding: 6px 8px;
-    color: #26323e;
-    background: rgba(255, 255, 255, 0.72);
-    border: 1px solid rgba(47, 140, 255, 0.16);
+    font-size: 14px;
+  }
+
+  .bridge-card {
+    display: grid;
+    gap: 7px;
+    margin: auto 0 0;
+    padding: 12px;
+    min-width: 0;
+    overflow: hidden;
+    background: #ffffff;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    box-shadow: var(--shadow-card);
+  }
+
+  .ui-compact .bridge-card {
+    gap: 6px;
+    padding: 10px;
+  }
+
+  .bridge-card.listening {
+    border-color: rgba(47, 128, 237, 0.28);
+  }
+
+  .bridge-card.error {
+    border-color: rgba(239, 68, 68, 0.28);
+  }
+
+  .bridge-top {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0;
+    min-width: 0;
+    color: var(--text-main);
+    font-size: 15px;
+    font-weight: 800;
+  }
+
+  .bridge-top span:last-child {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .bridge-card p {
+    margin: 0;
+    min-width: 0;
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.35;
+    display: -webkit-box;
+    overflow-wrap: anywhere;
+    line-clamp: 2;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .pulse {
+    width: 10px;
+    height: 10px;
+    flex: 0 0 auto;
+    background: var(--success);
+    border-radius: 999px;
+  }
+
+  .pulse.recording {
+    background: var(--primary);
+    box-shadow: 0 0 0 8px rgba(47, 128, 237, 0.14);
+  }
+
+  .pulse.error {
+    background: var(--danger);
+    box-shadow: 0 0 0 8px rgba(239, 68, 68, 0.12);
+  }
+
+  .mic-line {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    min-height: 28px;
+    padding-top: 8px;
+    color: var(--text-secondary);
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+  }
+
+  .shortcut-line {
+    min-width: 0;
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.35;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mic-line span {
+    margin-right: auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mic-line i {
+    display: block;
+    width: 4px;
+    background: var(--success);
+    border-radius: 999px;
+    transform-origin: bottom center;
+    transition: height 90ms ease, opacity 90ms ease, background-color 160ms ease;
+  }
+
+  .mic-line.active i {
+    background: var(--primary);
+  }
+
+  .content {
+    min-width: 0;
+    min-height: 0;
+    padding: 16px 20px;
+    overflow: auto;
+    overflow-x: hidden;
+    background: var(--bg-page);
+  }
+
+  .content > section,
+  .content > header {
+    width: min(100%, 1120px);
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .ui-compact .content {
+    padding: 14px 16px;
+  }
+
+  .content.overview-content {
+    display: grid;
+    gap: 14px;
+    align-content: start;
+    overflow: auto;
+  }
+
+  .ui-compact .content.overview-content {
+    gap: 12px;
+  }
+
+  .content.overview-content.setup-required {
+    overflow: auto;
+  }
+
+  .overview-content .voice-card {
+    min-height: 0;
+  }
+
+  .overview-content .launch-card {
+    min-height: 0;
+  }
+
+  .overview-content .performance-card {
+    min-height: 0;
+  }
+
+  .topbar {
+    display: none;
+  }
+
+  .voice-card,
+  .launch-card,
+  .performance-card,
+  .form-panel,
+  .history-card {
+    min-width: 0;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    box-shadow: var(--shadow-card);
+  }
+
+  .voice-card,
+  .launch-card,
+  .performance-card {
+    padding: 14px;
+    overflow: hidden;
+  }
+
+  .ui-compact .voice-card,
+  .ui-compact .launch-card,
+  .ui-compact .performance-card {
+    padding: 12px;
+  }
+
+  .launch-card,
+  .performance-card {
+    margin-top: 10px;
+  }
+
+  .overview-content .launch-card,
+  .overview-content .performance-card {
+    margin-top: 0;
+  }
+
+  .section-title-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 8px;
+    min-width: 0;
+  }
+
+  .section-title-row > div {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+  }
+
+  .section-title-row h3 {
+    margin: 0;
+    min-width: 0;
+    color: var(--text-main);
+    font-size: 17px;
+    font-weight: 800;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .ui-compact .section-title-row h3 {
+    font-size: 16px;
+  }
+
+  .voice-hero {
+    position: relative;
+    display: grid;
+    grid-template-columns: 116px minmax(0, 1fr);
+    align-items: center;
+    gap: 24px;
+    min-height: 168px;
+    height: auto;
+    padding: 22px 28px;
+    overflow: hidden;
+    color: #ffffff;
+    background: linear-gradient(135deg, var(--gradient-start) 0%, var(--gradient-end) 100%);
+    border-radius: 16px;
+    box-shadow: 0 16px 34px rgba(47, 128, 237, 0.2);
+  }
+
+  .ui-compact .voice-hero {
+    grid-template-columns: 92px minmax(0, 1fr);
+    gap: 18px;
+    min-height: 148px;
+    height: auto;
+    padding: 18px 22px;
+  }
+
+  .voice-hero::after {
+    position: absolute;
+    right: -82px;
+    bottom: -122px;
+    width: 240px;
+    height: 240px;
+    content: "";
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 999px;
+  }
+
+  .mic-orb {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    width: 108px;
+    height: 108px;
+    place-items: center;
+    color: var(--primary);
+    background: rgba(255, 255, 255, 0.18);
+    border-radius: 999px;
+    transition: all 160ms ease;
+  }
+
+  .ui-compact .mic-orb {
+    width: 88px;
+    height: 88px;
+  }
+
+  .mic-orb:hover {
+    transform: translateY(-2px);
+  }
+
+  .mic-ring {
+    display: grid;
+    width: 86px;
+    height: 86px;
+    place-items: center;
+    background: #ffffff;
+    border-radius: 999px;
+    box-shadow: 0 8px 22px rgba(15, 23, 42, 0.12);
+  }
+
+  .ui-compact .mic-ring {
+    width: 70px;
+    height: 70px;
+  }
+
+  .mic-orb.listening {
+    animation: mic-pulse 1.4s ease-in-out infinite;
+  }
+
+  .mic-orb.listening .mic-ring {
+    color: var(--danger);
+  }
+
+  .voice-copy {
+    position: relative;
+    z-index: 1;
+    min-width: 0;
+    max-width: min(100%, 640px);
+    padding-right: 150px;
+  }
+
+  .hero-status {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 7px;
+    font-size: 24px;
+    font-weight: 800;
+  }
+
+  .ui-compact .hero-status {
+    gap: 10px;
+    margin-bottom: 5px;
+    font-size: 20px;
+  }
+
+  .hero-dot {
+    width: 16px;
+    height: 16px;
+    border: 4px solid rgba(255, 255, 255, 0.55);
+    background: transparent;
+    border-radius: 999px;
+  }
+
+  .ui-compact .hero-dot {
+    width: 12px;
+    height: 12px;
+    border-width: 3px;
+  }
+
+  .hero-dot.listening {
+    background: #ffffff;
+    border-color: rgba(255, 255, 255, 0.2);
+    animation: status-blink 1s ease-in-out infinite;
+  }
+
+  .hero-dot.error {
+    background: var(--danger);
+    border-color: rgba(255, 255, 255, 0.35);
+  }
+
+  .voice-copy h4 {
+    margin: 0 0 6px;
+    color: #ffffff;
+    font-size: 19px;
+    font-weight: 700;
+    line-height: 1.25;
+  }
+
+  .ui-compact .voice-copy h4 {
+    margin-bottom: 4px;
+    font-size: 16px;
+  }
+
+  .voice-copy p {
+    margin: 0;
+    color: rgba(255, 255, 255, 0.86);
+    font-size: 14px;
+    line-height: 1.35;
+  }
+
+  .ui-compact .voice-copy p {
+    font-size: 13px;
+  }
+
+  .shortcut-help {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    z-index: 2;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    height: 30px;
+    padding: 0 10px;
+    color: #ffffff;
+    background: rgba(255, 255, 255, 0.15);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 12px;
+    font-size: 13px;
+    font-weight: 600;
+    max-width: 138px;
+    white-space: nowrap;
+  }
+
+  .ui-compact .shortcut-help {
+    top: 10px;
+    right: 10px;
+    height: 28px;
+    max-width: 126px;
+    font-size: 12px;
+  }
+
+  .ui-compact .voice-copy {
+    padding-right: 116px;
+  }
+
+  .hero-features {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 14px;
+    margin-top: 10px;
+    color: rgba(255, 255, 255, 0.94);
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .ui-compact .hero-features {
+    gap: 10px;
+    margin-top: 8px;
+    font-size: 11px;
+  }
+
+  .hero-features span {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    max-width: 100%;
+    line-height: 1.25;
+    white-space: normal;
+  }
+
+  .link-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--primary);
+    background: transparent;
+    font-size: 15px;
+    font-weight: 600;
+  }
+
+  .trigger-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .ui-compact .trigger-grid {
+    gap: 8px;
+  }
+
+  .trigger-item {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    min-height: 68px;
+    min-width: 0;
+    padding: 14px 18px;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    background: #ffffff;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: all 160ms ease;
+  }
+
+  .trigger-item:hover {
+    border-color: rgba(47, 128, 237, 0.55);
+    background: #f8fbff;
+  }
+
+  .trigger-item.disabled {
+    cursor: wait;
+    opacity: 0.72;
+  }
+
+  .trigger-item:focus-within {
+    outline: 2px solid rgba(47, 128, 237, 0.28);
+    outline-offset: 2px;
+  }
+
+  .trigger-input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .ui-compact .trigger-item {
+    min-height: 64px;
+    padding: 12px 14px;
+  }
+
+  .trigger-item.active {
+    background: var(--primary-light);
+    border-color: var(--primary);
+  }
+
+  .trigger-item.soft {
+    background: #ffffff;
+    border-color: var(--border);
+  }
+
+  .trigger-item.soft.active {
+    background: var(--primary-light);
+    border-color: var(--primary);
+  }
+
+  .trigger-check {
+    display: grid;
+    width: 32px;
+    height: 32px;
+    flex: 0 0 auto;
+    place-items: center;
+    color: #ffffff;
+    background: var(--primary);
     border-radius: 8px;
   }
-  .bridge-card {
-    margin: auto 7px 0;
-    padding: 11px;
-    background: rgba(255, 255, 255, 0.72);
-    border: 1px solid rgba(47, 140, 255, 0.14);
-    border-radius: 12px;
+
+  .ui-compact .trigger-check {
+    width: 28px;
+    height: 28px;
   }
-  .bridge-top { display: flex; align-items: center; gap: 9px; margin-bottom: 8px; font-weight: 700; }
-  .bridge-card p { margin-bottom: 0; color: #607487; font-size: 0.8rem; line-height: 1.4; }
-  .pulse, .dot { width: 9px; height: 9px; border-radius: 50%; background: #a8b8c6; }
-  .pulse.recording, .dot.recording { background: var(--blue-500); box-shadow: 0 0 0 7px rgba(47, 140, 255, 0.16); }
-  .content { min-width: 0; padding: 18px 24px 18px; overflow-y: auto; }
-  .topbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 12px; }
-  h2 { max-width: 760px; margin-bottom: 0; color: #111820; font-size: 1.36rem; line-height: 1.2; font-weight: 500; }
-  .form-actions { display: flex; gap: 10px; }
-  .form-actions button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 40px; padding: 0 14px; color: #ffffff; background: var(--blue-500); border-radius: 8px; }
-  .form-actions button:not(.primary) { color: #344150; background: #ffffff; border: 1px solid #d6dee6; }
-  .hero-grid, .page-grid { display: grid; gap: 12px; }
-  .hero-grid { grid-template-columns: minmax(0, 1.2fr) minmax(260px, 0.8fr); }
-  .page-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
-  .live-panel, .control-panel, .stat, .form-panel {
-    background: var(--panel);
-    border: 1px solid #dfe6ed;
-    border-radius: 16px;
+
+  .trigger-item.soft .trigger-check {
+    color: var(--primary);
+    background: #ffffff;
+    border: 1px solid #aebbd0;
+  }
+
+  .trigger-item:not(.active) .trigger-check {
+    color: transparent;
+    background: #ffffff;
+    border: 1px solid #aebbd0;
+  }
+
+  .trigger-item strong {
+    color: var(--text-main);
+    font-size: 16px;
+    font-weight: 700;
+    overflow-wrap: anywhere;
+  }
+
+  .ui-compact .trigger-item strong {
+    font-size: 15px;
+  }
+
+  .trigger-item p {
+    margin: 5px 0 0;
+    color: var(--text-secondary);
+    font-size: 12px;
+  }
+
+  .ui-compact .trigger-item p {
+    margin-top: 3px;
+    font-size: 11px;
+  }
+
+  .stats-row {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+    margin: 0;
+  }
+
+  .ui-compact .stats-row {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .overview-content .stats-row {
+    height: auto;
+    min-height: 0;
+  }
+
+  .stat-card {
+    position: relative;
+    min-height: 112px;
+    min-width: 0;
+    padding: 12px 14px 18px;
+    overflow: hidden;
+    background: #ffffff;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.04);
+  }
+
+  .ui-compact .stat-card {
+    min-height: 104px;
+    padding: 10px 11px 16px;
+  }
+
+  .stat-card::after {
+    position: absolute;
+    left: 14px;
+    bottom: 12px;
+    width: 42px;
+    height: 3px;
+    content: "";
+    background: currentColor;
+    border-radius: 999px;
+    opacity: 0.42;
+  }
+
+  .ui-compact .stat-card::after {
+    left: 12px;
+    bottom: 10px;
+    width: 36px;
+  }
+
+  .overview-content .stat-card {
+    height: auto;
+  }
+
+  .stat-card.blue { color: var(--primary); }
+  .stat-card.purple { color: var(--gradient-end); }
+  .stat-card.green { color: var(--success); }
+  .stat-card.orange { color: #f97316; }
+
+  .stat-icon {
+    display: grid;
+    width: 20px;
+    height: 20px;
+    place-items: center;
+    color: #ffffff;
+    background: currentColor;
+    border-radius: 7px;
+  }
+
+  .ui-compact .stat-icon {
+    width: 18px;
+    height: 18px;
+  }
+
+  .stat-card p {
+    margin: 7px 0 4px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .ui-compact .stat-card p {
+    margin: 6px 0 3px;
+  }
+
+  .stat-card strong {
+    display: block;
+    color: var(--text-main);
+    font-size: 16px;
+    font-weight: 800;
+    line-height: 1.18;
+    overflow-wrap: anywhere;
+  }
+
+  .ui-compact .stat-card strong {
+    font-size: 15px;
+  }
+
+  .stat-card small {
+    display: block;
+    margin-top: 5px;
+    color: var(--text-secondary);
+    font-size: 11px;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+  }
+
+  .ui-compact .stat-card small {
+    margin-top: 5px;
+    font-size: 11px;
+  }
+
+  .usage-tip {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    margin: 8px 0 0;
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.35;
+  }
+
+  .ui-compact .usage-tip {
+    margin-top: 6px;
+    font-size: 11px;
+  }
+
+  .settings-stack {
+    display: grid;
+    gap: 22px;
+    max-width: 1040px;
+  }
+
+  .settings-group {
+    display: grid;
+    gap: 12px;
+  }
+
+  .settings-group-heading {
+    display: grid;
+    gap: 4px;
+    padding: 0 2px;
+  }
+
+  .settings-group-heading h3 {
+    margin: 0;
+    color: var(--text-main);
+    font-size: 20px;
+    font-weight: 800;
+  }
+
+  .settings-group-heading p {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 13px;
+  }
+
+  .form-panel {
+    padding: 18px;
+    border-radius: 18px;
     box-shadow: none;
   }
-  .live-panel, .control-panel, .form-panel { padding: 16px; }
-  .wide { grid-column: 1 / -1; }
+
+  .form-panel label {
+    display: grid;
+    gap: 8px;
+    color: var(--text-secondary);
+    font-size: 14px;
+  }
+
+  .form-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 14px;
+  }
+
+  .toggle-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin-top: 14px;
+  }
+
+  .check {
+    display: flex !important;
+    grid-template-columns: none;
+    align-items: center;
+    gap: 10px;
+    min-height: 38px;
+  }
+
+  .check input {
+    width: 18px;
+    min-height: 18px;
+    accent-color: var(--primary);
+  }
+
+  .section-heading {
+    display: grid;
+    gap: 4px;
+    margin-bottom: 14px;
+  }
+
+  .section-heading h3 {
+    margin: 0;
+    margin-bottom: 6px;
+    color: var(--text-main);
+    font-size: 16px;
+    font-weight: 800;
+  }
+
+  .section-heading p {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 13px;
+  }
+
+  input,
+  textarea,
+  select {
+    width: 100%;
+    min-height: 38px;
+    padding: 0 12px;
+    color: var(--text-main);
+    background: #ffffff;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+  }
+
+  textarea {
+    min-height: 84px;
+    padding: 10px 12px;
+    resize: vertical;
+  }
+
+  input:focus,
+  textarea:focus,
+  select:focus,
+  button:focus-visible {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(47, 128, 237, 0.14);
+  }
+
+  .form-actions {
+    display: flex;
+    gap: 12px;
+    grid-column: 1 / -1;
+    justify-content: flex-end;
+  }
+
+  .form-actions button {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 38px;
+    padding: 0 16px;
+    color: var(--text-main);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+  }
+
+  .form-actions .primary {
+    color: #ffffff;
+    background: var(--primary);
+  }
+
   .setup-alert {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 14px;
-    margin-bottom: 12px;
-    padding: 12px 14px;
-    color: #17395f;
-    background: #eef7ff;
-    border: 1px solid #bfdbff;
-    border-radius: 11px;
+    gap: 16px;
+    margin-bottom: 16px;
+    padding: 14px 16px;
+    background: #fff7ed;
+    border: 1px solid #fed7aa;
+    border-radius: 14px;
   }
-  .setup-alert strong { display: block; margin-bottom: 3px; color: #10253b; font-size: 0.95rem; }
-  .setup-alert p { margin-bottom: 0; color: #607487; font-size: 0.84rem; line-height: 1.45; }
-  .setup-actions { display: flex; flex: 0 0 auto; gap: 8px; }
-  .setup-actions button {
+
+  .setup-alert strong {
+    color: var(--text-main);
+  }
+
+  .setup-alert p {
+    margin: 4px 0 0;
+    color: var(--text-secondary);
+    font-size: 14px;
+  }
+
+  .setup-actions {
+    display: flex;
+    gap: 10px;
     flex: 0 0 auto;
-    min-height: 34px;
+  }
+
+  .setup-actions button,
+  .link-button {
+    min-height: 36px;
     padding: 0 12px;
     color: #ffffff;
-    background: var(--blue-500);
-    border-radius: 8px;
-    font-size: 0.86rem;
-    font-weight: 700;
-  }
-  .setup-actions button.secondary {
-    color: #17436d;
-    background: #ffffff;
-    border: 1px solid #bfdbff;
-  }
-  .setup-note {
-    padding: 10px 11px;
-    color: #17436d !important;
-    background: #eef7ff;
-    border: 1px solid #bfdbff;
-    border-radius: 9px;
-  }
-  .link-button {
-    min-height: 32px;
-    padding: 0 10px;
-    color: #17436d;
-    background: #eef7ff;
-    border: 1px solid #bfdbff;
-    border-radius: 8px;
-    font-size: 0.84rem;
-    font-weight: 700;
-  }
-  .caption-window { min-height: 76px; padding: 13px 15px; color: #ffffff; background: linear-gradient(135deg, var(--blue-600), #4b9cff); border: 1px solid rgba(255, 255, 255, 0.38); border-radius: 11px; }
-  .caption-meta { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; color: #eaf5ff; font-size: 0.8rem; font-weight: 700; }
-  .caption-window p { max-width: 680px; margin-bottom: 0; font-size: 0.92rem; line-height: 1.45; }
-  .panel-title { display: flex; align-items: center; gap: 9px; margin-bottom: 12px; color: #17222e; font-weight: 800; }
-  dl, .form-grid, .toggle-grid { display: grid; gap: 14px; }
-  dl { margin: 0; }
-  .control-grid {
-    grid-template-columns: 1fr;
-    gap: 10px;
-  }
-  .control-grid > div {
-    padding: 10px 11px;
-    background: #f7fbff;
-    border: 1px solid #e4eef8;
+    background: var(--primary);
     border-radius: 10px;
+    font-weight: 600;
   }
-  .control-inline {
+
+  .setup-actions .secondary,
+  .link-button {
+    color: var(--primary);
+    background: var(--primary-light);
+  }
+
+  .history-page {
     display: grid;
-    grid-template-columns: minmax(92px, 0.4fr) minmax(0, 1fr);
     gap: 14px;
+    max-width: 1120px;
+  }
+
+  .history-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 12px;
+  }
+
+  .history-card {
+    min-height: 104px;
+    padding: 16px;
+  }
+
+  .history-card strong {
+    display: block;
+    margin-top: 10px;
+    color: var(--text-main);
+    font-size: 20px;
+    font-weight: 800;
+    line-height: 1.2;
+    white-space: nowrap;
+  }
+
+  .history-card span {
+    display: block;
+    margin-top: 8px;
+    color: var(--text-secondary);
+    font-size: 13px;
+  }
+
+  .history-card.blue { border-top: 4px solid var(--primary); }
+  .history-card.purple { border-top: 4px solid var(--gradient-end); }
+  .history-card.green { border-top: 4px solid var(--success); }
+  .history-card.orange { border-top: 4px solid #f97316; }
+
+  .daily-panel {
+    min-width: 0;
+    padding: 18px;
+  }
+
+  .day-list {
+    display: grid;
+    gap: 0;
+    min-width: 0;
+  }
+
+  .day-list-head,
+  .day-list article {
+    display: grid;
+    grid-template-columns: minmax(120px, 1.05fr) repeat(4, minmax(92px, 1fr));
     align-items: center;
+    gap: 12px;
+    min-height: 48px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
   }
-  .control-inline div + div {
-    padding-left: 14px;
-    border-left: 1px solid #dde8f3;
+
+  .day-list-head {
+    min-height: 34px;
+    padding-top: 0;
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 700;
   }
-  .form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .form-grid.compact { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
-  .toggle-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 14px; }
-  dt, label span, .stat span { color: var(--muted); font-size: 0.78rem; font-weight: 700; text-transform: uppercase; }
-  dd { margin: 0; color: #17222e; font-size: 0.98rem; font-weight: 800; }
-  label { display: grid; gap: 7px; margin-bottom: 14px; }
-  input, textarea, select {
-    width: 100%;
-    min-height: 40px;
-    padding: 9px 10px;
-    color: #17222e;
-    background: #ffffff;
-    border: 1px solid #d8e0e8;
-    border-radius: 8px;
-    outline: none;
+
+  .day-list article:last-child {
+    border-bottom: 0;
   }
-  textarea { min-height: 118px; resize: vertical; }
-  input:focus, textarea:focus, select:focus, button:focus-visible { border-color: var(--blue-500); box-shadow: 0 0 0 3px rgba(47, 140, 255, 0.15); }
-  .check { display: flex; align-items: center; gap: 9px; color: #344150; font-size: 0.9rem; }
-  .check input { width: 38px; min-height: 22px; accent-color: var(--blue-500); }
-  .stats-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 12px 0 0; }
-  .stats-row.nested { grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 0; }
-  .stat { padding: 14px 15px; }
-  .stat strong { color: #17222e; font-size: 1.18rem; }
-  .stat small { display: block; margin-top: 6px; color: var(--muted); font-size: 0.72rem; line-height: 1.35; }
-  .stat.green, .stat.blue, .stat.amber { border-top: 4px solid var(--blue-500); }
-  .section-heading h3 { margin-bottom: 5px; color: #17222e; font-size: 1.08rem; font-weight: 600; }
-  .section-heading p { margin-bottom: 14px; overflow-wrap: anywhere; color: var(--muted); font-size: 0.88rem; }
-  article strong, article span { display: block; }
-  article strong { color: #17222e; }
-  article span { margin-top: 3px; color: var(--muted); font-size: 0.88rem; }
-  em { flex: 0 0 auto; min-width: 68px; padding: 5px 8px; color: #17436d; background: #e8f3ff; border-radius: 6px; font-size: 0.75rem; font-style: normal; font-weight: 800; text-align: center; }
-  .day-list, .history-list { display: grid; gap: 10px; }
-  .day-list div, .history-list article { display: grid; grid-template-columns: 1fr auto auto; gap: 12px; align-items: center; min-height: 42px; padding: 10px 0; border-top: 1px solid var(--line); }
-  .empty { margin-bottom: 0; color: var(--muted); }
-  @media (max-width: 1120px) {
-    .shell { grid-template-columns: 212px minmax(0, 1fr); }
-    .content { padding: 18px 20px; }
-    .hero-grid, .page-grid { grid-template-columns: 1fr; }
-    .stats-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .topbar { align-items: flex-start; }
-    .live-panel, .control-panel, .form-panel { padding: 16px; }
+
+  .day-list span {
+    color: var(--text-secondary);
+    font-size: 14px;
   }
-  @media (max-width: 760px) {
-    .shell { grid-template-columns: 72px minmax(0, 1fr); }
-    .sidebar { gap: 14px; padding: 18px 8px 12px; align-items: center; }
-    .brand { justify-content: center; padding: 0; }
-    .brand > div, nav button span, .language-control, .bridge-card { display: none; }
-    .brand-mark { width: 42px; height: 42px; }
-    nav { width: 100%; gap: 8px; }
-    nav button {
-      justify-content: center;
-      width: 48px;
-      min-height: 48px;
-      margin: 0 auto;
-      padding: 0;
-      border-radius: 12px;
+
+  .day-list strong {
+    color: var(--text-main);
+    font-size: 15px;
+    font-weight: 800;
+  }
+
+  .day-list-head span:nth-child(n + 2),
+  .day-list article span:nth-child(n + 3),
+  .day-list article strong {
+    text-align: right;
+  }
+
+  .day-list article span:first-child {
+    text-align: left;
+  }
+
+  @keyframes mic-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.18); }
+    50% { box-shadow: 0 0 0 16px rgba(255, 255, 255, 0.08); }
+  }
+
+  @keyframes status-blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.46; }
+  }
+
+  @media (max-width: 920px) {
+    .shell { grid-template-columns: 210px minmax(0, 1fr); }
+    .content { padding: 16px; }
+    .content.overview-content { overflow: auto; }
+    .trigger-grid,
+    .stats-row,
+    .ui-compact .trigger-grid,
+    .ui-compact .stats-row {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
     }
-    .content { padding: 18px; }
-    .topbar { gap: 12px; margin-bottom: 12px; }
-    h2 { font-size: 1.35rem; }
-    .stats-row { grid-template-columns: 1fr; }
-    .stats-row.nested { grid-template-columns: 1fr; }
-    .form-grid, .form-grid.compact, .toggle-grid { grid-template-columns: 1fr; }
-  }
-  @media (max-width: 520px) {
-    .shell { grid-template-columns: 60px minmax(0, 1fr); }
-    .sidebar { padding-inline: 6px; }
-    .brand-mark { width: 38px; height: 38px; }
-    nav button { width: 42px; min-height: 42px; }
-    .content { padding: 14px; }
-    .topbar { flex-direction: column; align-items: flex-start; }
-    .caption-window p { font-size: 0.94rem; }
-    .setup-alert { align-items: stretch; flex-direction: column; }
-    .setup-actions { flex-direction: column; }
-    .setup-actions button { width: 100%; }
-    .control-inline { grid-template-columns: 1fr; gap: 10px; }
-    .control-inline div + div { padding-left: 0; padding-top: 10px; border-left: 0; border-top: 1px solid #dde8f3; }
+    .voice-hero {
+      grid-template-columns: 86px minmax(0, 1fr);
+      padding: 18px 22px;
+    }
+    .mic-orb {
+      width: 80px;
+      height: 80px;
+    }
+    .mic-ring {
+      width: 64px;
+      height: 64px;
+    }
+    .voice-copy {
+      padding-right: 106px;
+    }
+    .hero-status {
+      font-size: 21px;
+    }
+    .voice-copy h4 {
+      font-size: 16px;
+    }
+    .day-list-head,
+    .day-list article {
+      grid-template-columns: minmax(104px, 1fr) repeat(4, minmax(78px, 0.82fr));
+      gap: 8px;
+    }
   }
 </style>

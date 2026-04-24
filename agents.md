@@ -52,7 +52,7 @@ VoxType/
 
 ## 核心链路
 
-1. 触发源：`CTRL+Q`、右 Alt、鼠标中键或托盘/界面命令。
+1. 触发源：`Ctrl + Q`、右 Alt、鼠标中键或托盘/界面命令。
 2. `session.rs` 切换录音状态，显示 `overlay.rs` 悬浮字幕。
 3. `audio.rs` 采集 PCM 音频块。
 4. `asr_ws.rs` 连接豆包 WebSocket，`protocol.rs` 编码/解析二进制消息。
@@ -88,6 +88,7 @@ VoxType/
 
 - Rust 侧保持模块职责直接清楚，避免为个人项目引入复杂抽象层。
 - UI 修改优先沿用现有 Svelte 结构和蓝白配色。
+- 首页布局应保持清晰、紧凑、可适配：避免固定高度硬裁切文字；长文案、长设备名和大数字必须能换行或截断；普通内容区不得出现横向滚动条。
 - 主窗口只展示正式用户信息，不展示调试状态、内部路径或协议细节。
 - 实时字幕应显示在屏幕居下悬浮窗，不应依赖主窗口展示。
 - 主窗口关闭时隐藏到托盘；托盘菜单“退出”才是真正退出。
@@ -112,6 +113,7 @@ npm run build
 npm run scan:secrets
 
 Set-Location .\src-tauri
+cargo fmt --check
 cargo check
 cargo test
 ```
@@ -155,6 +157,7 @@ git tag --list --sort=-v:refname
 
 ```powershell
 npm run check
+npm run build
 Set-Location .\src-tauri
 cargo fmt --check
 cargo check
@@ -162,6 +165,8 @@ cargo test
 Set-Location ..
 npm run scan:secrets
 ```
+
+涉及 UI 的发布前还应至少检查首页空闲、录音中、配置缺失状态，以及 1100 × 680 和 1280 × 760 两类窗口尺寸，确认无文字遮挡、内容裁切和横向滚动条。
 
 4. 正式构建。必须使用 Tauri 构建，不要单独使用 `cargo build --release` 作为发布产物：
 
