@@ -5,18 +5,93 @@
     <link rel="icon" href="%sveltekit.assets%/favicon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>VoxType</title>
+    <style>
+      #boot-fallback {
+        position: fixed;
+        inset: 0;
+        z-index: 2147483647;
+        display: grid;
+        place-items: center;
+        overflow: hidden;
+        color: #172536;
+        background:
+          linear-gradient(120deg, rgba(47, 128, 237, 0.1), transparent 34%),
+          linear-gradient(135deg, #f7fbff 0%, #eef6ff 52%, #f9fbff 100%);
+        font-family: "Microsoft YaHei", "Segoe UI", sans-serif;
+      }
+
+      #boot-fallback-card {
+        display: grid;
+        grid-template-columns: 46px minmax(0, 1fr);
+        align-items: center;
+        gap: 14px;
+        width: min(420px, calc(100vw - 48px));
+        padding: 18px 20px;
+        background: rgba(255, 255, 255, 0.92);
+        border: 1px solid rgba(194, 214, 236, 0.9);
+        border-radius: 16px;
+        box-shadow: 0 18px 48px rgba(44, 92, 145, 0.14);
+      }
+
+      #boot-fallback-mark {
+        display: grid;
+        width: 46px;
+        height: 46px;
+        place-items: center;
+        color: #ffffff;
+        background: linear-gradient(135deg, #2f80ed, #7c3aed);
+        border-radius: 14px;
+        box-shadow: 0 10px 26px rgba(47, 128, 237, 0.22);
+      }
+
+      #boot-fallback-title {
+        margin: 0;
+        font-size: 17px;
+        font-weight: 800;
+        line-height: 1.25;
+      }
+
+      #boot-fallback-copy {
+        margin: 5px 0 0;
+        color: #5f748b;
+        font-size: 13px;
+        line-height: 1.45;
+      }
+
+      #boot-fallback-bar {
+        grid-column: 1 / -1;
+        height: 3px;
+        overflow: hidden;
+        background: #dbe9f7;
+        border-radius: 999px;
+      }
+
+      #boot-fallback-bar::after {
+        display: block;
+        width: 38%;
+        height: 100%;
+        content: "";
+        background: linear-gradient(90deg, #2f80ed, #7c3aed);
+        border-radius: inherit;
+        animation: boot-fallback-progress 1.15s ease-in-out infinite;
+      }
+
+      @keyframes boot-fallback-progress {
+        0% { transform: translateX(-110%); }
+        100% { transform: translateX(280%); }
+      }
+    </style>
     %sveltekit.head%
   </head>
   <body data-sveltekit-preload-data="hover">
-    <div
-      id="boot-fallback"
-      style="position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: #f7fbff; color: #172536; font-family: 'Microsoft YaHei', 'Segoe UI', sans-serif; z-index: 2147483647;"
-    >
-      <div style="max-width: 520px; padding: 28px 32px; border: 1px solid #d8e7f6; border-radius: 16px; background: white; box-shadow: 0 18px 50px rgba(38, 102, 165, 0.14);">
-        <div style="font-size: 24px; font-weight: 700; margin-bottom: 10px;">VoxType 正在加载</div>
-        <div style="font-size: 15px; line-height: 1.7; color: #58708a;">
-          如果长时间停留在此页面，请安装或更新 Microsoft Edge WebView2 Runtime，然后重新打开声写。
+    <div id="boot-fallback">
+      <div id="boot-fallback-card">
+        <div id="boot-fallback-mark">声</div>
+        <div>
+          <p id="boot-fallback-title">声写正在启动</p>
+          <p id="boot-fallback-copy">正在准备语音输入环境。若长时间停留，请更新 Microsoft Edge WebView2 Runtime。</p>
         </div>
+        <div id="boot-fallback-bar"></div>
       </div>
     </div>
     <div style="display: contents">%sveltekit.body%</div>

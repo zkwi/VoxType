@@ -355,6 +355,7 @@
       saveConfig: "保存配置",
       saving: "保存中",
       reload: "重新加载",
+      configReloaded: "已重新加载配置。",
       recentUsage: "输入表现",
       chars24h: "24 小时字数",
       chars7d: "7 日字数",
@@ -510,6 +511,7 @@
       saveConfig: "儲存配置",
       saving: "儲存中",
       reload: "重新載入",
+      configReloaded: "已重新載入配置。",
       recentUsage: "輸入表現",
       chars24h: "24 小時字數",
       chars7d: "7 日字數",
@@ -665,6 +667,7 @@
       saveConfig: "Save config",
       saving: "Saving",
       reload: "Reload",
+      configReloaded: "Config reloaded.",
       recentUsage: "Input performance",
       chars24h: "24h chars",
       chars7d: "7d chars",
@@ -729,6 +732,8 @@
   let overlayPollPending = false;
   let overlaySmallLayoutLocked = false;
   let uiCompact = $state(false);
+  let actionNotice = $state("");
+  let actionNoticeTimer: number | undefined;
 
   onMount(() => {
     const onError = (event: ErrorEvent) => {
@@ -809,6 +814,7 @@
     }
     return () => {
       if (overlayPoll !== undefined) window.clearInterval(overlayPoll);
+      if (actionNoticeTimer !== undefined) window.clearTimeout(actionNoticeTimer);
       stopOverlayScroll();
       window.removeEventListener("resize", refreshMainDensity);
       window.removeEventListener("resize", refreshOverlayLayout);
@@ -1102,6 +1108,7 @@
       safeInvoke<StatsSnapshot>("get_usage_stats"),
       safeInvoke<AudioDeviceInfo[]>("list_audio_input_devices"),
     ]);
+    const loadedAny = Boolean(snapshotResult || configResult || statsResult || devicesResult);
     if (snapshotResult) snapshot = snapshotResult;
     if (configResult) {
       config = configResult.data;
@@ -1120,6 +1127,7 @@
     logFrontendEvent(
       `loadAll completed mode=${frontendMode()} snapshot=${Boolean(snapshotResult)} config_loaded=${Boolean(configResult)} config_exists=${configResult?.exists ?? false} stats_records=${statsResult?.history.length ?? 0} audio_devices=${devicesResult?.length ?? 0}`,
     );
+    return loadedAny;
   }
 
   async function hydrateSession() {
@@ -1160,7 +1168,24 @@
 
   async function saveConfig() {
     const result = await persistConfig();
-    if (result) await loadAll();
+    if (result) {
+      await loadAll();
+      showActionNotice(t("configSaved"));
+    }
+  }
+
+  async function reloadConfigFromUi() {
+    const loaded = await loadAll();
+    if (loaded) showActionNotice(t("configReloaded"));
+  }
+
+  function showActionNotice(message: string) {
+    actionNotice = message;
+    if (actionNoticeTimer !== undefined) window.clearTimeout(actionNoticeTimer);
+    actionNoticeTimer = window.setTimeout(() => {
+      actionNotice = "";
+      actionNoticeTimer = undefined;
+    }, 2800);
   }
 
   async function toggleTrigger(key: TriggerKey) {
@@ -1760,7 +1785,7 @@
 
         <div class="form-actions">
           <button class="primary" onclick={saveConfig} disabled={saving}><Save size={16} />{saving ? t("saving") : t("saveConfig")}</button>
-          <button onclick={loadAll}><ShieldCheck size={16} />{t("reload")}</button>
+          <button onclick={reloadConfigFromUi}><ShieldCheck size={16} />{t("reload")}</button>
         </div>
       </section>
     {:else if selectedSection === "History"}
@@ -1813,6 +1838,12 @@
 
   </section>
 </main>
+{#if actionNotice}
+  <div class="action-notice" role="status" aria-live="polite">
+    <Check size={16} />
+    <span>{actionNotice}</span>
+  </div>
+{/if}
 </div>
 {/if}
 
@@ -2045,6 +2076,7 @@
   }
 
   .app-frame {
+    position: relative;
     display: grid;
     grid-template-rows: 48px minmax(0, 1fr);
     width: 100vw;
@@ -2721,7 +2753,7 @@
     border-radius: 12px;
     font-size: 13px;
     font-weight: 600;
-    max-width: 138px;
+    max-width: 150px;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -2736,7 +2768,7 @@
     top: 10px;
     right: 10px;
     height: 28px;
-    max-width: 126px;
+    max-width: 142px;
     font-size: 12px;
   }
 
@@ -2925,9 +2957,12 @@
 
   .stat-card {
     position: relative;
+    display: grid;
+    align-content: start;
+    gap: 3px;
     min-height: 112px;
     min-width: 0;
-    padding: 12px 14px 18px;
+    padding: 13px 14px 18px;
     overflow: hidden;
     background: #ffffff;
     border: 1px solid var(--border);
@@ -2937,7 +2972,7 @@
 
   .ui-compact .stat-card {
     min-height: 104px;
-    padding: 10px 11px 16px;
+    padding: 11px 11px 16px;
   }
 
   .stat-card::after {
@@ -2983,18 +3018,19 @@
   }
 
   .stat-card p {
-    margin: 7px 0 4px;
+    margin: 2px 0 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
   .ui-compact .stat-card p {
-    margin: 6px 0 3px;
+    margin-top: 1px;
   }
 
   .stat-card strong {
     display: block;
+    margin: 0;
     color: var(--text-main);
     font-size: 16px;
     font-weight: 800;
@@ -3008,7 +3044,7 @@
 
   .stat-card small {
     display: block;
-    margin-top: 5px;
+    margin-top: 1px;
     color: var(--text-secondary);
     font-size: 11px;
     line-height: 1.35;
@@ -3016,7 +3052,7 @@
   }
 
   .ui-compact .stat-card small {
-    margin-top: 5px;
+    margin-top: 1px;
     font-size: 11px;
   }
 
@@ -3188,6 +3224,50 @@
   .form-actions .primary {
     color: #ffffff;
     background: var(--primary);
+  }
+
+  .action-notice {
+    position: fixed;
+    right: 22px;
+    bottom: 20px;
+    z-index: 20;
+    display: inline-flex;
+    align-items: center;
+    max-width: min(340px, calc(100vw - 44px));
+    min-height: 40px;
+    gap: 8px;
+    padding: 0 14px;
+    color: #0f5132;
+    background: rgba(240, 253, 244, 0.98);
+    border: 1px solid rgba(34, 197, 94, 0.26);
+    border-radius: 12px;
+    box-shadow: 0 14px 34px rgba(15, 23, 42, 0.12);
+    font-size: 14px;
+    font-weight: 700;
+  }
+
+  .action-notice span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .action-notice {
+      animation: action-notice-enter 180ms ease-out;
+    }
+
+    @keyframes action-notice-enter {
+      from {
+        opacity: 0;
+        transform: translateY(8px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
   }
 
   .setup-alert {
