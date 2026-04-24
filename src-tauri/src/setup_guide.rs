@@ -2,7 +2,7 @@ use crate::{app_log, config};
 use tauri::{AppHandle, Manager};
 use tauri_plugin_opener::OpenerExt;
 
-pub const SETUP_GUIDE_URL: &str = "https://github.com/zkwi/ASR_IME/wiki/Setup-Guide";
+pub const SETUP_GUIDE_URL: &str = "https://github.com/zkwi/VoxType/wiki/Setup-Guide";
 
 pub fn open(app: &AppHandle) -> Result<(), String> {
     app.opener()

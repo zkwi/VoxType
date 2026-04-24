@@ -25,8 +25,8 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), String> {
         .map_err(|err| format!("创建托盘菜单失败: {}", err))?;
 
     let app_for_event = app.clone();
-    let mut builder = TrayIconBuilder::with_id("asr-ime")
-        .tooltip("ASR语音输入")
+    let mut builder = TrayIconBuilder::with_id("voxtype")
+        .tooltip("声写")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(move |app, event| match event.id().as_ref() {
@@ -71,7 +71,7 @@ pub fn show_startup_message(app: &AppHandle) {
     }
     // Tauri v2 未内置 Windows 气泡通知；这里先写日志，后续可换成 notification 插件。
     app_log::info(format!(
-        "ASR语音输入已启动，按 {} / 右Alt / 鼠标中键 开始/停止语音输入",
+        "声写已启动，按 {} / 右Alt / 鼠标中键 开始/停止语音输入",
         loaded.data.hotkey.to_uppercase()
     ));
     show_startup_toast(

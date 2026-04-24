@@ -1,10 +1,10 @@
-# ASR_IME — AI 编码助手上下文指南
+# 声写 VoxType — AI 编码助手上下文指南
 
 本文件用于帮助 AI 编码助手快速理解项目目标、架构和约定。
 
 ## 项目定位
 
-ASR_IME 是一个 Windows 桌面语音输入工具。用户在任意输入框中按下全局触发键后，程序采集麦克风音频，通过豆包流式 ASR WebSocket 获取实时转写，结束后可选调用 OpenAI 兼容 LLM 做轻度润色，最终把文本写入剪贴板并粘贴到当前焦点输入框。
+声写（VoxType）是一个 Windows 桌面语音输入工具。用户在任意输入框中按下全局触发键后，程序采集麦克风音频，通过豆包流式 ASR WebSocket 获取实时转写，结束后可选调用 OpenAI 兼容 LLM 做轻度润色，最终把文本写入剪贴板并粘贴到当前焦点输入框。
 
 当前主实现是根目录 Tauri 客户端：
 
@@ -16,7 +16,7 @@ ASR_IME 是一个 Windows 桌面语音输入工具。用户在任意输入框中
 ## 目录结构
 
 ```text
-ASR_IME/
+VoxType/
 ├── src/                         # Svelte 前端界面
 ├── src-tauri/                   # Tauri/Rust 桌面端
 │   ├── src/
@@ -192,8 +192,8 @@ git push origin vX.Y.Z
 7. 创建 GitHub Release 并上传资产。优先使用 `gh`；若没有安装，则使用 GitHub REST API。资产命名：
 
 ```text
-ASR_IME-Desktop-vX.Y.Z-windows-x64-setup.exe
-ASR_IME-Desktop-vX.Y.Z-windows-x64-portable.zip
+VoxType-vX.Y.Z-windows-x64-setup.exe
+VoxType-vX.Y.Z-windows-x64-portable.zip
 ```
 
 Release 说明应简洁列出主要变化和配置提醒，不写任何本地路径、密钥或个人配置。

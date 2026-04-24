@@ -207,12 +207,12 @@
 
   const copy = {
     "zh-CN": {
-      appTitle: "语音输入",
+      appTitle: "声写",
       language: "语言",
       navOverview: "输入",
       navSettings: "配置",
       navHistory: "统计历史",
-      topEyebrow: "ASR_IME",
+      topEyebrow: "VoxType",
       recordingPreview: "录音中",
       idle: "空闲",
       listeningPreview: "正在监听麦克风，实时字幕显示在屏幕下方。",
@@ -311,16 +311,16 @@
       configSaved: "保存成功。",
       previewRecording: "录音中。",
       previewStopped: "等待快捷键。",
-      startupToastTitle: "ASR_IME 已启动",
+      startupToastTitle: "声写已启动",
       startupToastHint: "{hotkey} / 右 Alt / 鼠标中键",
     },
     "zh-TW": {
-      appTitle: "語音輸入",
+      appTitle: "聲寫",
       language: "語言",
       navOverview: "輸入",
       navSettings: "配置",
       navHistory: "統計歷史",
-      topEyebrow: "ASR_IME",
+      topEyebrow: "VoxType",
       recordingPreview: "錄音中",
       idle: "閒置",
       listeningPreview: "正在監聽麥克風，即時字幕顯示在螢幕下方。",
@@ -419,16 +419,16 @@
       configSaved: "儲存成功。",
       previewRecording: "錄音中。",
       previewStopped: "等待快捷鍵。",
-      startupToastTitle: "ASR_IME 已啟動",
+      startupToastTitle: "聲寫已啟動",
       startupToastHint: "{hotkey} / 右 Alt / 滑鼠中鍵",
     },
     en: {
-      appTitle: "Voice Input",
+      appTitle: "VoxType",
       language: "Language",
       navOverview: "Input",
       navSettings: "Settings",
       navHistory: "Stats",
-      topEyebrow: "ASR_IME",
+      topEyebrow: "VoxType",
       recordingPreview: "Recording",
       idle: "Idle",
       listeningPreview: "Listening to the microphone. Live captions appear near the bottom of the screen.",
@@ -527,7 +527,7 @@
       configSaved: "Saved.",
       previewRecording: "Recording.",
       previewStopped: "Waiting for shortcut.",
-      startupToastTitle: "ASR_IME is running",
+      startupToastTitle: "VoxType is running",
       startupToastHint: "{hotkey} / Right Alt / middle mouse",
     },
   };
@@ -573,7 +573,7 @@
     isOverlay = params.has("overlay");
     isToast = params.has("toast");
     toastHotkey = params.get("hotkey") || toastHotkey;
-    const savedLanguage = localStorage.getItem("asr-ime-language");
+    const savedLanguage = localStorage.getItem("voxtype-language");
     if (savedLanguage === "zh-CN" || savedLanguage === "zh-TW" || savedLanguage === "en") {
       language = savedLanguage;
       statusMessage = t("bridgeLoading");
@@ -636,7 +636,7 @@
   function setLanguage(value: string) {
     if (value !== "zh-CN" && value !== "zh-TW" && value !== "en") return;
     language = value;
-    localStorage.setItem("asr-ime-language", value);
+    localStorage.setItem("voxtype-language", value);
     if (
       statusMessage === copy["zh-CN"].bridgeLoading ||
       statusMessage === copy["zh-TW"].bridgeLoading ||
@@ -990,7 +990,7 @@
 </script>
 
 <svelte:head>
-  <title>ASR_IME Desktop</title>
+  <title>VoxType</title>
 </svelte:head>
 
 {#if isOverlay}
@@ -1025,7 +1025,7 @@
 <header class="window-titlebar">
   <div class="window-title" data-tauri-drag-region>
     <span class="window-title-mark"><Mic size={12} strokeWidth={2.6} /></span>
-    <span data-tauri-drag-region>ASR_IME</span>
+    <span data-tauri-drag-region>VoxType</span>
   </div>
   <div class="window-controls">
     <button aria-label="最小化" title="最小化" onclick={minimizeWindow}><Minus size={13} /></button>
@@ -1038,7 +1038,7 @@
     <div class="brand">
       <div class="brand-mark"><Mic size={22} /></div>
       <div>
-        <p class="eyebrow">ASR_IME</p>
+        <p class="eyebrow">VoxType</p>
         <h1>{t("appTitle")}</h1>
       </div>
     </div>

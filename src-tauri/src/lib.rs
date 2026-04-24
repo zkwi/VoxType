@@ -114,7 +114,7 @@ pub fn run() {
             toggle_recording
         ])
         .setup(|app| {
-            app_log::info("ASR_IME Tauri client started.");
+            app_log::info("VoxType Tauri client started.");
             let _ = overlay::create_overlay_window(app.handle());
             if let Err(err) = tray::setup_tray(app.handle()) {
                 app_log::warn(err);

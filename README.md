@@ -1,6 +1,6 @@
-# ASR_IME
+# 声写 VoxType
 
-ASR_IME 是一个 Windows 桌面语音输入工具。把光标放到任意输入框后，按下全局热键、右 Alt 或鼠标中键开始说话，程序会录制麦克风音频，通过豆包流式 ASR WebSocket 识别语音，并将最终文本写入剪贴板后粘贴到当前输入位置。
+声写（VoxType）是一个 Windows 桌面语音输入工具。把光标放到任意输入框后，按下全局热键、右 Alt 或鼠标中键开始说话，程序会录制麦克风音频，通过豆包流式 ASR WebSocket 识别语音，并将最终文本写入剪贴板后粘贴到当前输入位置。
 
 当前代码已迁移为根目录 Tauri 项目：Rust 负责全局热键、输入钩子、音频采集、ASR 会话、剪贴板、系统托盘、悬浮字幕窗和系统音量；Svelte 负责主窗口 GUI。
 
@@ -10,19 +10,19 @@ ASR_IME 是一个 Windows 桌面语音输入工具。把光标放到任意输入
 
 主界面采用蓝白配色和紧凑侧边栏，常用状态、触发方式和最近统计集中在首页。
 
-<img src="screenshots/ScreenShot_2026-04-24_150319_363.png" alt="ASR_IME 主输入界面" width="820">
+<img src="screenshots/ScreenShot_2026-04-24_150319_363.png" alt="VoxType 主输入界面" width="820">
 
 配置页直接以文本表单展示本地配置项，便于个人项目快速修改和排查。
 
-<img src="screenshots/ScreenShot_2026-04-24_150357_064.png" alt="ASR_IME 配置界面" width="820">
+<img src="screenshots/ScreenShot_2026-04-24_150357_064.png" alt="VoxType 配置界面" width="820">
 
 统计页展示最近 24 小时、最近 7 日和按日使用情况，新识别结果写入后会刷新。
 
-<img src="screenshots/ScreenShot_2026-04-24_150402_814.png" alt="ASR_IME 统计历史界面" width="820">
+<img src="screenshots/ScreenShot_2026-04-24_150402_814.png" alt="VoxType 统计历史界面" width="820">
 
 录音过程中会在当前屏幕居下显示悬浮字幕，用于实时查看转写内容。
 
-<img src="screenshots/ScreenShot_2026-04-24_150427_629.png" alt="ASR_IME 实时字幕悬浮窗" width="560">
+<img src="screenshots/ScreenShot_2026-04-24_150427_629.png" alt="VoxType 实时字幕悬浮窗" width="560">
 
 ## 功能
 
@@ -54,7 +54,7 @@ $env:PATH="$env:USERPROFILE\.cargo\bin;$env:PATH"
 
 ## 配置
 
-首次使用可以参考配置指南：[Setup Guide](https://github.com/zkwi/ASR_IME/wiki/Setup-Guide)。如果安装版启动时找不到 `config.toml`，程序会自动打开该指南，并引导进入配置页。
+首次使用可以参考配置指南：[Setup Guide](https://github.com/zkwi/VoxType/wiki/Setup-Guide)。如果安装版启动时找不到 `config.toml`，程序会自动打开该指南，并引导进入配置页。
 
 复制配置模板：
 
@@ -117,14 +117,14 @@ npx tauri build
 正式可执行文件通常位于：
 
 ```text
-src-tauri\target\release\asr-ime-desktop.exe
+src-tauri\target\release\voxtype-desktop.exe
 ```
 
 不要直接用 `cargo build --release` 作为桌面端发布产物；那样不会先构建前端资源，可能导致窗口打开后访问开发地址失败。
 
 ## 使用
 
-1. 启动 `ASR_IME Desktop`。
+1. 启动 `VoxType`。
 2. 在配置页检查 ASR 密钥、麦克风和粘贴方式。
 3. 把光标放到目标输入框。
 4. 按 `CTRL+Q`、右 Alt 或鼠标中键开始录音。
@@ -171,7 +171,7 @@ npm run scan:secrets
 ## 目录
 
 ```text
-ASR_IME/
+VoxType/
 ├── src/                         # Svelte 主窗口界面
 ├── src-tauri/                   # Tauri/Rust 桌面端
 │   ├── src/

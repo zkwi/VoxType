@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "ASR_IME Desktop",
+  "productName": "VoxType",
   "version": "0.1.1",
-  "identifier": "com.asrime.desktop",
+  "identifier": "com.voxtype.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://127.0.0.1:18080",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "ASR_IME Desktop",
+        "title": "VoxType",
         "width": 1120,
         "height": 760,
         "minWidth": 860,
