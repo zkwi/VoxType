@@ -17,6 +17,7 @@ use tokio_tungstenite::tungstenite::Message;
 pub struct AsrFinalText {
     pub text: String,
     pub error: Option<String>,
+    pub error_code: Option<String>,
     pub warning: Option<String>,
 }
 
@@ -24,6 +25,9 @@ pub struct AsrFinalText {
 pub struct AsrPartialText {
     pub text: String,
 }
+
+const SUCCESS_OVERLAY_HOLD: Duration = Duration::from_millis(900);
+const ATTENTION_OVERLAY_HOLD: Duration = Duration::from_millis(1_800);
 
 pub fn spawn_asr_worker(
     config: AppConfig,
@@ -36,8 +40,8 @@ pub fn spawn_asr_worker(
         app_log::info("ASR worker 已启动");
         if config.auth.app_key.trim().is_empty() || config.auth.access_key.trim().is_empty() {
             let error = "ASR skipped: app_key/access_key is not configured.".to_string();
-            session.abort_from_worker(&app, &error);
-            emit_error(&app, error);
+            session.abort_from_worker_with_code(&app, &error, "ASR_AUTH_MISSING");
+            emit_error(&app, "ASR_AUTH_MISSING", error);
             return;
         }
 
@@ -49,9 +53,9 @@ pub fn spawn_asr_worker(
                     Some(&app),
                     SessionPhase::Failed,
                     &error,
-                    Some("ASR_RUNTIME_FAILED"),
+                    Some("ASR_NETWORK_FAILED"),
                 );
-                emit_error(&app, error);
+                emit_error(&app, "ASR_NETWORK_FAILED", error);
                 return;
             }
         };
@@ -66,6 +70,7 @@ pub fn spawn_asr_worker(
                 "Post-editing transcript.",
                 None,
             );
+            overlay::update_text(&app, overlay::POST_EDITING_TEXT);
             Ok::<llm_post_edit::PolishOutcome, String>(llm_post_edit::polish(&config, &text).await)
         });
         match runtime_result {
@@ -92,16 +97,22 @@ pub fn spawn_asr_worker(
                         "Pasting transcript.",
                         None,
                     );
+                    overlay::update_text(&app, overlay::PASTING_TEXT);
                     output_warning = match text_output::output_text(&text, &typing) {
                         Ok(result) => result.warning,
                         Err(err) => {
+                            let error_code = if err.contains("剪贴板") {
+                                "CLIPBOARD_WRITE_FAILED"
+                            } else {
+                                "PASTE_FAILED"
+                            };
                             session.set_phase(
                                 Some(&app),
                                 SessionPhase::Failed,
                                 &err,
-                                Some("PASTE_FAILED"),
+                                Some(error_code),
                             );
-                            emit_error(&app, err);
+                            emit_error(&app, error_code, err);
                             return;
                         }
                     };
@@ -119,7 +130,13 @@ pub fn spawn_asr_worker(
                 if text.trim().is_empty() {
                     app_log::info("ASR session finished: empty transcript");
                 }
-                overlay::hide(&app);
+                let final_overlay_text = output_warning.as_deref().unwrap_or(overlay::PASTED_TEXT);
+                let final_hold = if output_warning.is_some() {
+                    ATTENTION_OVERLAY_HOLD
+                } else {
+                    SUCCESS_OVERLAY_HOLD
+                };
+                overlay::update_text(&app, final_overlay_text);
                 session.set_phase(
                     Some(&app),
                     SessionPhase::Succeeded,
@@ -131,13 +148,17 @@ pub fn spawn_asr_worker(
                     AsrFinalText {
                         text,
                         error: None,
+                        error_code: None,
                         warning: outcome.warning.or(output_warning),
                     },
                 );
+                thread::sleep(final_hold);
+                overlay::hide(&app);
             }
             Err(err) => {
-                session.abort_from_worker(&app, &err);
-                emit_error(&app, err);
+                let error_code = classify_asr_error(&err);
+                session.abort_from_worker_with_code(&app, &err, error_code);
+                emit_error(&app, error_code, err);
             }
         }
     });
@@ -305,6 +326,7 @@ async fn run_websocket_session(
                         "Waiting for final ASR result.",
                         None,
                     );
+                    overlay::update_text(&app, overlay::WAITING_FINAL_TEXT);
                     app_log::info("ASR 音频结束包已发送");
                 }
             }
@@ -355,7 +377,7 @@ async fn run_websocket_session(
 
         if let Some(started) = final_wait_started {
             if started.elapsed() >= final_timeout {
-                break;
+                return Err("等待豆包 ASR 最终结果超时，请检查网络后重试。".to_string());
             }
         }
     }
@@ -390,18 +412,40 @@ fn normalize_live_text(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-fn emit_error(app: &AppHandle, error: String) {
+fn emit_error(app: &AppHandle, error_code: &str, error: String) {
     app_log::warn(&error);
-    overlay::update_text(app, format!("识别失败: {}", error));
+    let message = if error_code == "PASTE_FAILED" {
+        overlay::PASTE_FAILED_TEXT.to_string()
+    } else {
+        format!("识别失败: {}", error)
+    };
+    overlay::update_text(app, message);
+    thread::sleep(ATTENTION_OVERLAY_HOLD);
     overlay::hide(app);
     let _ = app.emit(
         "asr-final-text",
         AsrFinalText {
             text: String::new(),
             error: Some(error),
+            error_code: Some(error_code.to_string()),
             warning: None,
         },
     );
+}
+
+fn classify_asr_error(error: &str) -> &'static str {
+    if error.contains("认证")
+        || error.contains("权限")
+        || error.contains("App Key")
+        || error.contains("Access Key")
+        || error.contains("Resource ID")
+    {
+        "ASR_AUTH_MISSING"
+    } else if error.contains("超时") || error.to_ascii_lowercase().contains("timeout") {
+        "ASR_FINAL_TIMEOUT"
+    } else {
+        "ASR_NETWORK_FAILED"
+    }
 }
 
 fn is_success_code(code: i32) -> bool {

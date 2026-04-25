@@ -51,12 +51,7 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), String> {
                     app_log::warn(err);
                 }
             }
-            EXIT_ID => {
-                crate::hotkey::stop_input_threads();
-                let controller = app.state::<SessionController>().inner().clone();
-                controller.abort_from_worker(app, "Application exiting.");
-                app.exit(0);
-            }
+            EXIT_ID => exit_app(app),
             _ => {}
         })
         .on_tray_icon_event(move |_tray, event| {
@@ -117,6 +112,13 @@ pub fn open_log_file(app: &AppHandle) -> Result<(), String> {
 
 pub fn open_log_file_from_main(app: &AppHandle) -> Result<(), String> {
     open_log_file_with_source(app, "主窗口")
+}
+
+pub fn exit_app(app: &AppHandle) {
+    crate::hotkey::stop_input_threads();
+    let controller = app.state::<SessionController>().inner().clone();
+    controller.abort_from_worker(app, "Application exiting.");
+    app.exit(0);
 }
 
 fn open_log_file_with_source(app: &AppHandle, source: &str) -> Result<(), String> {

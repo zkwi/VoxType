@@ -137,6 +137,10 @@ scroll_interval_ms = 1200
 # 启动后是否显示托盘提示
 show_startup_message = true
 startup_message_timeout_ms = 6000
+# 关闭主窗口时的行为：close_to_tray / direct_exit / ask_every_time
+close_behavior = "close_to_tray"
+# 是否已经显示过关闭到托盘的首次提示
+close_to_tray_notice_shown = false
 
 [debug]
 # 是否把最终转写结果同时打印到控制台；默认关闭，避免控制台泄露识别正文

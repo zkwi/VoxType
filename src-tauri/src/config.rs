@@ -191,6 +191,10 @@ pub struct TrayConfig {
     pub show_startup_message: bool,
     #[serde(default = "default_startup_message_timeout_ms")]
     pub startup_message_timeout_ms: u64,
+    #[serde(default = "default_close_behavior")]
+    pub close_behavior: String,
+    #[serde(default)]
+    pub close_to_tray_notice_shown: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -204,6 +208,12 @@ pub struct LoadedConfig {
     pub path: String,
     pub exists: bool,
     pub data: AppConfig,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ConfigValidationError {
+    pub field: String,
+    pub message: String,
 }
 
 impl Default for AppConfig {
@@ -347,6 +357,8 @@ impl Default for TrayConfig {
         Self {
             show_startup_message: true,
             startup_message_timeout_ms: default_startup_message_timeout_ms(),
+            close_behavior: default_close_behavior(),
+            close_to_tray_notice_shown: false,
         }
     }
 }
@@ -423,6 +435,7 @@ pub fn load_config() -> Result<LoadedConfig, String> {
 }
 
 pub fn save_config(config: AppConfig) -> Result<LoadedConfig, String> {
+    validate_config(&config).map_err(format_validation_errors)?;
     let path = resolve_config_path();
     let text = toml::to_string_pretty(&config).map_err(|err| format!("序列化配置失败: {}", err))?;
     if let Some(parent) = path.parent() {
@@ -457,6 +470,173 @@ pub fn remember_recent_context(text: &str) -> Result<(), String> {
         .recent_context
         .truncate(loaded.data.context.recent_context_rounds);
     save_config(loaded.data).map(|_| ())
+}
+
+pub fn validate_config(config: &AppConfig) -> Result<(), Vec<ConfigValidationError>> {
+    let mut errors = Vec::new();
+
+    validate_u32_range(
+        &mut errors,
+        "audio.sample_rate",
+        config.audio.sample_rate,
+        8_000,
+        96_000,
+        "采样率需在 8000 到 96000 之间。",
+    );
+    validate_u16_range(
+        &mut errors,
+        "audio.channels",
+        config.audio.channels,
+        1,
+        2,
+        "声道数只能填写 1 或 2。",
+    );
+    validate_u64_range(
+        &mut errors,
+        "audio.segment_ms",
+        config.audio.segment_ms,
+        20,
+        2_000,
+        "分片毫秒需在 20 到 2000 之间。",
+    );
+    validate_u64_range(
+        &mut errors,
+        "audio.max_record_seconds",
+        config.audio.max_record_seconds,
+        1,
+        3_600,
+        "最长录音秒数需在 1 到 3600 之间。",
+    );
+    validate_u64_range(
+        &mut errors,
+        "audio.stop_grace_ms",
+        config.audio.stop_grace_ms,
+        0,
+        10_000,
+        "停止收尾毫秒需在 0 到 10000 之间。",
+    );
+    validate_u64_range(
+        &mut errors,
+        "typing.paste_delay_ms",
+        config.typing.paste_delay_ms,
+        0,
+        5_000,
+        "粘贴延迟需在 0 到 5000 毫秒之间。",
+    );
+    validate_f64_range(
+        &mut errors,
+        "request.final_result_timeout_seconds",
+        config.request.final_result_timeout_seconds,
+        1.0,
+        120.0,
+        "最终结果等待时间需在 1 到 120 秒之间。",
+    );
+    validate_f64_range(
+        &mut errors,
+        "ui.opacity",
+        config.ui.opacity,
+        0.05,
+        1.0,
+        "悬浮窗透明度需大于 0 且不超过 1。",
+    );
+    validate_u32_range(
+        &mut errors,
+        "ui.width",
+        config.ui.width,
+        160,
+        1_200,
+        "悬浮窗宽度需在 160 到 1200 之间。",
+    );
+    validate_u32_range(
+        &mut errors,
+        "ui.height",
+        config.ui.height,
+        40,
+        400,
+        "悬浮窗高度需在 40 到 400 之间。",
+    );
+    validate_f64_range(
+        &mut errors,
+        "llm_post_edit.timeout_seconds",
+        config.llm_post_edit.timeout_seconds,
+        1.0,
+        300.0,
+        "大模型超时时间需在 1 到 300 秒之间。",
+    );
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
+}
+
+fn validate_u32_range(
+    errors: &mut Vec<ConfigValidationError>,
+    field: &str,
+    value: u32,
+    min: u32,
+    max: u32,
+    message: &str,
+) {
+    if value < min || value > max {
+        push_validation_error(errors, field, message);
+    }
+}
+
+fn validate_u16_range(
+    errors: &mut Vec<ConfigValidationError>,
+    field: &str,
+    value: u16,
+    min: u16,
+    max: u16,
+    message: &str,
+) {
+    if value < min || value > max {
+        push_validation_error(errors, field, message);
+    }
+}
+
+fn validate_u64_range(
+    errors: &mut Vec<ConfigValidationError>,
+    field: &str,
+    value: u64,
+    min: u64,
+    max: u64,
+    message: &str,
+) {
+    if value < min || value > max {
+        push_validation_error(errors, field, message);
+    }
+}
+
+fn validate_f64_range(
+    errors: &mut Vec<ConfigValidationError>,
+    field: &str,
+    value: f64,
+    min: f64,
+    max: f64,
+    message: &str,
+) {
+    if !value.is_finite() || value < min || value > max {
+        push_validation_error(errors, field, message);
+    }
+}
+
+fn push_validation_error(errors: &mut Vec<ConfigValidationError>, field: &str, message: &str) {
+    errors.push(ConfigValidationError {
+        field: field.to_string(),
+        message: message.to_string(),
+    });
+}
+
+fn format_validation_errors(errors: Vec<ConfigValidationError>) -> String {
+    let summary = errors
+        .iter()
+        .map(|error| format!("{}: {}", error.field, error.message))
+        .collect::<Vec<_>>()
+        .join("; ");
+    format!("配置存在不合法字段，请修改后再保存。{}", summary)
 }
 
 fn sanitize_recent_context_text(text: &str) -> String {
@@ -565,10 +745,13 @@ fn default_scroll_interval_ms() -> u64 {
 fn default_startup_message_timeout_ms() -> u64 {
     6000
 }
+fn default_close_behavior() -> String {
+    "close_to_tray".to_string()
+}
 
 #[cfg(test)]
 mod tests {
-    use super::AppConfig;
+    use super::{validate_config, AppConfig};
 
     #[test]
     fn defaults_are_conservative_for_consumer_use() {
@@ -582,5 +765,34 @@ mod tests {
         assert!(config.typing.restore_clipboard_after_paste);
         assert_eq!(config.typing.clipboard_open_retry_count, 5);
         assert_eq!(config.typing.clipboard_open_retry_interval_ms, 50);
+    }
+
+    #[test]
+    fn validates_obviously_invalid_fields() {
+        let mut config = AppConfig::default();
+        config.audio.sample_rate = 0;
+        config.audio.channels = 0;
+        config.typing.paste_delay_ms = 9_999;
+        config.request.final_result_timeout_seconds = 0.0;
+        config.ui.opacity = 2.0;
+        config.llm_post_edit.timeout_seconds = f64::NAN;
+
+        let errors = validate_config(&config).expect_err("invalid config should fail");
+        let fields = errors
+            .iter()
+            .map(|error| error.field.as_str())
+            .collect::<Vec<_>>();
+
+        assert!(fields.contains(&"audio.sample_rate"));
+        assert!(fields.contains(&"audio.channels"));
+        assert!(fields.contains(&"typing.paste_delay_ms"));
+        assert!(fields.contains(&"request.final_result_timeout_seconds"));
+        assert!(fields.contains(&"ui.opacity"));
+        assert!(fields.contains(&"llm_post_edit.timeout_seconds"));
+    }
+
+    #[test]
+    fn accepts_default_config() {
+        assert!(validate_config(&AppConfig::default()).is_ok());
     }
 }

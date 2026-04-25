@@ -2,7 +2,7 @@ use crate::{app_log, config::TypingConfig};
 use std::mem::size_of;
 use std::thread;
 use std::time::Duration;
-use windows::Win32::Foundation::{HANDLE, HGLOBAL};
+use windows::Win32::Foundation::{GlobalFree, HANDLE, HGLOBAL};
 use windows::Win32::System::DataExchange::{
     CloseClipboard, EmptyClipboard, GetClipboardData, IsClipboardFormatAvailable, OpenClipboard,
     SetClipboardData,
@@ -156,19 +156,30 @@ fn write_clipboard_text(text: &str) -> Result<(), String> {
             .map_err(|err| format!("分配剪贴板内存失败: {}", err))?;
         let locked = GlobalLock(memory) as *mut u16;
         if locked.is_null() {
+            let _ = GlobalFree(Some(memory));
             return Err("锁定剪贴板内存失败".to_string());
         }
         std::ptr::copy_nonoverlapping(utf16.as_ptr(), locked, utf16.len());
         let _ = GlobalUnlock(memory);
 
-        OpenClipboard(None).map_err(|err| format!("打开剪贴板失败: {}", err))?;
-        let result = (|| {
-            EmptyClipboard().map_err(|err| format!("清空剪贴板失败: {}", err))?;
-            SetClipboardData(CF_UNICODETEXT, Some(HANDLE(memory.0)))
-                .map_err(|err| format!("写入剪贴板失败: {}", err))?;
-            Ok(())
-        })();
-        let _ = CloseClipboard();
+        let mut clipboard_owns_memory = false;
+        let result = match OpenClipboard(None) {
+            Ok(()) => {
+                let result = (|| {
+                    EmptyClipboard().map_err(|err| format!("清空剪贴板失败: {}", err))?;
+                    SetClipboardData(CF_UNICODETEXT, Some(HANDLE(memory.0)))
+                        .map_err(|err| format!("写入剪贴板失败: {}", err))?;
+                    clipboard_owns_memory = true;
+                    Ok(())
+                })();
+                let _ = CloseClipboard();
+                result
+            }
+            Err(err) => Err(format!("打开剪贴板失败: {}", err)),
+        };
+        if result.is_err() && !clipboard_owns_memory {
+            let _ = GlobalFree(Some(memory));
+        }
         result
     }
 }

@@ -105,6 +105,11 @@ impl SessionController {
             } else {
                 "未找到 config.toml。请先在配置页填写豆包认证信息并保存，或复制 config.example.toml 为 config.toml 后手动编辑。"
             };
+            let error_code = if loaded.exists {
+                "ASR_AUTH_MISSING"
+            } else {
+                "CONFIG_MISSING"
+            };
             app_log::warn(format!(
                 "录音启动被拦截: config_exists={}, auth_ready=false",
                 loaded.exists
@@ -113,14 +118,9 @@ impl SessionController {
                 recording: false,
                 phase: SessionPhase::Failed,
                 message: message.to_string(),
-                error_code: Some("ASR_AUTH_MISSING".to_string()),
+                error_code: Some(error_code.to_string()),
             };
-            self.set_state_values(
-                false,
-                SessionPhase::Failed,
-                message,
-                Some("ASR_AUTH_MISSING"),
-            );
+            self.set_state_values(false, SessionPhase::Failed, message, Some(error_code));
             if let Some(app) = app.as_ref() {
                 emit_state(Some(app), &state);
             }
@@ -182,12 +182,19 @@ impl SessionController {
         {
             Ok(capture) => capture,
             Err(err) => {
+                let error_code =
+                    if err.contains("未找到") || err.contains("找不到") || err.contains("没有可用")
+                    {
+                        "MIC_DEVICE_NOT_FOUND"
+                    } else {
+                        "MIC_START_FAILED"
+                    };
                 system_audio::safe_restore(volume_state);
                 let state = self.force_stop_generation(
                     generation,
                     SessionPhase::Failed,
                     "Recording failed to start.",
-                    Some("MIC_START_FAILED"),
+                    Some(error_code),
                 );
                 if let Some(app) = app.as_ref() {
                     overlay::update_text(app, format!("启动录音失败: {}", err));
@@ -198,7 +205,7 @@ impl SessionController {
                             recording: false,
                             phase: SessionPhase::Failed,
                             message: format!("Recording failed: {}", err),
-                            error_code: Some("MIC_START_FAILED".to_string()),
+                            error_code: Some(error_code.to_string()),
                         }),
                     );
                 }
@@ -255,6 +262,9 @@ impl SessionController {
             error_code: None,
         };
         app_log::info("录音会话已开始");
+        if let Some(app) = app.as_ref() {
+            overlay::update_text(app, overlay::RECORDING_TEXT);
+        }
         emit_state(app.as_ref(), &state);
         if let Some(app) = app.clone() {
             asr_ws::spawn_asr_worker(runtime_config, audio_rx, started_at, app, self.clone());
@@ -270,6 +280,7 @@ impl SessionController {
                 None,
             );
             if let (Some(app), Some(state)) = (app, stopped) {
+                overlay::update_text(&app, overlay::WAITING_FINAL_TEXT);
                 emit_state(Some(&app), &state);
             }
         });
@@ -283,6 +294,9 @@ impl SessionController {
         if grace_ms == 0 {
             let state =
                 self.force_stop(SessionPhase::WaitingFinalResult, "Recording stopped.", None);
+            if let Some(app) = app.as_ref() {
+                overlay::update_text(app, overlay::WAITING_FINAL_TEXT);
+            }
             emit_state(app.as_ref(), &state);
             return Ok(state);
         }
@@ -307,6 +321,9 @@ impl SessionController {
                 "Recording is stopping.",
                 None,
             );
+            if let Some(app) = app.as_ref() {
+                overlay::update_text(app, overlay::STOPPING_TEXT);
+            }
             let inner = self
                 .inner
                 .lock()
@@ -325,6 +342,7 @@ impl SessionController {
                 None,
             );
             if let (Some(app), Some(state)) = (app, stopped) {
+                overlay::update_text(&app, overlay::WAITING_FINAL_TEXT);
                 emit_state(Some(&app), &state);
             }
         });
@@ -414,8 +432,11 @@ impl SessionController {
     }
 
     pub fn abort_from_worker(&self, app: &AppHandle, message: &str) {
-        let state = self.force_stop(SessionPhase::Failed, message, Some("SESSION_FAILED"));
-        overlay::hide(app);
+        self.abort_from_worker_with_code(app, message, "SESSION_FAILED");
+    }
+
+    pub fn abort_from_worker_with_code(&self, app: &AppHandle, message: &str, error_code: &str) {
+        let state = self.force_stop(SessionPhase::Failed, message, Some(error_code));
         emit_state(Some(app), &state);
     }
 

@@ -47,7 +47,7 @@ pub fn start_global_hotkey_thread(app: AppHandle) {
     thread::spawn(move || {
         if let Err(err) = run_global_hotkey_loop(app.clone()) {
             app_log::warn(format!(
-                "global hotkey thread failed: {}。如果提示热键已注册，通常是已有 VoxType 实例或其他软件占用了该快捷键；右 Alt / 鼠标中键仍会继续工作。",
+                "HOTKEY_REGISTER_FAILED: global hotkey thread failed: {}。如果提示热键已注册，通常是已有 VoxType 实例或其他软件占用了该快捷键；右 Alt / 鼠标中键仍会继续工作。",
                 err
             ));
         }

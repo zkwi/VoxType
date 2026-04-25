@@ -20,7 +20,7 @@ use config::{AppConfig, LoadedConfig};
 use serde::Serialize;
 use session::SessionController;
 use stats::StatsSnapshot;
-use tauri::{AppHandle, Manager, State, WindowEvent};
+use tauri::{AppHandle, Emitter, Manager, State, WindowEvent};
 
 #[derive(Serialize)]
 struct AppSnapshot {
@@ -50,6 +50,23 @@ struct SetupWarning {
 #[derive(Serialize)]
 struct ConnectionTestResult {
     message: String,
+}
+
+#[derive(Serialize)]
+struct ConfigSaveError {
+    message: String,
+    errors: Vec<config::ConfigValidationError>,
+}
+
+#[derive(Serialize)]
+struct DiagnosticReport {
+    text: String,
+}
+
+#[derive(Clone, Serialize)]
+struct CloseToTrayRequest {
+    first_time: bool,
+    behavior: String,
 }
 
 #[tauri::command]
@@ -143,29 +160,43 @@ fn load_app_config() -> Result<LoadedConfig, String> {
 }
 
 #[tauri::command]
-fn save_app_config(config: AppConfig) -> Result<LoadedConfig, String> {
+fn save_app_config(config: AppConfig) -> Result<LoadedConfig, ConfigSaveError> {
+    if let Err(errors) = config::validate_config(&config) {
+        app_log::warn(format!("配置保存失败: validation_errors={}", errors.len()));
+        return Err(ConfigSaveError {
+            message: "配置存在不合法字段，请修改后再保存。".to_string(),
+            errors,
+        });
+    }
     match config::save_config(config) {
         Ok(loaded) => {
             hotkey::refresh_trigger_config_from(&loaded.data.triggers);
             if let Err(err) = autostart::apply(&loaded.data.startup) {
                 app_log::warn(format!("同步开机自启动失败: {}", err));
-                return Err(format!("配置已保存，但开机自启动设置失败: {}", err));
+                return Err(ConfigSaveError {
+                    message: format!("配置已保存，但开机自启动设置失败: {}", err),
+                    errors: Vec::new(),
+                });
             }
             app_log::info(format!(
-                "配置保存完成: hotkey_enabled={}, middle_mouse_enabled={}, right_alt_enabled={}, launch_on_startup={}, update_auto_check={}, update_repo={}, llm_enabled={}",
+                "配置保存完成: hotkey_enabled={}, middle_mouse_enabled={}, right_alt_enabled={}, launch_on_startup={}, update_auto_check={}, update_repo={}, llm_enabled={}, close_behavior={}",
                 loaded.data.triggers.hotkey_enabled,
                 loaded.data.triggers.middle_mouse_enabled,
                 loaded.data.triggers.right_alt_enabled,
                 loaded.data.startup.launch_on_startup,
                 loaded.data.update.auto_check_on_startup,
                 loaded.data.update.github_repo,
-                loaded.data.llm_post_edit.enabled
+                loaded.data.llm_post_edit.enabled,
+                loaded.data.tray.close_behavior
             ));
             Ok(loaded)
         }
         Err(err) => {
             app_log::warn(format!("配置保存失败: {}", err));
-            Err(err)
+            Err(ConfigSaveError {
+                message: err,
+                errors: Vec::new(),
+            })
         }
     }
 }
@@ -222,6 +253,97 @@ fn open_log_file(app: AppHandle) -> Result<(), String> {
             Err(err)
         }
     }
+}
+
+#[tauri::command]
+fn get_diagnostic_report(
+    session: State<'_, SessionController>,
+) -> Result<DiagnosticReport, String> {
+    let loaded = config::load_config()?;
+    let state = session.current_state();
+    let asr_ready = !loaded.data.auth.app_key.trim().is_empty()
+        && !loaded.data.auth.access_key.trim().is_empty();
+    let trigger_summary = enabled_trigger_summary(&loaded.data);
+    let recent_error = state.error_code.as_deref().unwrap_or("无");
+    let text = format!(
+        "VoxType 诊断报告\n\
+版本: {}\n\
+系统: {} / {}\n\
+配置文件: {} ({})\n\
+日志文件: {}\n\
+ASR 已配置: {}\n\
+LLM 润色: {}\n\
+触发方式: {}\n\
+最近会话状态: {:?}\n\
+最近错误码: {}\n\
+日志脱敏: 是\n",
+        env!("CARGO_PKG_VERSION"),
+        std::env::consts::OS,
+        std::env::consts::ARCH,
+        redact_user_path(&loaded.path),
+        if loaded.exists {
+            "已存在"
+        } else {
+            "未创建"
+        },
+        redact_user_path(&app_log::log_path().display().to_string()),
+        if asr_ready { "是" } else { "否" },
+        if loaded.data.llm_post_edit.enabled {
+            "已启用"
+        } else {
+            "未启用"
+        },
+        trigger_summary,
+        state.phase,
+        recent_error
+    );
+    app_log::info(format!(
+        "用户复制诊断报告: config_exists={}, asr_ready={}, llm_enabled={}, phase={:?}, error_code={}",
+        loaded.exists,
+        asr_ready,
+        loaded.data.llm_post_edit.enabled,
+        state.phase,
+        recent_error
+    ));
+    Ok(DiagnosticReport { text })
+}
+
+#[tauri::command]
+fn hide_main_window(app: AppHandle) -> Result<(), String> {
+    let Some(window) = app.get_webview_window("main") else {
+        return Err("找不到主窗口。".to_string());
+    };
+    window
+        .hide()
+        .map_err(|err| format!("隐藏主窗口失败: {}", err))?;
+    app_log::info("主窗口已隐藏到托盘。");
+    Ok(())
+}
+
+#[tauri::command]
+fn exit_application(app: AppHandle) {
+    app_log::info("用户从主窗口退出程序。");
+    tray::exit_app(&app);
+}
+
+#[tauri::command]
+fn update_close_preference(
+    close_behavior: Option<String>,
+    close_to_tray_notice_shown: Option<bool>,
+) -> Result<LoadedConfig, String> {
+    let mut loaded = config::load_config()?;
+    if let Some(behavior) = close_behavior {
+        loaded.data.tray.close_behavior = normalize_close_behavior(&behavior).to_string();
+    }
+    if let Some(shown) = close_to_tray_notice_shown {
+        loaded.data.tray.close_to_tray_notice_shown = shown;
+    }
+    let saved = config::save_config(loaded.data)?;
+    app_log::info(format!(
+        "关闭行为配置已更新: close_behavior={}, notice_shown={}",
+        saved.data.tray.close_behavior, saved.data.tray.close_to_tray_notice_shown
+    ));
+    Ok(saved)
 }
 
 #[tauri::command]
@@ -345,6 +467,10 @@ pub fn run() {
             test_llm_config,
             open_setup_guide,
             open_log_file,
+            get_diagnostic_report,
+            hide_main_window,
+            exit_application,
+            update_close_preference,
             log_frontend_error,
             log_frontend_event,
             get_usage_stats,
@@ -394,8 +520,40 @@ pub fn run() {
             }
 
             if let WindowEvent::CloseRequested { api, .. } = event {
+                let close_config = config::load_config()
+                    .map(|loaded| {
+                        (
+                            normalize_close_behavior(&loaded.data.tray.close_behavior).to_string(),
+                            loaded.data.tray.close_to_tray_notice_shown,
+                        )
+                    })
+                    .unwrap_or_else(|err| {
+                        app_log::warn(format!("读取关闭行为配置失败，默认隐藏到托盘: {}", err));
+                        ("close_to_tray".to_string(), true)
+                    });
+                if close_config.0 == "direct_exit" {
+                    app_log::info("关闭主窗口触发直接退出。");
+                    tray::exit_app(window.app_handle());
+                    return;
+                }
+
                 api.prevent_close();
-                if let Err(err) = window.hide() {
+                let should_ask = close_config.0 == "ask_every_time" || !close_config.1;
+                if should_ask {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                    if let Err(err) = window.emit(
+                        "close-to-tray-requested",
+                        CloseToTrayRequest {
+                            first_time: !close_config.1,
+                            behavior: close_config.0,
+                        },
+                    ) {
+                        app_log::warn(format!("发送关闭到托盘提示事件失败: {}", err));
+                    } else {
+                        app_log::info("已提示用户主窗口将隐藏到托盘。");
+                    }
+                } else if let Err(err) = window.hide() {
                     app_log::warn(format!("隐藏主窗口失败: {}", err));
                 } else {
                     app_log::info("主窗口已隐藏到托盘。");
@@ -405,5 +563,47 @@ pub fn run() {
         .run(tauri::generate_context!())
     {
         app_log::warn(format!("Tauri application exited with error: {}", err));
+    }
+}
+
+fn normalize_close_behavior(value: &str) -> &str {
+    match value {
+        "direct_exit" => "direct_exit",
+        "ask_every_time" => "ask_every_time",
+        _ => "close_to_tray",
+    }
+}
+
+fn enabled_trigger_summary(config: &AppConfig) -> String {
+    let mut triggers = Vec::new();
+    if config.triggers.hotkey_enabled {
+        triggers.push(config.hotkey.to_uppercase());
+    }
+    if config.triggers.right_alt_enabled {
+        triggers.push("右 Alt".to_string());
+    }
+    if config.triggers.middle_mouse_enabled {
+        triggers.push("鼠标中键".to_string());
+    }
+    if triggers.is_empty() {
+        "未启用".to_string()
+    } else {
+        triggers.join(" / ")
+    }
+}
+
+fn redact_user_path(value: &str) -> String {
+    let Ok(profile) = std::env::var("USERPROFILE") else {
+        return value.to_string();
+    };
+    if profile.is_empty() {
+        return value.to_string();
+    }
+    let lower_value = value.to_ascii_lowercase();
+    let lower_profile = profile.to_ascii_lowercase();
+    if lower_value.starts_with(&lower_profile) {
+        format!("%USERPROFILE%{}", &value[profile.len()..])
+    } else {
+        value.to_string()
     }
 }

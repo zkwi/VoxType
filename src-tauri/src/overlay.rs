@@ -9,7 +9,14 @@ use windows::Win32::Foundation::POINT;
 use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
 
 const OVERLAY_LABEL: &str = "caption-overlay";
-const DEFAULT_TEXT: &str = "正在录音...";
+pub const RECORDING_TEXT: &str = "正在听你说话...";
+pub const STOPPING_TEXT: &str = "正在收尾...";
+pub const WAITING_FINAL_TEXT: &str = "正在等待最后一句识别完成...";
+pub const POST_EDITING_TEXT: &str = "正在润色...";
+pub const PASTING_TEXT: &str = "正在粘贴...";
+pub const PASTED_TEXT: &str = "已粘贴";
+pub const PASTE_FAILED_TEXT: &str = "粘贴失败，文本已复制，可手动 Ctrl+V。";
+const DEFAULT_TEXT: &str = RECORDING_TEXT;
 static OVERLAY_TEXT: OnceLock<Mutex<String>> = OnceLock::new();
 
 #[derive(Debug, Clone, Serialize)]

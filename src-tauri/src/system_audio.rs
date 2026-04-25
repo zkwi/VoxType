@@ -25,7 +25,10 @@ pub fn safe_restore(state: Option<VolumeState>) {
         return;
     };
     if let Err(err) = restore(state) {
-        crate::app_log::warn(format!("恢复系统音量失败: {}", err));
+        crate::app_log::warn(format!(
+            "SYSTEM_AUDIO_RESTORE_FAILED: 恢复系统音量失败: {}",
+            err
+        ));
     }
 }
 
