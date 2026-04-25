@@ -5,12 +5,14 @@
   import { listen } from "@tauri-apps/api/event";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import {
+    AlertCircle,
     BarChart3,
     CalendarDays,
     Check,
     ChevronRight,
     Clock3,
     Download,
+    FileText,
     Gauge,
     Globe2,
     Keyboard,
@@ -32,6 +34,7 @@
 
   type AppSnapshot = {
     hotkey: string;
+    current_version: string;
   };
 
   type UsageStats = {
@@ -61,6 +64,21 @@
     history: HistoryEvent[];
   };
 
+  type UpdateStatus = {
+    current_version: string;
+    latest_version: string;
+    update_available: boolean;
+    asset_name: string | null;
+    asset_size: number | null;
+    message: string;
+  };
+
+  type InstallUpdateResult = {
+    version: string;
+    asset_name: string;
+    message: string;
+  };
+
   type LoadedConfig = {
     path: string;
     exists: boolean;
@@ -75,6 +93,7 @@
   type AsrFinalText = {
     text: string;
     error: string | null;
+    warning: string | null;
   };
 
   type AsrPartialText = { text: string };
@@ -126,6 +145,8 @@
       right_alt_enabled: boolean;
     };
     typing: { paste_delay_ms: number; paste_method: string };
+    startup: { launch_on_startup: boolean };
+    update: { auto_check_on_startup: boolean; github_repo: string };
     llm_post_edit: {
       enabled: boolean;
       min_chars: number;
@@ -187,6 +208,8 @@
     },
     triggers: { hotkey_enabled: true, middle_mouse_enabled: true, right_alt_enabled: true },
     typing: { paste_delay_ms: 120, paste_method: "ctrl_v" },
+    startup: { launch_on_startup: false },
+    update: { auto_check_on_startup: true, github_repo: "zkwi/VoxType" },
     llm_post_edit: {
       enabled: false,
       min_chars: 40,
@@ -205,6 +228,7 @@
 
   const fallbackSnapshot: AppSnapshot = {
     hotkey: "ctrl+q",
+    current_version: "0.1.8",
   };
 
   const emptyStats: StatsSnapshot = {
@@ -264,6 +288,7 @@
       listeningPreview: "正在监听麦克风，实时字幕显示在屏幕下方。",
       pressHotkey: "按 {hotkey}、右 Alt 或鼠标中键，也可从托盘启动，向任意输入框语音输入。",
       setupRequired: "需要先完成配置",
+      inputError: "输入异常",
       setupMissingFile: "未找到配置文件。请在配置页填写认证信息并保存，或打开配置文件手动编辑。",
       setupMissingAuth: "ASR 认证信息未填写。请在配置页填写 App Key 和 Access Key 后保存。",
       setupCta: "去配置",
@@ -286,7 +311,7 @@
       trigger: "触发方式",
       triggerValue: "右 Alt / 鼠标中键 / 托盘",
       softwareSettings: "软件相关设置",
-      softwareSettingsDescription: "启动方式、输入输出、悬浮字幕和托盘行为。",
+      softwareSettingsDescription: "启动方式、输入输出、悬浮字幕、托盘和软件更新。",
       doubaoAsrSettings: "豆包 ASR 相关设置",
       doubaoAsrSettingsDescription: "豆包认证、录音参数、识别请求和上下文增强。",
       llmSettings: "大模型相关设置",
@@ -347,6 +372,29 @@
       pasteDelayMs: "粘贴延迟毫秒",
       pasteMethod: "粘贴方式",
       clipboardOnly: "仅剪贴板",
+      launchOnStartup: "开机自动启动",
+      softwareUpdate: "软件更新",
+      softwareUpdateDescription: "通过 GitHub Release 检查最新版，并下载 Windows 安装包。",
+      autoCheckUpdates: "启动时自动检查更新",
+      checkUpdates: "检查更新",
+      checkingUpdates: "检查中",
+      downloadInstall: "下载并安装",
+      downloadingInstall: "下载中",
+      updateNotChecked: "尚未检查更新",
+      updateIdleDescription: "可手动检查，或开启启动时自动检查。",
+      updateAvailable: "发现新版本",
+      updateReady: "可下载 {asset}",
+      updateUpToDate: "已是最新版本",
+      updateNoInstaller: "未找到 Windows 安装包",
+      currentVersion: "当前版本",
+      latestVersion: "最新版本",
+      diagnosticsAndLogs: "诊断与日志",
+      diagnosticsDescription: "遇到识别、粘贴、网络或更新问题时，可打开日志协助排查。",
+      logStatusTitle: "本地日志已启用",
+      logStatusDescription: "日志会记录关键状态和错误，密钥会自动脱敏。",
+      openLog: "查看日志",
+      openingLog: "打开中",
+      logOpened: "日志文件已打开。",
       llmPostEdit: "大模型润色",
       llmDescription: "OpenAI 兼容接口的润色回退。",
       enablePolishing: "启用润色",
@@ -420,6 +468,7 @@
       listeningPreview: "正在監聽麥克風，即時字幕顯示在螢幕下方。",
       pressHotkey: "按 {hotkey}、右 Alt 或滑鼠中鍵，也可從系統匣啟動，向任意輸入框語音輸入。",
       setupRequired: "需要先完成配置",
+      inputError: "輸入異常",
       setupMissingFile: "未找到配置檔案。請在配置頁填寫認證資訊並儲存，或打開配置檔案手動編輯。",
       setupMissingAuth: "ASR 認證資訊未填寫。請在配置頁填寫 App Key 和 Access Key 後儲存。",
       setupCta: "去配置",
@@ -442,7 +491,7 @@
       trigger: "觸發方式",
       triggerValue: "右 Alt / 滑鼠中鍵 / 系統匣",
       softwareSettings: "軟體相關設定",
-      softwareSettingsDescription: "啟動方式、輸入輸出、懸浮字幕和系統匣行為。",
+      softwareSettingsDescription: "啟動方式、輸入輸出、懸浮字幕、系統匣和軟體更新。",
       doubaoAsrSettings: "豆包 ASR 相關設定",
       doubaoAsrSettingsDescription: "豆包認證、錄音參數、識別請求和上下文增強。",
       llmSettings: "大模型相關設定",
@@ -503,6 +552,29 @@
       pasteDelayMs: "貼上延遲毫秒",
       pasteMethod: "貼上方式",
       clipboardOnly: "僅剪貼簿",
+      launchOnStartup: "開機自動啟動",
+      softwareUpdate: "軟體更新",
+      softwareUpdateDescription: "透過 GitHub Release 檢查最新版，並下載 Windows 安裝包。",
+      autoCheckUpdates: "啟動時自動檢查更新",
+      checkUpdates: "檢查更新",
+      checkingUpdates: "檢查中",
+      downloadInstall: "下載並安裝",
+      downloadingInstall: "下載中",
+      updateNotChecked: "尚未檢查更新",
+      updateIdleDescription: "可手動檢查，或開啟啟動時自動檢查。",
+      updateAvailable: "發現新版本",
+      updateReady: "可下載 {asset}",
+      updateUpToDate: "已是最新版本",
+      updateNoInstaller: "未找到 Windows 安裝包",
+      currentVersion: "目前版本",
+      latestVersion: "最新版本",
+      diagnosticsAndLogs: "診斷與日誌",
+      diagnosticsDescription: "遇到識別、貼上、網路或更新問題時，可打開日誌協助排查。",
+      logStatusTitle: "本地日誌已啟用",
+      logStatusDescription: "日誌會記錄關鍵狀態和錯誤，密鑰會自動脫敏。",
+      openLog: "查看日誌",
+      openingLog: "打開中",
+      logOpened: "日誌檔案已打開。",
       llmPostEdit: "大模型潤飾",
       llmDescription: "OpenAI 相容介面的潤飾回退。",
       enablePolishing: "啟用潤飾",
@@ -576,6 +648,7 @@
       listeningPreview: "Listening to the microphone. Live captions appear near the bottom of the screen.",
       pressHotkey: "Press {hotkey}, Right Alt, or the middle mouse button, or start from the tray.",
       setupRequired: "Setup required",
+      inputError: "Input issue",
       setupMissingFile: "No config file found. Fill credentials on the Settings page and save, or open the config file manually.",
       setupMissingAuth: "ASR credentials are missing. Fill App Key and Access Key on the Settings page, then save.",
       setupCta: "Open Settings",
@@ -598,7 +671,7 @@
       trigger: "Trigger",
       triggerValue: "Right Alt / middle mouse / tray",
       softwareSettings: "App settings",
-      softwareSettingsDescription: "Launch methods, output behavior, floating captions, and tray behavior.",
+      softwareSettingsDescription: "Launch methods, output behavior, floating captions, tray behavior, and updates.",
       doubaoAsrSettings: "Doubao ASR settings",
       doubaoAsrSettingsDescription: "Doubao credentials, recording parameters, recognition requests, and context.",
       llmSettings: "LLM settings",
@@ -659,6 +732,29 @@
       pasteDelayMs: "Paste delay ms",
       pasteMethod: "Paste method",
       clipboardOnly: "Clipboard only",
+      launchOnStartup: "Launch at startup",
+      softwareUpdate: "Software update",
+      softwareUpdateDescription: "Check the latest GitHub Release and download the Windows installer.",
+      autoCheckUpdates: "Check for updates on startup",
+      checkUpdates: "Check updates",
+      checkingUpdates: "Checking",
+      downloadInstall: "Download and install",
+      downloadingInstall: "Downloading",
+      updateNotChecked: "Not checked yet",
+      updateIdleDescription: "Check manually, or enable startup update checks.",
+      updateAvailable: "Update available",
+      updateReady: "Ready to download {asset}",
+      updateUpToDate: "Up to date",
+      updateNoInstaller: "No Windows installer found",
+      currentVersion: "Current",
+      latestVersion: "Latest",
+      diagnosticsAndLogs: "Diagnostics and logs",
+      diagnosticsDescription: "Open logs when dictation, paste, network, or update issues need troubleshooting.",
+      logStatusTitle: "Local logging is on",
+      logStatusDescription: "Logs record key states and errors. Secrets are redacted automatically.",
+      openLog: "View logs",
+      openingLog: "Opening",
+      logOpened: "Log file opened.",
       llmPostEdit: "LLM Post Edit",
       llmDescription: "OpenAI-compatible polishing fallback.",
       enablePolishing: "Enable polishing",
@@ -733,7 +829,12 @@
   let overlaySmallLayoutLocked = false;
   let uiCompact = $state(false);
   let actionNotice = $state("");
+  let actionNoticeKind = $state<"success" | "warning" | "error">("success");
   let actionNoticeTimer: number | undefined;
+  let updateStatus = $state<UpdateStatus | null>(null);
+  let checkingUpdate = $state(false);
+  let installingUpdate = $state(false);
+  let openingLog = $state(false);
 
   onMount(() => {
     const onError = (event: ErrorEvent) => {
@@ -778,12 +879,14 @@
       const unlistenAsr = listen<AsrFinalText>("asr-final-text", (event) => {
         if (event.payload.error) {
           statusMessage = event.payload.error;
-          if (isConfigError(event.payload.error)) selectedSection = "Settings";
+          showActionNotice(event.payload.error, "error");
+          if (shouldOpenSettingsForError(event.payload.error)) selectedSection = "Settings";
           return;
         }
         if (isOverlay && event.payload.text.trim()) {
           applyOverlayText(event.payload.text);
         }
+        if (event.payload.warning) showActionNotice(event.payload.warning, "warning");
         statusMessage = t("previewStopped");
       });
       const unlistenPartial = listen<AsrPartialText>("asr-partial-text", (event) => {
@@ -844,6 +947,7 @@
     try {
       await loadAll();
       await hydrateSession();
+      void maybeAutoCheckUpdate();
       logFrontendEvent(
         `bootstrap completed mode=${frontendMode()} elapsed_ms=${Math.round(performance.now() - startedAt)} config_exists=${configExists} recording=${recording}`,
       );
@@ -917,16 +1021,15 @@
     };
   }
 
-  async function safeInvoke<T>(command: string, args?: Record<string, unknown>): Promise<T | null> {
+  async function safeInvoke<T>(command: string, args?: Record<string, unknown>, quiet = false): Promise<T | null> {
     if (!hasTauriApi()) {
-      statusMessage = t("browserPreview");
+      if (!quiet) statusMessage = t("browserPreview");
       return null;
     }
     try {
       return await invoke<T>(command, args);
     } catch (error) {
-      statusMessage = typeof error === "string" ? error : t("browserPreview");
-      console.warn(error);
+      if (!quiet) statusMessage = typeof error === "string" ? error : t("browserPreview");
       logFrontendError(`invoke failed command=${command}: ${formatFrontendError(error)}`);
       return null;
     }
@@ -1170,17 +1273,85 @@
     const result = await persistConfig();
     if (result) {
       await loadAll();
-      showActionNotice(t("configSaved"));
+      showActionNotice(t("configSaved"), "success");
+    } else if (statusMessage) {
+      showActionNotice(statusMessage, "error");
     }
   }
 
   async function reloadConfigFromUi() {
     const loaded = await loadAll();
-    if (loaded) showActionNotice(t("configReloaded"));
+    if (loaded) {
+      showActionNotice(t("configReloaded"), "success");
+    } else if (hasTauriApi() && statusMessage) {
+      showActionNotice(statusMessage, "error");
+    }
   }
 
-  function showActionNotice(message: string) {
+  async function maybeAutoCheckUpdate() {
+    if (isOverlay || isToast || !configExists || !config.update.auto_check_on_startup) return;
+    await checkUpdate(false);
+  }
+
+  async function checkUpdate(manual = true) {
+    if (checkingUpdate) return;
+    checkingUpdate = true;
+    const previousStatus = statusMessage;
+    try {
+      const result = await safeInvoke<UpdateStatus>("check_for_update", undefined, !manual);
+      if (result) {
+        updateStatus = result;
+        if (manual || result.update_available) {
+          showActionNotice(result.message, result.update_available ? "warning" : "success");
+        }
+      } else if (manual && statusMessage) {
+        showActionNotice(statusMessage, "error");
+      } else {
+        statusMessage = previousStatus;
+      }
+    } finally {
+      checkingUpdate = false;
+    }
+  }
+
+  async function downloadLatestUpdate() {
+    if (installingUpdate) return;
+    installingUpdate = true;
+    try {
+      const result = await safeInvoke<InstallUpdateResult>("download_and_install_update");
+      if (result) {
+        showActionNotice(result.message, "success");
+      } else if (statusMessage) {
+        showActionNotice(statusMessage, "error");
+      }
+    } finally {
+      installingUpdate = false;
+    }
+  }
+
+  async function openLogFromUi() {
+    if (openingLog) return;
+    if (!hasTauriApi()) {
+      statusMessage = t("browserPreview");
+      showActionNotice(statusMessage, "error");
+      return;
+    }
+    openingLog = true;
+    try {
+      await invoke("open_log_file");
+      showActionNotice(t("logOpened"), "success");
+    } catch (error) {
+      statusMessage = typeof error === "string" ? error : t("browserPreview");
+      logFrontendError(`open log failed: ${formatFrontendError(error)}`);
+      showActionNotice(statusMessage, "error");
+    } finally {
+      openingLog = false;
+    }
+  }
+
+  function showActionNotice(message: string, kind: "success" | "warning" | "error") {
     actionNotice = message;
+    actionNoticeKind = kind;
     if (actionNoticeTimer !== undefined) window.clearTimeout(actionNoticeTimer);
     actionNoticeTimer = window.setTimeout(() => {
       actionNotice = "";
@@ -1193,11 +1364,44 @@
     const previous = config.triggers[key];
     config.triggers[key] = !previous;
     const result = await persistConfig();
-    if (!result) config.triggers[key] = previous;
+    if (!result) {
+      config.triggers[key] = previous;
+      if (statusMessage) showActionNotice(statusMessage, "error");
+      return;
+    }
+    showActionNotice(t("configSaved"), "success");
   }
 
   function triggerLabel(enabled: boolean) {
     return enabled ? t("enabled") : t("disabled");
+  }
+
+  function updatePanelTitle() {
+    if (!updateStatus) return t("updateNotChecked");
+    if (updateStatus.update_available) return t("updateAvailable");
+    return t("updateUpToDate");
+  }
+
+  function updatePanelDescription() {
+    if (!updateStatus) return t("updateIdleDescription");
+    if (updateStatus.update_available && updateStatus.asset_name) {
+      return t("updateReady", { asset: updateStatus.asset_name });
+    }
+    if (updateStatus.update_available) return t("updateNoInstaller");
+    return updateStatus.message;
+  }
+
+  function updateMetaText() {
+    const current = updateStatus?.current_version ?? snapshot.current_version;
+    const latest = updateStatus?.latest_version ?? "-";
+    const size = updateStatus?.asset_size ? ` · ${formatFileSize(updateStatus.asset_size)}` : "";
+    return `${t("currentVersion")} v${current} · ${t("latestVersion")} ${latest === "-" ? "-" : `v${latest}`}${size}`;
+  }
+
+  function formatFileSize(bytes: number) {
+    if (!Number.isFinite(bytes) || bytes <= 0) return "";
+    if (bytes < 1024 * 1024) return `${Math.ceil(bytes / 1024)} KB`;
+    return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
   }
 
   function clampAudioLevel(value: number) {
@@ -1334,13 +1538,13 @@
   }
 
   function inputStatus() {
-    if (isConfigError(statusMessage)) return "error";
+    if (isErrorStatus(statusMessage)) return "error";
     return recording ? "listening" : "idle";
   }
 
   function inputStatusLabel() {
     const status = inputStatus();
-    if (status === "error") return t("setupRequired");
+    if (status === "error") return isConfigError(statusMessage) ? t("setupRequired") : t("inputError");
     return recording ? t("recordingPreview") : t("idle");
   }
 
@@ -1385,7 +1589,7 @@
     const today = new Date();
     return Array.from({ length: 7 }, (_, index) => {
       const date = new Date(today);
-      date.setDate(today.getDate() - (6 - index));
+      date.setDate(today.getDate() - index);
       const day = localDateKey(date);
       return {
         day,
@@ -1410,8 +1614,27 @@
       message.includes("ASR 未配置") ||
       message.includes("config.toml") ||
       message.includes("app_key") ||
-      message.includes("access_key")
+      message.includes("access_key") ||
+      message.includes("豆包 ASR 认证") ||
+      message.includes("App Key") ||
+      message.includes("Access Key") ||
+      message.includes("Resource ID")
     );
+  }
+
+  function isErrorStatus(message: string) {
+    return (
+      isConfigError(message) ||
+      message.includes("无法连接豆包 ASR") ||
+      message.includes("连接豆包 ASR 失败") ||
+      message.includes("豆包 ASR 服务返回错误码") ||
+      message.includes("开机自启动设置失败") ||
+      message.includes("启动录音失败")
+    );
+  }
+
+  function shouldOpenSettingsForError(message: string) {
+    return isConfigError(message) || message.includes("API Key") || message.includes("Base URL");
   }
 
   function openSettings() {
@@ -1591,7 +1814,7 @@
           <label
             class:active={config.triggers.middle_mouse_enabled}
             class:disabled={saving}
-            class="trigger-item soft"
+            class="trigger-item"
           >
             <input class="trigger-input" type="checkbox" checked={config.triggers.middle_mouse_enabled} disabled={saving} onchange={() => toggleTrigger("middle_mouse_enabled")} />
             <span class="trigger-check">
@@ -1605,7 +1828,7 @@
           <label
             class:active={config.triggers.right_alt_enabled}
             class:disabled={saving}
-            class="trigger-item soft"
+            class="trigger-item"
           >
             <input class="trigger-input" type="checkbox" checked={config.triggers.right_alt_enabled} disabled={saving} onchange={() => toggleTrigger("right_alt_enabled")} />
             <span class="trigger-check">
@@ -1670,6 +1893,7 @@
               <label class="check"><input type="checkbox" bind:checked={config.triggers.hotkey_enabled} />{t("mainHotkey")}</label>
               <label class="check"><input type="checkbox" bind:checked={config.triggers.middle_mouse_enabled} />{t("middleMouse")}</label>
               <label class="check"><input type="checkbox" bind:checked={config.triggers.right_alt_enabled} />{t("rightAlt")}</label>
+              <label class="check"><input type="checkbox" bind:checked={config.startup.launch_on_startup} />{t("launchOnStartup")}</label>
             </div>
           </div>
 
@@ -1685,6 +1909,45 @@
             </div>
             <div class="toggle-grid">
               <label class="check"><input type="checkbox" bind:checked={config.tray.show_startup_message} />{t("showStartupMessage")}</label>
+            </div>
+          </div>
+
+          <div class="form-panel update-panel">
+            <div class="section-heading"><h3>{t("softwareUpdate")}</h3><p>{t("softwareUpdateDescription")}</p></div>
+            <div class:available={updateStatus?.update_available} class="update-card">
+              <div>
+                <strong>{updatePanelTitle()}</strong>
+                <p>{updatePanelDescription()}</p>
+                <small>{updateMetaText()}</small>
+              </div>
+              <div class="update-actions">
+                <button onclick={() => checkUpdate(true)} disabled={checkingUpdate}>
+                  <ShieldCheck size={16} />{checkingUpdate ? t("checkingUpdates") : t("checkUpdates")}
+                </button>
+                {#if updateStatus?.update_available && updateStatus.asset_name}
+                  <button class="primary" onclick={downloadLatestUpdate} disabled={installingUpdate}>
+                    <Download size={16} />{installingUpdate ? t("downloadingInstall") : t("downloadInstall")}
+                  </button>
+                {/if}
+              </div>
+            </div>
+            <div class="toggle-grid">
+              <label class="check"><input type="checkbox" bind:checked={config.update.auto_check_on_startup} />{t("autoCheckUpdates")}</label>
+            </div>
+          </div>
+
+          <div class="form-panel">
+            <div class="section-heading"><h3>{t("diagnosticsAndLogs")}</h3><p>{t("diagnosticsDescription")}</p></div>
+            <div class="update-card">
+              <div>
+                <strong>{t("logStatusTitle")}</strong>
+                <p>{t("logStatusDescription")}</p>
+              </div>
+              <div class="update-actions">
+                <button onclick={openLogFromUi} disabled={openingLog}>
+                  <FileText size={16} />{openingLog ? t("openingLog") : t("openLog")}
+                </button>
+              </div>
             </div>
           </div>
         </section>
@@ -1839,8 +2102,12 @@
   </section>
 </main>
 {#if actionNotice}
-  <div class="action-notice" role="status" aria-live="polite">
-    <Check size={16} />
+  <div class:error={actionNoticeKind === "error"} class:warning={actionNoticeKind === "warning"} class="action-notice" role="status" aria-live="polite">
+    {#if actionNoticeKind === "success"}
+      <Check size={16} />
+    {:else}
+      <AlertCircle size={16} />
+    {/if}
     <span>{actionNotice}</span>
   </div>
 {/if}
@@ -2478,6 +2745,7 @@
 
   .content.overview-content {
     display: grid;
+    grid-auto-rows: max-content;
     gap: 14px;
     align-content: start;
     overflow: auto;
@@ -2491,16 +2759,10 @@
     overflow: auto;
   }
 
-  .overview-content .voice-card {
-    min-height: 0;
-  }
-
-  .overview-content .launch-card {
-    min-height: 0;
-  }
-
+  .overview-content .voice-card,
+  .overview-content .launch-card,
   .overview-content .performance-card {
-    min-height: 0;
+    min-height: max-content;
   }
 
   .topbar {
@@ -2878,16 +3140,6 @@
     border-color: var(--primary);
   }
 
-  .trigger-item.soft {
-    background: #ffffff;
-    border-color: var(--border);
-  }
-
-  .trigger-item.soft.active {
-    background: var(--primary-light);
-    border-color: var(--primary);
-  }
-
   .trigger-check {
     display: grid;
     width: 32px;
@@ -2902,12 +3154,6 @@
   .ui-compact .trigger-check {
     width: 28px;
     height: 28px;
-  }
-
-  .trigger-item.soft .trigger-check {
-    color: var(--primary);
-    background: #ffffff;
-    border: 1px solid #aebbd0;
   }
 
   .trigger-item:not(.active) .trigger-check {
@@ -2958,11 +3204,13 @@
   .stat-card {
     position: relative;
     display: grid;
+    grid-template-rows: 22px auto auto auto;
     align-content: start;
-    gap: 3px;
+    align-items: start;
+    gap: 2px;
     min-height: 112px;
     min-width: 0;
-    padding: 13px 14px 18px;
+    padding: 12px 14px 18px;
     overflow: hidden;
     background: #ffffff;
     border: 1px solid var(--border);
@@ -2972,7 +3220,7 @@
 
   .ui-compact .stat-card {
     min-height: 104px;
-    padding: 11px 11px 16px;
+    padding: 10px 11px 16px;
   }
 
   .stat-card::after {
@@ -2997,10 +3245,10 @@
     height: auto;
   }
 
-  .stat-card.blue { color: var(--primary); }
-  .stat-card.purple { color: var(--gradient-end); }
-  .stat-card.green { color: var(--success); }
-  .stat-card.orange { color: #f97316; }
+  .stat-card.blue { --stat-accent: var(--primary); color: var(--stat-accent); }
+  .stat-card.purple { --stat-accent: var(--gradient-end); color: var(--stat-accent); }
+  .stat-card.green { --stat-accent: var(--success); color: var(--stat-accent); }
+  .stat-card.orange { --stat-accent: #f97316; color: var(--stat-accent); }
 
   .stat-icon {
     display: grid;
@@ -3008,7 +3256,7 @@
     height: 20px;
     place-items: center;
     color: #ffffff;
-    background: currentColor;
+    background: var(--stat-accent);
     border-radius: 7px;
   }
 
@@ -3226,6 +3474,82 @@
     background: var(--primary);
   }
 
+  .update-card {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 14px;
+    background: #f8fbff;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+  }
+
+  .update-card > div:first-child {
+    min-width: min(100%, 320px);
+    flex: 1 1 320px;
+  }
+
+  .update-card.available {
+    background: #fff7ed;
+    border-color: #fed7aa;
+  }
+
+  .update-card strong {
+    display: block;
+    margin-bottom: 4px;
+    color: var(--text-main);
+    font-size: 15px;
+    font-weight: 800;
+  }
+
+  .update-card p {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+  }
+
+  .update-card small {
+    display: block;
+    margin-top: 6px;
+    color: var(--text-muted);
+    font-size: 12px;
+  }
+
+  .update-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: flex-end;
+  }
+
+  .update-actions button {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 36px;
+    padding: 0 12px;
+    color: var(--text-main);
+    background: #ffffff;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    font-weight: 700;
+  }
+
+  .update-actions .primary {
+    color: #ffffff;
+    background: var(--primary);
+    border-color: var(--primary);
+  }
+
+  .update-actions button:disabled {
+    cursor: wait;
+    opacity: 0.66;
+  }
+
   .action-notice {
     position: fixed;
     right: 22px;
@@ -3251,6 +3575,18 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .action-notice.warning {
+    color: #854d0e;
+    background: rgba(255, 251, 235, 0.98);
+    border-color: rgba(245, 158, 11, 0.32);
+  }
+
+  .action-notice.error {
+    color: #991b1b;
+    background: rgba(254, 242, 242, 0.98);
+    border-color: rgba(239, 68, 68, 0.3);
   }
 
   @media (prefers-reduced-motion: no-preference) {

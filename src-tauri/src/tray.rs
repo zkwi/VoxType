@@ -2,7 +2,7 @@ use crate::session::SessionController;
 use crate::{app_log, config};
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Manager};
+use tauri::{image::Image, AppHandle, Manager};
 use tauri_plugin_opener::OpenerExt;
 
 const OPEN_CONFIG_ID: &str = "open_config";
@@ -41,7 +41,11 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), String> {
         .show_menu_on_left_click(false)
         .on_menu_event(move |app, event| match event.id().as_ref() {
             OPEN_CONFIG_ID => open_config_file(app),
-            OPEN_LOG_ID => open_log_file(app),
+            OPEN_LOG_ID => {
+                if let Err(err) = open_log_file(app) {
+                    app_log::warn(err);
+                }
+            }
             OPEN_SETUP_GUIDE_ID => {
                 if let Err(err) = crate::setup_guide::open(app) {
                     app_log::warn(err);
@@ -64,9 +68,8 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), String> {
                 show_main_window(&app_for_event);
             }
         });
-    if let Some(icon) = app.default_window_icon() {
-        builder = builder.icon(icon.clone());
-    }
+    let icon = Image::new(include_bytes!("../icons/32x32.rgba"), 32, 32);
+    builder = builder.icon(icon);
     builder
         .build(app)
         .map_err(|err| format!("创建托盘图标失败: {}", err))?;
@@ -108,15 +111,21 @@ fn open_config_file(app: &AppHandle) {
     }
 }
 
-fn open_log_file(app: &AppHandle) {
-    app_log::info("用户从托盘打开日志文件。");
+pub fn open_log_file(app: &AppHandle) -> Result<(), String> {
+    open_log_file_with_source(app, "托盘")
+}
+
+pub fn open_log_file_from_main(app: &AppHandle) -> Result<(), String> {
+    open_log_file_with_source(app, "主窗口")
+}
+
+fn open_log_file_with_source(app: &AppHandle, source: &str) -> Result<(), String> {
+    app_log::info(format!("用户从{}打开日志文件。", source));
     let path = app_log::log_path();
-    if let Err(err) = app
-        .opener()
+    app.opener()
         .open_path(path.to_string_lossy().to_string(), None::<&str>)
-    {
-        app_log::warn(format!("打开日志文件失败: {}", err));
-    }
+        .map_err(|err| format!("打开日志文件失败: {}", err))?;
+    Ok(())
 }
 
 fn show_main_window(app: &AppHandle) {

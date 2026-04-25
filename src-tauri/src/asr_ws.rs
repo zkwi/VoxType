@@ -17,6 +17,7 @@ use tokio_tungstenite::tungstenite::Message;
 pub struct AsrFinalText {
     pub text: String,
     pub error: Option<String>,
+    pub warning: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -50,10 +51,11 @@ pub fn spawn_asr_worker(
         let typing = config.typing.clone();
         let runtime_result = runtime.block_on(async {
             let text = run_websocket_session(config.clone(), audio_rx, app.clone()).await?;
-            Ok::<String, String>(llm_post_edit::polish(&config, &text).await)
+            Ok::<llm_post_edit::PolishOutcome, String>(llm_post_edit::polish(&config, &text).await)
         });
         match runtime_result {
-            Ok(text) => {
+            Ok(outcome) => {
+                let text = outcome.text;
                 app_log::info(format!("ASR worker 返回文本长度: {}", text.chars().count()));
                 if !text.trim().is_empty() {
                     overlay::update_text(&app, &text);
@@ -81,7 +83,14 @@ pub fn spawn_asr_worker(
                     app_log::info("ASR session finished: empty transcript");
                 }
                 overlay::hide(&app);
-                let _ = app.emit("asr-final-text", AsrFinalText { text, error: None });
+                let _ = app.emit(
+                    "asr-final-text",
+                    AsrFinalText {
+                        text,
+                        error: None,
+                        warning: outcome.warning,
+                    },
+                );
             }
             Err(err) => {
                 session.abort_from_worker(&app, &err);
@@ -110,9 +119,15 @@ async fn run_websocket_session(
         request.headers_mut().insert(name, value);
     }
 
-    let (mut websocket, _) = connect_async(request)
-        .await
-        .map_err(|err| format!("连接 ASR WebSocket 失败: {}", err))?;
+    let (mut websocket, _) = connect_async(request).await.map_err(|err| {
+        let detail = err.to_string();
+        let message = friendly_asr_connection_error(&detail);
+        app_log::warn(format!(
+            "连接 ASR WebSocket 失败: {}; user_message={}",
+            detail, message
+        ));
+        message
+    })?;
     app_log::info("ASR WebSocket 已连接");
     websocket
         .send(Message::Binary(protocol::build_full_request(
@@ -164,7 +179,7 @@ async fn run_websocket_session(
             Ok(Some(Ok(Message::Binary(data)))) => {
                 let parsed = protocol::parse_response(&data)?;
                 if !is_success_code(parsed.code) {
-                    return Err(format!("ASR 服务返回错误码: {}", parsed.code));
+                    return Err(friendly_asr_service_error(parsed.code));
                 }
                 let partial =
                     normalize_live_text(&asr::extract_display_text(parsed.payload_msg.as_ref()));
@@ -249,6 +264,7 @@ fn emit_error(app: &AppHandle, error: String) {
         AsrFinalText {
             text: String::new(),
             error: Some(error),
+            warning: None,
         },
     );
 }
@@ -257,14 +273,58 @@ fn is_success_code(code: i32) -> bool {
     code == 0 || code == 20_000_000
 }
 
+fn friendly_asr_connection_error(error: &str) -> String {
+    let lower = error.to_ascii_lowercase();
+    if lower.contains("401")
+        || lower.contains("403")
+        || lower.contains("unauthorized")
+        || lower.contains("forbidden")
+    {
+        "豆包 ASR 认证失败，请检查 App Key、Access Key 和 Resource ID。".to_string()
+    } else if lower.contains("dns")
+        || lower.contains("resolve")
+        || lower.contains("timeout")
+        || lower.contains("timed out")
+        || lower.contains("connection")
+        || lower.contains("connect")
+        || lower.contains("proxy")
+        || lower.contains("tls")
+    {
+        "无法连接豆包 ASR 服务，请检查网络、代理或防火墙设置。".to_string()
+    } else {
+        "连接豆包 ASR 失败，请检查网络环境和豆包认证配置。".to_string()
+    }
+}
+
+fn friendly_asr_service_error(code: i32) -> String {
+    if (400..500).contains(&code) || (40_000_000..50_000_000).contains(&code) {
+        format!(
+            "豆包 ASR 认证或权限校验失败，错误码 {}。请检查 App Key、Access Key、Resource ID 和服务权限。",
+            code
+        )
+    } else {
+        format!(
+            "豆包 ASR 服务返回错误码 {}。请稍后重试，或检查网络与豆包控制台配置。",
+            code
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::is_success_code;
+    use super::{friendly_asr_connection_error, friendly_asr_service_error, is_success_code};
 
     #[test]
     fn accepts_doubao_success_codes() {
         assert!(is_success_code(0));
         assert!(is_success_code(20_000_000));
         assert!(!is_success_code(400));
+    }
+
+    #[test]
+    fn explains_common_asr_failures() {
+        assert!(friendly_asr_connection_error("HTTP error: 401 Unauthorized").contains("认证失败"));
+        assert!(friendly_asr_connection_error("dns error").contains("无法连接"));
+        assert!(friendly_asr_service_error(40_000_001).contains("权限"));
     }
 }

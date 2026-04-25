@@ -2,6 +2,7 @@ mod app_log;
 mod asr;
 mod asr_ws;
 mod audio;
+mod autostart;
 mod config;
 mod hotkey;
 mod llm_post_edit;
@@ -13,6 +14,7 @@ mod stats;
 mod system_audio;
 mod text_output;
 mod tray;
+mod update;
 
 use config::{AppConfig, LoadedConfig};
 use serde::Serialize;
@@ -23,6 +25,7 @@ use tauri::{AppHandle, Manager, State, WindowEvent};
 #[derive(Serialize)]
 struct AppSnapshot {
     hotkey: String,
+    current_version: String,
 }
 
 #[tauri::command]
@@ -31,6 +34,7 @@ fn get_app_snapshot() -> Result<AppSnapshot, String> {
 
     Ok(AppSnapshot {
         hotkey: loaded.data.hotkey,
+        current_version: env!("CARGO_PKG_VERSION").to_string(),
     })
 }
 
@@ -53,11 +57,18 @@ fn save_app_config(config: AppConfig) -> Result<LoadedConfig, String> {
     match config::save_config(config) {
         Ok(loaded) => {
             hotkey::refresh_trigger_config_from(&loaded.data.triggers);
+            if let Err(err) = autostart::apply(&loaded.data.startup) {
+                app_log::warn(format!("同步开机自启动失败: {}", err));
+                return Err(format!("配置已保存，但开机自启动设置失败: {}", err));
+            }
             app_log::info(format!(
-                "配置保存完成: hotkey_enabled={}, middle_mouse_enabled={}, right_alt_enabled={}, llm_enabled={}",
+                "配置保存完成: hotkey_enabled={}, middle_mouse_enabled={}, right_alt_enabled={}, launch_on_startup={}, update_auto_check={}, update_repo={}, llm_enabled={}",
                 loaded.data.triggers.hotkey_enabled,
                 loaded.data.triggers.middle_mouse_enabled,
                 loaded.data.triggers.right_alt_enabled,
+                loaded.data.startup.launch_on_startup,
+                loaded.data.update.auto_check_on_startup,
+                loaded.data.update.github_repo,
                 loaded.data.llm_post_edit.enabled
             ));
             Ok(loaded)
@@ -71,7 +82,22 @@ fn save_app_config(config: AppConfig) -> Result<LoadedConfig, String> {
 
 #[tauri::command]
 fn open_setup_guide(app: AppHandle) -> Result<(), String> {
-    setup_guide::open(&app)
+    app_log::info("用户打开配置指南。");
+    setup_guide::open(&app).map_err(|err| {
+        app_log::warn(format!("打开配置指南失败: {}", err));
+        err
+    })
+}
+
+#[tauri::command]
+fn open_log_file(app: AppHandle) -> Result<(), String> {
+    match tray::open_log_file_from_main(&app) {
+        Ok(()) => Ok(()),
+        Err(err) => {
+            app_log::warn(err.clone());
+            Err(err)
+        }
+    }
 }
 
 #[tauri::command]
@@ -87,6 +113,30 @@ fn log_frontend_event(message: String) {
 #[tauri::command]
 fn get_usage_stats() -> StatsSnapshot {
     stats::load_stats_snapshot()
+}
+
+#[tauri::command]
+async fn check_for_update() -> Result<update::UpdateStatus, String> {
+    app_log::info("开始检查软件更新。");
+    let loaded = config::load_config()?;
+    update::check_for_update(&loaded.data.update)
+        .await
+        .map_err(|err| {
+            app_log::warn(format!("软件更新检查失败: {}", err));
+            err
+        })
+}
+
+#[tauri::command]
+async fn download_and_install_update() -> Result<update::InstallUpdateResult, String> {
+    app_log::info("开始下载并安装软件更新。");
+    let loaded = config::load_config()?;
+    update::download_and_install(&loaded.data.update)
+        .await
+        .map_err(|err| {
+            app_log::warn(format!("下载并安装软件更新失败: {}", err));
+            err
+        })
 }
 
 #[tauri::command]
@@ -167,9 +217,12 @@ pub fn run() {
             load_app_config,
             save_app_config,
             open_setup_guide,
+            open_log_file,
             log_frontend_error,
             log_frontend_event,
             get_usage_stats,
+            check_for_update,
+            download_and_install_update,
             get_overlay_text,
             list_audio_input_devices,
             get_session_state,
@@ -196,6 +249,11 @@ pub fn run() {
             app_log::info("startup stage: setup guide check begin");
             setup_guide::open_if_config_missing(app.handle());
             app_log::info("startup stage: setup guide check done");
+            if let Ok(loaded) = config::load_config() {
+                if let Err(err) = autostart::apply(&loaded.data.startup) {
+                    app_log::warn(format!("启动时同步开机自启动失败: {}", err));
+                }
+            }
             app_log::info("startup stage: global hotkey thread start");
             hotkey::start_global_hotkey_thread(app.handle().clone());
             app_log::info("startup stage: input hook thread start");

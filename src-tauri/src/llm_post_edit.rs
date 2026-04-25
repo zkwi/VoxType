@@ -2,10 +2,15 @@ use crate::{app_log, config::AppConfig};
 use serde_json::{json, Value};
 use std::time::Duration;
 
-pub async fn polish(config: &AppConfig, text: &str) -> String {
+pub struct PolishOutcome {
+    pub text: String,
+    pub warning: Option<String>,
+}
+
+pub async fn polish(config: &AppConfig, text: &str) -> PolishOutcome {
     let settings = &config.llm_post_edit;
     if !settings.enabled {
-        return text.to_string();
+        return unchanged(text);
     }
     let input_chars = text.trim().chars().count();
     if input_chars < settings.min_chars {
@@ -13,14 +18,17 @@ pub async fn polish(config: &AppConfig, text: &str) -> String {
             "LLM polish skipped: chars={} min_chars={}",
             input_chars, settings.min_chars
         ));
-        return text.to_string();
+        return unchanged(text);
     }
     let api_key = settings.api_key.trim();
     let base_url = settings.base_url.trim().trim_end_matches('/');
     let model = settings.model.trim();
     if api_key.is_empty() || base_url.is_empty() || model.is_empty() {
         app_log::warn("LLM polish skipped: base_url/api_key/model is not fully configured");
-        return text.to_string();
+        return with_warning(
+            text,
+            "大模型润色已启用，但 Base URL、API Key 或模型未填写完整，已使用原始识别文本。",
+        );
     }
 
     let mut user_prompt = settings.user_prompt_template.replace("{text}", text);
@@ -65,16 +73,37 @@ pub async fn polish(config: &AppConfig, text: &str) -> String {
                 "LLM polish finished: output_chars={}",
                 polished.chars().count()
             ));
-            polished
+            PolishOutcome {
+                text: polished,
+                warning: None,
+            }
         }
         Ok(_) => {
             app_log::warn("LLM polish returned empty content, original text kept");
-            text.to_string()
+            with_warning(text, "大模型润色返回空内容，已使用原始识别文本。")
         }
         Err(err) => {
-            app_log::warn(format!("LLM polish failed, original text kept: {}", err));
-            text.to_string()
+            let warning = friendly_llm_error(&err);
+            app_log::warn(format!(
+                "LLM polish failed, original text kept: {}; user_message={}",
+                err, warning
+            ));
+            with_warning(text, &warning)
         }
+    }
+}
+
+fn unchanged(text: &str) -> PolishOutcome {
+    PolishOutcome {
+        text: text.to_string(),
+        warning: None,
+    }
+}
+
+fn with_warning(text: &str, warning: &str) -> PolishOutcome {
+    PolishOutcome {
+        text: text.to_string(),
+        warning: Some(warning.to_string()),
     }
 }
 
@@ -105,7 +134,9 @@ async fn call_openai_compatible(
         .await
         .map_err(|err| format!("调用 LLM 失败: {}", err))?;
     if !response.status().is_success() {
-        return Err(format!("LLM 返回状态码: {}", response.status()));
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(format!("LLM 返回状态码: {}; {}", status, body));
     }
     let value: Value = response
         .json()
@@ -120,4 +151,41 @@ async fn call_openai_compatible(
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_string())
+}
+
+fn friendly_llm_error(error: &str) -> String {
+    let lower = error.to_ascii_lowercase();
+    if lower.contains("401")
+        || lower.contains("403")
+        || lower.contains("unauthorized")
+        || lower.contains("forbidden")
+        || lower.contains("invalid api key")
+        || lower.contains("invalid_api_key")
+    {
+        "大模型 API Key 或权限校验失败，已使用原始识别文本。请检查 API Key、Base URL 和模型名称。"
+            .to_string()
+    } else if lower.contains("timeout")
+        || lower.contains("timed out")
+        || lower.contains("dns")
+        || lower.contains("connection")
+        || lower.contains("connect")
+        || lower.contains("proxy")
+    {
+        "大模型服务连接失败，已使用原始识别文本。请检查网络、代理或 Base URL。".to_string()
+    } else {
+        "大模型润色失败，已使用原始识别文本。请检查 API Key、Base URL、模型名称或网络环境。"
+            .to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::friendly_llm_error;
+
+    #[test]
+    fn explains_common_llm_failures() {
+        assert!(friendly_llm_error("401 invalid_api_key").contains("API Key"));
+        assert!(friendly_llm_error("dns lookup failed").contains("网络"));
+        assert!(friendly_llm_error("model not found").contains("模型名称"));
+    }
 }

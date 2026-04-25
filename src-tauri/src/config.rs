@@ -18,6 +18,10 @@ pub struct AppConfig {
     #[serde(default)]
     pub typing: TypingConfig,
     #[serde(default)]
+    pub startup: StartupConfig,
+    #[serde(default)]
+    pub update: UpdateConfig,
+    #[serde(default)]
     pub llm_post_edit: LlmPostEditConfig,
     #[serde(default)]
     pub ui: UiConfig,
@@ -125,6 +129,20 @@ pub struct TypingConfig {
     pub paste_method: String,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct StartupConfig {
+    #[serde(default)]
+    pub launch_on_startup: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateConfig {
+    #[serde(default = "default_true")]
+    pub auto_check_on_startup: bool,
+    #[serde(default = "default_update_github_repo")]
+    pub github_repo: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LlmPostEditConfig {
     #[serde(default)]
@@ -192,6 +210,8 @@ impl Default for AppConfig {
             context: ContextConfig::default(),
             triggers: TriggerConfig::default(),
             typing: TypingConfig::default(),
+            startup: StartupConfig::default(),
+            update: UpdateConfig::default(),
             llm_post_edit: LlmPostEditConfig::default(),
             ui: UiConfig::default(),
             tray: TrayConfig::default(),
@@ -272,6 +292,15 @@ impl Default for TypingConfig {
         Self {
             paste_delay_ms: default_paste_delay_ms(),
             paste_method: default_paste_method(),
+        }
+    }
+}
+
+impl Default for UpdateConfig {
+    fn default() -> Self {
+        Self {
+            auto_check_on_startup: true,
+            github_repo: default_update_github_repo(),
         }
     }
 }
@@ -492,6 +521,9 @@ fn default_paste_delay_ms() -> u64 {
 }
 fn default_paste_method() -> String {
     "ctrl_v".to_string()
+}
+fn default_update_github_repo() -> String {
+    "zkwi/VoxType".to_string()
 }
 fn default_min_chars() -> usize {
     40

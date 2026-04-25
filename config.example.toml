@@ -66,6 +66,16 @@ paste_delay_ms = 120
 # 粘贴方式：ctrl_v / shift_insert / clipboard_only
 paste_method = "ctrl_v"
 
+[startup]
+# 是否随 Windows 开机自动启动
+launch_on_startup = false
+
+[update]
+# 启动后是否自动检查 GitHub Release 更新
+auto_check_on_startup = true
+# GitHub Release 所在仓库，普通使用不需要修改
+github_repo = "zkwi/VoxType"
+
 [llm_post_edit]
 # 是否启用大模型润色；关闭时只做 ASR
 enabled = false

@@ -33,7 +33,10 @@
 - 自动输入：最终文本写入剪贴板，并用带扫描码和短间隔的 `Ctrl+V` 或 `Shift+Insert` 粘贴到当前焦点输入框。
 - 可选润色：可调用 OpenAI 兼容接口做轻度后处理。
 - 系统音量：可配置录音期间临时静音系统音量，结束后恢复。
-- 托盘常驻：关闭主窗口时隐藏到托盘，只有托盘菜单“退出”才正式退出。
+- 托盘常驻：关闭主窗口时隐藏到托盘，可从托盘打开配置和日志；只有托盘菜单“退出”才正式退出。
+- 开机启动：可在配置页开启随 Windows 登录自动启动。
+- 检查更新：可通过 GitHub Release 检查最新版，并下载启动 Windows 安装包。
+- 诊断日志：配置页和托盘均可打开本地日志，便于排查识别、粘贴、网络和更新问题。
 - 多语言界面：简体中文、繁体中文、英语，默认简体中文。
 
 ## 环境
@@ -84,6 +87,21 @@ enabled = true
 api_key = ""
 base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 model = "qwen3.5-plus"
+```
+
+如需随 Windows 登录自动启动，可在配置页开启，或在 `config.toml` 中设置：
+
+```toml
+[startup]
+launch_on_startup = true
+```
+
+更新检查默认读取 `zkwi/VoxType` 的 GitHub Release。需要关闭启动自动检查时，可在配置页关闭，或在 `config.toml` 中设置：
+
+```toml
+[update]
+auto_check_on_startup = false
+github_repo = "zkwi/VoxType"
 ```
 
 `config.toml`、本地日志和统计文件已被 `.gitignore` 忽略。示例配置和文档只保留占位值，不应写入真实密钥、个人热词或自定义上下文。
@@ -144,9 +162,11 @@ src-tauri\target\release\voxtype-desktop.exe
 托盘行为：
 
 - 双击托盘图标：打开主窗口。
-- 托盘菜单“打开主窗口”：显示并聚焦主窗口。
 - 托盘菜单“打开配置”：用系统默认编辑器打开 `config.toml`。
+- 托盘菜单“查看日志”：用系统默认程序打开本地日志。
 - 托盘菜单“退出”：停止会话并退出程序。
+
+配置页的“诊断与日志”也可以直接打开本地日志。日志会记录关键启动阶段、配置保存、ASR/LLM 错误、更新检查和前端异常；密钥形态会自动脱敏。
 
 ## 常用命令
 
@@ -200,6 +220,7 @@ VoxType/
 │   │   ├── audio.rs             # 麦克风采集
 │   │   ├── asr.rs               # ASR 请求组装与结果解析
 │   │   ├── asr_ws.rs            # 豆包 WebSocket 会话
+│   │   ├── autostart.rs         # Windows 开机自启动
 │   │   ├── config.rs            # TOML 配置加载
 │   │   ├── hotkey.rs            # 全局热键与输入钩子
 │   │   ├── llm_post_edit.rs     # LLM 后处理
@@ -208,7 +229,8 @@ VoxType/
 │   │   ├── stats.rs             # 使用统计
 │   │   ├── system_audio.rs      # 系统音量控制
 │   │   ├── text_output.rs       # 剪贴板与粘贴
-│   │   └── tray.rs              # 系统托盘
+│   │   ├── tray.rs              # 系统托盘
+│   │   └── update.rs            # GitHub Release 更新检查
 │   ├── capabilities/
 │   ├── icons/
 │   └── tauri.conf.json
