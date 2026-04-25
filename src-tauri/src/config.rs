@@ -53,7 +53,7 @@ pub struct AudioConfig {
     pub max_record_seconds: u64,
     #[serde(default = "default_stop_grace_ms")]
     pub stop_grace_ms: u64,
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub mute_system_volume_while_recording: bool,
     #[serde(default)]
     pub input_device: Option<u32>,
@@ -91,7 +91,7 @@ pub struct RequestConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContextConfig {
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub enable_recent_context: bool,
     #[serde(default = "default_recent_context_rounds")]
     pub recent_context_rounds: usize,
@@ -115,9 +115,9 @@ pub struct TextContext {
 pub struct TriggerConfig {
     #[serde(default = "default_true")]
     pub hotkey_enabled: bool,
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub middle_mouse_enabled: bool,
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub right_alt_enabled: bool,
 }
 
@@ -127,6 +127,12 @@ pub struct TypingConfig {
     pub paste_delay_ms: u64,
     #[serde(default = "default_paste_method")]
     pub paste_method: String,
+    #[serde(default = "default_true")]
+    pub restore_clipboard_after_paste: bool,
+    #[serde(default = "default_clipboard_open_retry_count")]
+    pub clipboard_open_retry_count: u32,
+    #[serde(default = "default_clipboard_open_retry_interval_ms")]
+    pub clipboard_open_retry_interval_ms: u64,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -187,9 +193,9 @@ pub struct TrayConfig {
     pub startup_message_timeout_ms: u64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct DebugConfig {
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub print_transcript_to_console: bool,
 }
 
@@ -238,7 +244,7 @@ impl Default for AudioConfig {
             segment_ms: default_segment_ms(),
             max_record_seconds: default_max_record_seconds(),
             stop_grace_ms: default_stop_grace_ms(),
-            mute_system_volume_while_recording: true,
+            mute_system_volume_while_recording: false,
             input_device: None,
         }
     }
@@ -267,7 +273,7 @@ impl Default for RequestConfig {
 impl Default for ContextConfig {
     fn default() -> Self {
         Self {
-            enable_recent_context: true,
+            enable_recent_context: false,
             recent_context_rounds: default_recent_context_rounds(),
             image_url: None,
             hotwords: Vec::new(),
@@ -281,8 +287,8 @@ impl Default for TriggerConfig {
     fn default() -> Self {
         Self {
             hotkey_enabled: true,
-            middle_mouse_enabled: true,
-            right_alt_enabled: true,
+            middle_mouse_enabled: false,
+            right_alt_enabled: false,
         }
     }
 }
@@ -292,6 +298,9 @@ impl Default for TypingConfig {
         Self {
             paste_delay_ms: default_paste_delay_ms(),
             paste_method: default_paste_method(),
+            restore_clipboard_after_paste: true,
+            clipboard_open_retry_count: default_clipboard_open_retry_count(),
+            clipboard_open_retry_interval_ms: default_clipboard_open_retry_interval_ms(),
         }
     }
 }
@@ -338,14 +347,6 @@ impl Default for TrayConfig {
         Self {
             show_startup_message: true,
             startup_message_timeout_ms: default_startup_message_timeout_ms(),
-        }
-    }
-}
-
-impl Default for DebugConfig {
-    fn default() -> Self {
-        Self {
-            print_transcript_to_console: true,
         }
     }
 }
@@ -522,6 +523,12 @@ fn default_paste_delay_ms() -> u64 {
 fn default_paste_method() -> String {
     "ctrl_v".to_string()
 }
+fn default_clipboard_open_retry_count() -> u32 {
+    5
+}
+fn default_clipboard_open_retry_interval_ms() -> u64 {
+    50
+}
 fn default_update_github_repo() -> String {
     "zkwi/VoxType".to_string()
 }
@@ -557,4 +564,23 @@ fn default_scroll_interval_ms() -> u64 {
 }
 fn default_startup_message_timeout_ms() -> u64 {
     6000
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AppConfig;
+
+    #[test]
+    fn defaults_are_conservative_for_consumer_use() {
+        let config = AppConfig::default();
+        assert!(config.triggers.hotkey_enabled);
+        assert!(!config.triggers.middle_mouse_enabled);
+        assert!(!config.triggers.right_alt_enabled);
+        assert!(!config.audio.mute_system_volume_while_recording);
+        assert!(!config.context.enable_recent_context);
+        assert!(!config.debug.print_transcript_to_console);
+        assert!(config.typing.restore_clipboard_after_paste);
+        assert_eq!(config.typing.clipboard_open_retry_count, 5);
+        assert_eq!(config.typing.clipboard_open_retry_interval_ms, 50);
+    }
 }

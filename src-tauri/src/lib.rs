@@ -28,6 +28,30 @@ struct AppSnapshot {
     current_version: String,
 }
 
+#[derive(Serialize)]
+struct SetupStatus {
+    ready: bool,
+    missing_auth: bool,
+    has_audio_device: bool,
+    hotkey: String,
+    paste_method: String,
+    privacy_recent_context_enabled: bool,
+    warnings: Vec<SetupWarning>,
+}
+
+#[derive(Serialize)]
+struct SetupWarning {
+    code: String,
+    title: String,
+    message: String,
+    action: String,
+}
+
+#[derive(Serialize)]
+struct ConnectionTestResult {
+    message: String,
+}
+
 #[tauri::command]
 fn get_app_snapshot() -> Result<AppSnapshot, String> {
     let loaded = config::load_config()?;
@@ -35,6 +59,72 @@ fn get_app_snapshot() -> Result<AppSnapshot, String> {
     Ok(AppSnapshot {
         hotkey: loaded.data.hotkey,
         current_version: env!("CARGO_PKG_VERSION").to_string(),
+    })
+}
+
+#[tauri::command]
+fn get_setup_status() -> Result<SetupStatus, String> {
+    let loaded = config::load_config()?;
+    let data = loaded.data;
+    let missing_auth =
+        data.auth.app_key.trim().is_empty() || data.auth.access_key.trim().is_empty();
+    let has_audio_device = audio::list_input_devices()
+        .map(|devices| !devices.is_empty())
+        .unwrap_or(false);
+    let mut warnings = Vec::new();
+
+    if missing_auth {
+        warnings.push(SetupWarning {
+            code: "ASR_AUTH_MISSING".to_string(),
+            title: "ASR 密钥未填写".to_string(),
+            message: "填写 App Key 和 Access Key 后才能开始语音识别。".to_string(),
+            action: "asr_auth".to_string(),
+        });
+    }
+    if !has_audio_device {
+        warnings.push(SetupWarning {
+            code: "MIC_DEVICE_NOT_FOUND".to_string(),
+            title: "未检测到麦克风".to_string(),
+            message: "请接入或启用麦克风，然后重新检查设备。".to_string(),
+            action: "audio".to_string(),
+        });
+    }
+    if data.triggers.middle_mouse_enabled || data.triggers.right_alt_enabled {
+        warnings.push(SetupWarning {
+            code: "EXTRA_TRIGGER_ENABLED".to_string(),
+            title: "额外触发方式已开启".to_string(),
+            message: "右 Alt 和鼠标中键可能和其他软件操作冲突，建议确认后再使用。".to_string(),
+            action: "hotkey".to_string(),
+        });
+    }
+    if data.audio.mute_system_volume_while_recording {
+        warnings.push(SetupWarning {
+            code: "SYSTEM_AUDIO_MUTE_ENABLED".to_string(),
+            title: "录音时会静音系统声音".to_string(),
+            message: "这能减少回声，但可能影响会议、视频或系统提示音。".to_string(),
+            action: "audio".to_string(),
+        });
+    }
+    if data.context.enable_recent_context {
+        warnings.push(SetupWarning {
+            code: "RECENT_CONTEXT_ENABLED".to_string(),
+            title: "最近上下文已开启".to_string(),
+            message: "最近识别片段会保存在本地，用于改善连续识别；如介意隐私可关闭。".to_string(),
+            action: "privacy".to_string(),
+        });
+    }
+
+    Ok(SetupStatus {
+        ready: !missing_auth
+            && has_audio_device
+            && data.triggers.hotkey_enabled
+            && !data.context.enable_recent_context,
+        missing_auth,
+        has_audio_device,
+        hotkey: data.hotkey,
+        paste_method: data.typing.paste_method,
+        privacy_recent_context_enabled: data.context.enable_recent_context,
+        warnings,
     })
 }
 
@@ -75,6 +165,40 @@ fn save_app_config(config: AppConfig) -> Result<LoadedConfig, String> {
         }
         Err(err) => {
             app_log::warn(format!("配置保存失败: {}", err));
+            Err(err)
+        }
+    }
+}
+
+#[tauri::command]
+async fn test_asr_config(config: AppConfig) -> Result<ConnectionTestResult, String> {
+    app_log::info("用户开始测试豆包 ASR 配置。");
+    match asr_ws::test_connection(&config).await {
+        Ok(()) => {
+            app_log::info("豆包 ASR 配置测试成功。");
+            Ok(ConnectionTestResult {
+                message: "豆包 ASR 测试成功，当前 Key 可用。".to_string(),
+            })
+        }
+        Err(err) => {
+            app_log::warn(format!("豆包 ASR 配置测试失败: {}", err));
+            Err(err)
+        }
+    }
+}
+
+#[tauri::command]
+async fn test_llm_config(config: AppConfig) -> Result<ConnectionTestResult, String> {
+    app_log::info("用户开始测试大模型配置。");
+    match llm_post_edit::test_connection(&config).await {
+        Ok(()) => {
+            app_log::info("大模型配置测试成功。");
+            Ok(ConnectionTestResult {
+                message: "大模型测试成功，当前 API Key 可用。".to_string(),
+            })
+        }
+        Err(err) => {
+            app_log::warn(format!("大模型配置测试失败: {}", err));
             Err(err)
         }
     }
@@ -214,8 +338,11 @@ pub fn run() {
         .manage(SessionController::default())
         .invoke_handler(tauri::generate_handler![
             get_app_snapshot,
+            get_setup_status,
             load_app_config,
             save_app_config,
+            test_asr_config,
+            test_llm_config,
             open_setup_guide,
             open_log_file,
             log_frontend_error,

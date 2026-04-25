@@ -21,8 +21,8 @@ segment_ms = 200
 max_record_seconds = 300
 # 松开热键后额外保留一点尾音
 stop_grace_ms = 500
-# 录音时是否自动静音系统音量
-mute_system_volume_while_recording = true
+# 录音时是否自动静音系统音量；可减少回声，但可能影响会议、视频或系统提示音
+mute_system_volume_while_recording = false
 # 指定麦克风设备；不用时保持注释掉或留空
 # input_device = 1
 
@@ -45,8 +45,8 @@ end_window_size = 1200
 final_result_timeout_seconds = 15
 
 [context]
-# 是否把最近几轮输入内容作为上下文提示
-enable_recent_context = true
+# 是否把最近几轮输入内容作为上下文提示；会在本地保存最近识别片段，默认关闭
+enable_recent_context = false
 # 最近上下文保留轮数
 recent_context_rounds = 5
 # 可选图片 URL；不用就保持注释掉
@@ -55,16 +55,21 @@ recent_context_rounds = 5
 hotwords = []
 
 [triggers]
-# 启动方式开关；关闭后对应按键不会触发语音输入
+# 启动方式开关；右 Alt 和鼠标中键可能和其他软件操作冲突，建议确认后再开启
 hotkey_enabled = true
-middle_mouse_enabled = true
-right_alt_enabled = true
+middle_mouse_enabled = false
+right_alt_enabled = false
 
 [typing]
 # 复制文本后、尝试切回原窗口前的等待时间
 paste_delay_ms = 120
 # 粘贴方式：ctrl_v / shift_insert / clipboard_only
 paste_method = "ctrl_v"
+# 自动粘贴后恢复原剪贴板文本；粘贴失败时会保留识别文本方便手动 Ctrl+V
+restore_clipboard_after_paste = true
+# 打开剪贴板失败时的短暂重试
+clipboard_open_retry_count = 5
+clipboard_open_retry_interval_ms = 50
 
 [startup]
 # 是否随 Windows 开机自动启动
@@ -134,5 +139,5 @@ show_startup_message = true
 startup_message_timeout_ms = 6000
 
 [debug]
-# 是否把最终转写结果同时打印到控制台
-print_transcript_to_console = true
+# 是否把最终转写结果同时打印到控制台；默认关闭，避免控制台泄露识别正文
+print_transcript_to_console = false

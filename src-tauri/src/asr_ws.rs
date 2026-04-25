@@ -1,4 +1,4 @@
-use crate::session::SessionController;
+use crate::session::{SessionController, SessionPhase};
 use crate::{
     app_log, asr, config, config::AppConfig, llm_post_edit, overlay, protocol, stats, text_output,
 };
@@ -44,18 +44,34 @@ pub fn spawn_asr_worker(
         let runtime = match tokio::runtime::Runtime::new() {
             Ok(runtime) => runtime,
             Err(err) => {
-                emit_error(&app, format!("启动 ASR 运行时失败: {}", err));
+                let error = format!("启动 ASR 运行时失败: {}", err);
+                session.set_phase(
+                    Some(&app),
+                    SessionPhase::Failed,
+                    &error,
+                    Some("ASR_RUNTIME_FAILED"),
+                );
+                emit_error(&app, error);
                 return;
             }
         };
         let typing = config.typing.clone();
         let runtime_result = runtime.block_on(async {
-            let text = run_websocket_session(config.clone(), audio_rx, app.clone()).await?;
+            let text =
+                run_websocket_session(config.clone(), audio_rx, app.clone(), session.clone())
+                    .await?;
+            session.set_phase(
+                Some(&app),
+                SessionPhase::PostEditing,
+                "Post-editing transcript.",
+                None,
+            );
             Ok::<llm_post_edit::PolishOutcome, String>(llm_post_edit::polish(&config, &text).await)
         });
         match runtime_result {
             Ok(outcome) => {
                 let text = outcome.text;
+                let mut output_warning = None;
                 app_log::info(format!("ASR worker 返回文本长度: {}", text.chars().count()));
                 if !text.trim().is_empty() {
                     overlay::update_text(&app, &text);
@@ -70,9 +86,30 @@ pub fn spawn_asr_worker(
                     {
                         app_log::warn(format!("刷新统计事件发送失败: {}", err));
                     }
-                    if let Err(err) = text_output::output_text(&text, &typing) {
-                        emit_error(&app, err);
-                        return;
+                    session.set_phase(
+                        Some(&app),
+                        SessionPhase::Pasting,
+                        "Pasting transcript.",
+                        None,
+                    );
+                    output_warning = match text_output::output_text(&text, &typing) {
+                        Ok(result) => result.warning,
+                        Err(err) => {
+                            session.set_phase(
+                                Some(&app),
+                                SessionPhase::Failed,
+                                &err,
+                                Some("PASTE_FAILED"),
+                            );
+                            emit_error(&app, err);
+                            return;
+                        }
+                    };
+                    if output_warning.is_some() {
+                        app_log::warn(format!(
+                            "输出文本完成但存在提示: {}",
+                            output_warning.as_deref().unwrap_or_default()
+                        ));
                     }
                     app_log::info(format!(
                         "ASR session finished: chars={}",
@@ -83,12 +120,18 @@ pub fn spawn_asr_worker(
                     app_log::info("ASR session finished: empty transcript");
                 }
                 overlay::hide(&app);
+                session.set_phase(
+                    Some(&app),
+                    SessionPhase::Succeeded,
+                    "Transcript pasted.",
+                    None,
+                );
                 let _ = app.emit(
                     "asr-final-text",
                     AsrFinalText {
                         text,
                         error: None,
-                        warning: outcome.warning,
+                        warning: outcome.warning.or(output_warning),
                     },
                 );
             }
@@ -100,10 +143,96 @@ pub fn spawn_asr_worker(
     });
 }
 
+pub async fn test_connection(config: &AppConfig) -> Result<(), String> {
+    if config.auth.app_key.trim().is_empty() || config.auth.access_key.trim().is_empty() {
+        return Err("请先填写豆包 App Key 和 Access Key。".to_string());
+    }
+    if config.auth.resource_id.trim().is_empty() {
+        return Err("请先填写豆包 Resource ID。".to_string());
+    }
+
+    let mut test_config = config.clone();
+    test_config.context.hotwords.clear();
+    test_config.context.prompt_context.clear();
+    test_config.context.recent_context.clear();
+    test_config.context.image_url = None;
+    let preview = asr::build_request_preview(&test_config);
+    let mut request = preview
+        .ws_url
+        .as_str()
+        .into_client_request()
+        .map_err(|err| format!("创建豆包 ASR 测试请求失败: {}", err))?;
+    for (name, value) in preview.headers {
+        let name = HeaderName::from_bytes(name.as_bytes())
+            .map_err(|err| format!("豆包 ASR header 名称无效: {}", err))?;
+        let value = HeaderValue::from_str(&value)
+            .map_err(|err| format!("豆包 ASR header 值无效: {}", err))?;
+        request.headers_mut().insert(name, value);
+    }
+
+    let (mut websocket, _) = tokio::time::timeout(Duration::from_secs(20), connect_async(request))
+        .await
+        .map_err(|_| "连接豆包 ASR 测试超时，请检查网络或代理设置。".to_string())?
+        .map_err(|err| friendly_asr_connection_error(&err.to_string()))?;
+    websocket
+        .send(Message::Binary(protocol::build_full_request(
+            &preview.payload,
+            1,
+        )?))
+        .await
+        .map_err(|err| format!("发送豆包 ASR 测试首包失败: {}", err))?;
+    let test_audio = silent_test_audio(&test_config);
+    websocket
+        .send(Message::Binary(protocol::build_audio_request(
+            2,
+            &test_audio,
+            false,
+        )?))
+        .await
+        .map_err(|err| format!("发送豆包 ASR 测试音频包失败: {}", err))?;
+    websocket
+        .send(Message::Binary(protocol::build_audio_request(
+            3,
+            &[],
+            true,
+        )?))
+        .await
+        .map_err(|err| format!("发送豆包 ASR 测试结束包失败: {}", err))?;
+
+    let response = tokio::time::timeout(Duration::from_secs(8), websocket.next())
+        .await
+        .map_err(|_| "豆包 ASR 已连接，但未收到测试响应，请稍后重试。".to_string())?;
+    let Some(response) = response else {
+        return Err("豆包 ASR 连接已关闭，未收到测试响应。".to_string());
+    };
+    match response {
+        Ok(Message::Binary(data)) => {
+            let parsed = protocol::parse_response(&data)?;
+            if is_success_code(parsed.code) {
+                let _ = websocket.close(None).await;
+                Ok(())
+            } else {
+                Err(friendly_asr_service_error(parsed.code))
+            }
+        }
+        Ok(Message::Close(_)) => Err("豆包 ASR 连接已关闭，未收到有效测试响应。".to_string()),
+        Ok(_) => Err("豆包 ASR 返回了非预期测试响应。".to_string()),
+        Err(err) => Err(format!("接收豆包 ASR 测试响应失败: {}", err)),
+    }
+}
+
+fn silent_test_audio(config: &AppConfig) -> Vec<u8> {
+    let bytes_per_second = config.audio.sample_rate as usize * config.audio.channels as usize * 2;
+    let requested = bytes_per_second.saturating_mul(config.audio.segment_ms as usize) / 1000;
+    let byte_len = requested.clamp(3_200, 32_000);
+    vec![0; byte_len]
+}
+
 async fn run_websocket_session(
     config: AppConfig,
     audio_rx: Receiver<Vec<u8>>,
     app: AppHandle,
+    session: SessionController,
 ) -> Result<String, String> {
     let preview = asr::build_request_preview(&config);
     let mut request = preview
@@ -170,6 +299,12 @@ async fn run_websocket_session(
                         .map_err(|err| format!("发送 ASR 结束包失败: {}", err))?;
                     audio_finished = true;
                     final_wait_started = Some(Instant::now());
+                    session.set_phase(
+                        Some(&app),
+                        SessionPhase::WaitingFinalResult,
+                        "Waiting for final ASR result.",
+                        None,
+                    );
                     app_log::info("ASR 音频结束包已发送");
                 }
             }
@@ -312,7 +447,11 @@ fn friendly_asr_service_error(code: i32) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{friendly_asr_connection_error, friendly_asr_service_error, is_success_code};
+    use super::{
+        friendly_asr_connection_error, friendly_asr_service_error, is_success_code,
+        silent_test_audio,
+    };
+    use crate::config::AppConfig;
 
     #[test]
     fn accepts_doubao_success_codes() {
@@ -326,5 +465,15 @@ mod tests {
         assert!(friendly_asr_connection_error("HTTP error: 401 Unauthorized").contains("认证失败"));
         assert!(friendly_asr_connection_error("dns error").contains("无法连接"));
         assert!(friendly_asr_service_error(40_000_001).contains("权限"));
+    }
+
+    #[test]
+    fn silent_test_audio_is_small_and_non_empty() {
+        let config = AppConfig::default();
+        let audio = silent_test_audio(&config);
+        assert!(!audio.is_empty());
+        assert!(audio.len() >= 3_200);
+        assert!(audio.len() <= 32_000);
+        assert!(audio.iter().all(|value| *value == 0));
     }
 }

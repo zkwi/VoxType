@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -14,7 +14,24 @@ use crate::system_audio::{self, VolumeState};
 #[derive(Debug, Clone, Serialize)]
 pub struct SessionState {
     pub recording: bool,
+    pub phase: SessionPhase,
     pub message: String,
+    pub error_code: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionPhase {
+    #[default]
+    Idle,
+    Starting,
+    Recording,
+    Stopping,
+    WaitingFinalResult,
+    PostEditing,
+    Pasting,
+    Succeeded,
+    Failed,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -25,6 +42,9 @@ pub struct AudioLevel {
 #[derive(Default)]
 struct InnerSession {
     recording: bool,
+    phase: SessionPhase,
+    message: String,
+    error_code: Option<String>,
     generation: u64,
     audio_capture: Option<AudioCapture>,
     volume_state: Option<VolumeState>,
@@ -41,26 +61,40 @@ impl SessionController {
             app_log::warn("读取会话状态失败：session mutex poisoned");
             return SessionState {
                 recording: false,
+                phase: SessionPhase::Failed,
                 message: "Session state is unavailable.".to_string(),
+                error_code: Some("SESSION_STATE_UNAVAILABLE".to_string()),
             };
         };
         SessionState {
             recording: inner.recording,
-            message: if let Some(audio) = &inner.audio_capture {
-                let info = audio.info();
-                format!(
-                    "Recording from {} at {} Hz / {} channel(s), {} PCM bytes captured.",
-                    info.device_name, info.sample_rate, info.channels, info.pcm_bytes
-                )
-            } else if inner.recording {
-                "Recording is active, waiting for audio stream.".to_string()
+            phase: inner.phase,
+            message: if matches!(inner.phase, SessionPhase::Recording) {
+                if let Some(audio) = &inner.audio_capture {
+                    let info = audio.info();
+                    format!(
+                        "Recording from {} at {} Hz / {} channel(s), {} PCM bytes captured.",
+                        info.device_name, info.sample_rate, info.channels, info.pcm_bytes
+                    )
+                } else {
+                    "Recording is active, waiting for audio stream.".to_string()
+                }
             } else {
-                "Recording is idle.".to_string()
+                inner.message.clone()
             },
+            error_code: inner.error_code.clone(),
         }
     }
 
     pub fn start(&self, app: Option<AppHandle>) -> Result<SessionState, String> {
+        let current = self.current_state();
+        if matches!(
+            current.phase,
+            SessionPhase::WaitingFinalResult | SessionPhase::PostEditing | SessionPhase::Pasting
+        ) {
+            emit_state(app.as_ref(), &current);
+            return Ok(current);
+        }
         let loaded = config::load_config()?;
         let max_seconds = loaded.data.audio.max_record_seconds;
         if loaded.data.auth.app_key.trim().is_empty()
@@ -77,8 +111,16 @@ impl SessionController {
             ));
             let state = SessionState {
                 recording: false,
+                phase: SessionPhase::Failed,
                 message: message.to_string(),
+                error_code: Some("ASR_AUTH_MISSING".to_string()),
             };
+            self.set_state_values(
+                false,
+                SessionPhase::Failed,
+                message,
+                Some("ASR_AUTH_MISSING"),
+            );
             if let Some(app) = app.as_ref() {
                 emit_state(Some(app), &state);
             }
@@ -92,10 +134,15 @@ impl SessionController {
             if inner.recording {
                 return Ok(SessionState {
                     recording: true,
+                    phase: inner.phase,
                     message: "Recording is already active.".to_string(),
+                    error_code: inner.error_code.clone(),
                 });
             }
             inner.recording = true;
+            inner.phase = SessionPhase::Starting;
+            inner.message = "Recording is starting.".to_string();
+            inner.error_code = None;
             inner.generation = inner.generation.wrapping_add(1);
             inner.audio_capture = None;
             inner.volume_state = None;
@@ -120,7 +167,9 @@ impl SessionController {
             overlay::show_for_recording(app, &loaded.data.ui);
             let starting = SessionState {
                 recording: true,
+                phase: SessionPhase::Starting,
                 message: "Recording is starting.".to_string(),
+                error_code: None,
             };
             emit_state(Some(app), &starting);
         }
@@ -134,7 +183,12 @@ impl SessionController {
             Ok(capture) => capture,
             Err(err) => {
                 system_audio::safe_restore(volume_state);
-                let state = self.force_stop_generation(generation, "Recording failed to start.");
+                let state = self.force_stop_generation(
+                    generation,
+                    SessionPhase::Failed,
+                    "Recording failed to start.",
+                    Some("MIC_START_FAILED"),
+                );
                 if let Some(app) = app.as_ref() {
                     overlay::update_text(app, format!("启动录音失败: {}", err));
                     overlay::hide(app);
@@ -142,7 +196,9 @@ impl SessionController {
                         Some(app),
                         &state.unwrap_or(SessionState {
                             recording: false,
+                            phase: SessionPhase::Failed,
                             message: format!("Recording failed: {}", err),
+                            error_code: Some("MIC_START_FAILED".to_string()),
                         }),
                     );
                 }
@@ -176,6 +232,9 @@ impl SessionController {
             } else {
                 inner.audio_capture = audio_capture.take();
                 inner.volume_state = volume_state.take();
+                inner.phase = SessionPhase::Recording;
+                inner.message = "Recording started.".to_string();
+                inner.error_code = None;
                 true
             }
         };
@@ -183,13 +242,17 @@ impl SessionController {
             system_audio::safe_restore(volume_state);
             return Ok(SessionState {
                 recording: false,
+                phase: SessionPhase::Idle,
                 message: "Recording is already idle.".to_string(),
+                error_code: None,
             });
         }
 
         let state = SessionState {
             recording: true,
+            phase: SessionPhase::Recording,
             message: "Recording started.".to_string(),
+            error_code: None,
         };
         app_log::info("录音会话已开始");
         emit_state(app.as_ref(), &state);
@@ -202,7 +265,9 @@ impl SessionController {
             thread::sleep(Duration::from_secs(max_seconds.max(1)));
             let stopped = controller.force_stop_generation(
                 generation,
+                SessionPhase::WaitingFinalResult,
                 "Recording reached the configured maximum duration.",
+                None,
             );
             if let (Some(app), Some(state)) = (app, stopped) {
                 emit_state(Some(&app), &state);
@@ -216,7 +281,8 @@ impl SessionController {
         let loaded = config::load_config()?;
         let grace_ms = loaded.data.audio.stop_grace_ms;
         if grace_ms == 0 {
-            let state = self.force_stop("Recording stopped.");
+            let state =
+                self.force_stop(SessionPhase::WaitingFinalResult, "Recording stopped.", None);
             emit_state(app.as_ref(), &state);
             return Ok(state);
         }
@@ -229,9 +295,22 @@ impl SessionController {
             if !inner.recording {
                 return Ok(SessionState {
                     recording: false,
+                    phase: inner.phase,
                     message: "Recording is already idle.".to_string(),
+                    error_code: inner.error_code.clone(),
                 });
             }
+            drop(inner);
+            self.set_phase(
+                app.as_ref(),
+                SessionPhase::Stopping,
+                "Recording is stopping.",
+                None,
+            );
+            let inner = self
+                .inner
+                .lock()
+                .map_err(|_| "session mutex poisoned".to_string())?;
             inner.generation
         };
         app_log::info(format!("收到停止录音请求，等待 {} ms 收尾", grace_ms));
@@ -239,8 +318,12 @@ impl SessionController {
         let controller = self.clone();
         thread::spawn(move || {
             thread::sleep(Duration::from_millis(grace_ms));
-            let stopped = controller
-                .force_stop_generation(generation, "Recording stopped after grace period.");
+            let stopped = controller.force_stop_generation(
+                generation,
+                SessionPhase::WaitingFinalResult,
+                "Recording stopped after grace period.",
+                None,
+            );
             if let (Some(app), Some(state)) = (app, stopped) {
                 emit_state(Some(&app), &state);
             }
@@ -248,38 +331,65 @@ impl SessionController {
 
         Ok(SessionState {
             recording: true,
+            phase: SessionPhase::Stopping,
             message: "Recording will stop after the configured grace period.".to_string(),
+            error_code: None,
         })
     }
 
     pub fn toggle(&self, app: Option<AppHandle>) -> Result<SessionState, String> {
-        if self.current_state().recording {
+        let current = self.current_state();
+        if current.recording {
             self.stop(app)
+        } else if matches!(
+            current.phase,
+            SessionPhase::WaitingFinalResult | SessionPhase::PostEditing | SessionPhase::Pasting
+        ) {
+            emit_state(app.as_ref(), &current);
+            Ok(current)
         } else {
             self.start(app)
         }
     }
 
-    fn force_stop(&self, message: &str) -> SessionState {
+    fn force_stop(
+        &self,
+        phase: SessionPhase,
+        message: &str,
+        error_code: Option<&str>,
+    ) -> SessionState {
         let Ok(mut inner) = self.inner.lock() else {
             app_log::warn("停止会话失败：session mutex poisoned");
             return SessionState {
                 recording: false,
+                phase: SessionPhase::Failed,
                 message: message.to_string(),
+                error_code: Some("SESSION_STOP_FAILED".to_string()),
             };
         };
         inner.recording = false;
+        inner.phase = phase;
+        inner.message = message.to_string();
+        inner.error_code = error_code.map(str::to_string);
         inner.generation = inner.generation.wrapping_add(1);
         system_audio::safe_restore(inner.volume_state.take());
         inner.audio_capture = None;
         app_log::info(message);
         SessionState {
             recording: false,
+            phase,
             message: message.to_string(),
+            error_code: error_code.map(str::to_string),
         }
     }
 
-    fn force_stop_generation(&self, generation: u64, message: &str) -> Option<SessionState> {
+    fn force_stop_generation(
+        &self,
+        generation: u64,
+        phase: SessionPhase,
+        message: &str,
+        error_code: Option<&str>,
+    ) -> Option<SessionState> {
         let Ok(mut inner) = self.inner.lock() else {
             app_log::warn("停止指定会话失败：session mutex poisoned");
             return None;
@@ -288,20 +398,64 @@ impl SessionController {
             return None;
         }
         inner.recording = false;
+        inner.phase = phase;
+        inner.message = message.to_string();
+        inner.error_code = error_code.map(str::to_string);
         inner.generation = inner.generation.wrapping_add(1);
         system_audio::safe_restore(inner.volume_state.take());
         inner.audio_capture = None;
         app_log::info(message);
         Some(SessionState {
             recording: false,
+            phase,
             message: message.to_string(),
+            error_code: error_code.map(str::to_string),
         })
     }
 
     pub fn abort_from_worker(&self, app: &AppHandle, message: &str) {
-        let state = self.force_stop(message);
+        let state = self.force_stop(SessionPhase::Failed, message, Some("SESSION_FAILED"));
         overlay::hide(app);
         emit_state(Some(app), &state);
+    }
+
+    pub fn set_phase(
+        &self,
+        app: Option<&AppHandle>,
+        phase: SessionPhase,
+        message: &str,
+        error_code: Option<&str>,
+    ) -> SessionState {
+        let recording = matches!(
+            phase,
+            SessionPhase::Starting | SessionPhase::Recording | SessionPhase::Stopping
+        );
+        self.set_state_values(recording, phase, message, error_code);
+        let state = SessionState {
+            recording,
+            phase,
+            message: message.to_string(),
+            error_code: error_code.map(str::to_string),
+        };
+        emit_state(app, &state);
+        state
+    }
+
+    fn set_state_values(
+        &self,
+        recording: bool,
+        phase: SessionPhase,
+        message: &str,
+        error_code: Option<&str>,
+    ) {
+        let Ok(mut inner) = self.inner.lock() else {
+            app_log::warn("更新会话状态失败：session mutex poisoned");
+            return;
+        };
+        inner.recording = recording;
+        inner.phase = phase;
+        inner.message = message.to_string();
+        inner.error_code = error_code.map(str::to_string);
     }
 }
 

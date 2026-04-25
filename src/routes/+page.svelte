@@ -1,6 +1,10 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { browser } from "$app/environment";
+  import SetupStatusCard, {
+    type SetupStatusItem,
+    type SetupStatusWarning,
+  } from "$lib/components/overview/SetupStatusCard.svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
   import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -79,15 +83,40 @@
     message: string;
   };
 
+  type ConnectionTestResult = { message: string };
+
+  type SetupStatus = {
+    ready: boolean;
+    missing_auth: boolean;
+    has_audio_device: boolean;
+    hotkey: string;
+    paste_method: string;
+    privacy_recent_context_enabled: boolean;
+    warnings: SetupStatusWarning[];
+  };
+
   type LoadedConfig = {
     path: string;
     exists: boolean;
     data: AppConfig;
   };
 
+  type SessionPhase =
+    | "idle"
+    | "starting"
+    | "recording"
+    | "stopping"
+    | "waiting_final_result"
+    | "post_editing"
+    | "pasting"
+    | "succeeded"
+    | "failed";
+
   type SessionState = {
     recording: boolean;
+    phase: SessionPhase;
     message: string;
+    error_code: string | null;
   };
 
   type AsrFinalText = {
@@ -144,7 +173,13 @@
       middle_mouse_enabled: boolean;
       right_alt_enabled: boolean;
     };
-    typing: { paste_delay_ms: number; paste_method: string };
+    typing: {
+      paste_delay_ms: number;
+      paste_method: string;
+      restore_clipboard_after_paste: boolean;
+      clipboard_open_retry_count: number;
+      clipboard_open_retry_interval_ms: number;
+    };
     startup: { launch_on_startup: boolean };
     update: { auto_check_on_startup: boolean; github_repo: string };
     llm_post_edit: {
@@ -180,7 +215,7 @@
       segment_ms: 200,
       max_record_seconds: 300,
       stop_grace_ms: 500,
-      mute_system_volume_while_recording: true,
+      mute_system_volume_while_recording: false,
       input_device: null,
     },
     request: {
@@ -199,15 +234,21 @@
       final_result_timeout_seconds: 15,
     },
     context: {
-      enable_recent_context: true,
+      enable_recent_context: false,
       recent_context_rounds: 5,
       image_url: null,
       hotwords: [],
       prompt_context: [],
       recent_context: [],
     },
-    triggers: { hotkey_enabled: true, middle_mouse_enabled: true, right_alt_enabled: true },
-    typing: { paste_delay_ms: 120, paste_method: "ctrl_v" },
+    triggers: { hotkey_enabled: true, middle_mouse_enabled: false, right_alt_enabled: false },
+    typing: {
+      paste_delay_ms: 120,
+      paste_method: "ctrl_v",
+      restore_clipboard_after_paste: true,
+      clipboard_open_retry_count: 5,
+      clipboard_open_retry_interval_ms: 50,
+    },
     startup: { launch_on_startup: false },
     update: { auto_check_on_startup: true, github_repo: "zkwi/VoxType" },
     llm_post_edit: {
@@ -223,12 +264,12 @@
     },
     ui: { width: 350, height: 64, margin_bottom: 52, opacity: 0.9, scroll_interval_ms: 1200 },
     tray: { show_startup_message: true, startup_message_timeout_ms: 6000 },
-    debug: { print_transcript_to_console: true },
+    debug: { print_transcript_to_console: false },
   };
 
   const fallbackSnapshot: AppSnapshot = {
     hotkey: "ctrl+q",
-    current_version: "0.1.8",
+    current_version: "0.1.9",
   };
 
   const emptyStats: StatsSnapshot = {
@@ -287,12 +328,43 @@
       waitingVoice: "等待语音输入",
       listeningPreview: "正在监听麦克风，实时字幕显示在屏幕下方。",
       pressHotkey: "按 {hotkey}、右 Alt 或鼠标中键，也可从托盘启动，向任意输入框语音输入。",
+      sessionIdleHint: "把光标放到输入框，然后按 {hotkey} 开始说话。",
+      sessionStarting: "正在启动麦克风...",
+      sessionRecording: "正在听你说话，再按 {hotkey} 停止。",
+      sessionStopping: "正在收尾...",
+      sessionWaitingFinal: "正在等待最后一句识别完成...",
+      sessionPostEditing: "正在润色文本...",
+      sessionPasting: "正在粘贴到当前输入框...",
+      sessionSucceeded: "已粘贴。",
+      sessionFailed: "本次语音输入失败，请查看提示。",
       setupRequired: "需要先完成配置",
       inputError: "输入异常",
       setupMissingFile: "未找到配置文件。请在配置页填写认证信息并保存，或打开配置文件手动编辑。",
       setupMissingAuth: "ASR 认证信息未填写。请在配置页填写 App Key 和 Access Key 后保存。",
       setupCta: "去配置",
       setupGuideCta: "查看配置指南",
+      setupHealthTitle: "配置健康检查",
+      setupHealthPendingTitle: "还差 {count} 步即可使用",
+      setupHealthPendingDescription: "先处理密钥、麦克风和输出设置，就能更安全地开始语音输入。",
+      setupHealthReadyTitle: "VoxType 已准备好",
+      setupHealthReadyDescription: "把光标放到输入框，然后按 {hotkey} 开始说话。",
+      refreshSetup: "重新检查",
+      setupAuthLabel: "ASR 密钥",
+      setupMicLabel: "麦克风",
+      setupPasteLabel: "粘贴方式",
+      setupTriggerLabel: "触发方式",
+      setupPrivacyLabel: "隐私设置",
+      setupOk: "已完成",
+      setupMissing: "未完成",
+      setupMicDetected: "已检测",
+      setupMicMissing: "未检测",
+      setupRecentOff: "最近上下文已关闭",
+      setupRecentOn: "最近上下文已开启",
+      setupActionAsr: "填写 ASR 密钥",
+      setupActionAudio: "检查麦克风",
+      setupActionTyping: "调整粘贴方式",
+      setupActionHotkey: "查看触发方式",
+      setupActionPrivacy: "查看隐私设置",
       shortcutSettings: "修改快捷键",
       desktopControl: "启动方式",
       hotkey: "热键",
@@ -372,6 +444,12 @@
       pasteDelayMs: "粘贴延迟毫秒",
       pasteMethod: "粘贴方式",
       clipboardOnly: "仅剪贴板",
+      restoreClipboardAfterPaste: "粘贴后恢复原剪贴板",
+      clipboardRetryCount: "剪贴板重试次数",
+      clipboardRetryInterval: "重试间隔毫秒",
+      triggerConflictHint: "右 Alt 和鼠标中键可能和其他软件操作冲突，建议确认后再开启。",
+      muteSystemAudioHint: "可减少回声，但可能影响会议、视频或系统提示音。",
+      recentContextHint: "最近上下文会在本地保存最近识别片段，用于改善连续识别；默认关闭。",
       launchOnStartup: "开机自动启动",
       softwareUpdate: "软件更新",
       softwareUpdateDescription: "通过 GitHub Release 检查最新版，并下载 Windows 安装包。",
@@ -395,6 +473,8 @@
       openLog: "查看日志",
       openingLog: "打开中",
       logOpened: "日志文件已打开。",
+      testConnection: "测试",
+      testingConnection: "测试中",
       llmPostEdit: "大模型润色",
       llmDescription: "OpenAI 兼容接口的润色回退。",
       enablePolishing: "启用润色",
@@ -467,12 +547,43 @@
       waitingVoice: "等待語音輸入",
       listeningPreview: "正在監聽麥克風，即時字幕顯示在螢幕下方。",
       pressHotkey: "按 {hotkey}、右 Alt 或滑鼠中鍵，也可從系統匣啟動，向任意輸入框語音輸入。",
+      sessionIdleHint: "把游標放到輸入框，然後按 {hotkey} 開始說話。",
+      sessionStarting: "正在啟動麥克風...",
+      sessionRecording: "正在聽你說話，再按 {hotkey} 停止。",
+      sessionStopping: "正在收尾...",
+      sessionWaitingFinal: "正在等待最後一句識別完成...",
+      sessionPostEditing: "正在潤飾文字...",
+      sessionPasting: "正在貼到目前輸入框...",
+      sessionSucceeded: "已貼上。",
+      sessionFailed: "本次語音輸入失敗，請查看提示。",
       setupRequired: "需要先完成配置",
       inputError: "輸入異常",
       setupMissingFile: "未找到配置檔案。請在配置頁填寫認證資訊並儲存，或打開配置檔案手動編輯。",
       setupMissingAuth: "ASR 認證資訊未填寫。請在配置頁填寫 App Key 和 Access Key 後儲存。",
       setupCta: "去配置",
       setupGuideCta: "查看配置指南",
+      setupHealthTitle: "配置健康檢查",
+      setupHealthPendingTitle: "還差 {count} 步即可使用",
+      setupHealthPendingDescription: "先處理密鑰、麥克風和輸出設定，就能更安全地開始語音輸入。",
+      setupHealthReadyTitle: "VoxType 已準備好",
+      setupHealthReadyDescription: "把游標放到輸入框，然後按 {hotkey} 開始說話。",
+      refreshSetup: "重新檢查",
+      setupAuthLabel: "ASR 密鑰",
+      setupMicLabel: "麥克風",
+      setupPasteLabel: "貼上方式",
+      setupTriggerLabel: "觸發方式",
+      setupPrivacyLabel: "隱私設定",
+      setupOk: "已完成",
+      setupMissing: "未完成",
+      setupMicDetected: "已偵測",
+      setupMicMissing: "未偵測",
+      setupRecentOff: "最近上下文已關閉",
+      setupRecentOn: "最近上下文已開啟",
+      setupActionAsr: "填寫 ASR 密鑰",
+      setupActionAudio: "檢查麥克風",
+      setupActionTyping: "調整貼上方式",
+      setupActionHotkey: "查看觸發方式",
+      setupActionPrivacy: "查看隱私設定",
       shortcutSettings: "修改快捷鍵",
       desktopControl: "啟動方式",
       hotkey: "快捷鍵",
@@ -552,6 +663,12 @@
       pasteDelayMs: "貼上延遲毫秒",
       pasteMethod: "貼上方式",
       clipboardOnly: "僅剪貼簿",
+      restoreClipboardAfterPaste: "貼上後恢復原剪貼簿",
+      clipboardRetryCount: "剪貼簿重試次數",
+      clipboardRetryInterval: "重試間隔毫秒",
+      triggerConflictHint: "右 Alt 和滑鼠中鍵可能和其他軟體操作衝突，建議確認後再開啟。",
+      muteSystemAudioHint: "可減少回聲，但可能影響會議、影片或系統提示音。",
+      recentContextHint: "最近上下文會在本地保存最近識別片段，用於改善連續識別；預設關閉。",
       launchOnStartup: "開機自動啟動",
       softwareUpdate: "軟體更新",
       softwareUpdateDescription: "透過 GitHub Release 檢查最新版，並下載 Windows 安裝包。",
@@ -575,6 +692,8 @@
       openLog: "查看日誌",
       openingLog: "打開中",
       logOpened: "日誌檔案已打開。",
+      testConnection: "測試",
+      testingConnection: "測試中",
       llmPostEdit: "大模型潤飾",
       llmDescription: "OpenAI 相容介面的潤飾回退。",
       enablePolishing: "啟用潤飾",
@@ -647,12 +766,43 @@
       waitingVoice: "Waiting for voice input",
       listeningPreview: "Listening to the microphone. Live captions appear near the bottom of the screen.",
       pressHotkey: "Press {hotkey}, Right Alt, or the middle mouse button, or start from the tray.",
+      sessionIdleHint: "Place the cursor in an input box, then press {hotkey} to speak.",
+      sessionStarting: "Starting microphone...",
+      sessionRecording: "Listening. Press {hotkey} again to stop.",
+      sessionStopping: "Finishing up...",
+      sessionWaitingFinal: "Waiting for the final recognition result...",
+      sessionPostEditing: "Polishing text...",
+      sessionPasting: "Pasting into the current input box...",
+      sessionSucceeded: "Pasted.",
+      sessionFailed: "This dictation failed. Check the hint.",
       setupRequired: "Setup required",
       inputError: "Input issue",
       setupMissingFile: "No config file found. Fill credentials on the Settings page and save, or open the config file manually.",
       setupMissingAuth: "ASR credentials are missing. Fill App Key and Access Key on the Settings page, then save.",
       setupCta: "Open Settings",
       setupGuideCta: "Setup Guide",
+      setupHealthTitle: "Setup health",
+      setupHealthPendingTitle: "{count} steps left",
+      setupHealthPendingDescription: "Finish credentials, microphone, and output settings before dictating.",
+      setupHealthReadyTitle: "VoxType is ready",
+      setupHealthReadyDescription: "Place the cursor in an input box, then press {hotkey} to speak.",
+      refreshSetup: "Check again",
+      setupAuthLabel: "ASR keys",
+      setupMicLabel: "Microphone",
+      setupPasteLabel: "Paste method",
+      setupTriggerLabel: "Trigger",
+      setupPrivacyLabel: "Privacy",
+      setupOk: "Ready",
+      setupMissing: "Missing",
+      setupMicDetected: "Detected",
+      setupMicMissing: "Not detected",
+      setupRecentOff: "Recent context off",
+      setupRecentOn: "Recent context on",
+      setupActionAsr: "Fill ASR keys",
+      setupActionAudio: "Check mic",
+      setupActionTyping: "Adjust paste",
+      setupActionHotkey: "View triggers",
+      setupActionPrivacy: "View privacy",
       shortcutSettings: "Edit shortcuts",
       desktopControl: "Start methods",
       hotkey: "Hotkey",
@@ -732,6 +882,12 @@
       pasteDelayMs: "Paste delay ms",
       pasteMethod: "Paste method",
       clipboardOnly: "Clipboard only",
+      restoreClipboardAfterPaste: "Restore clipboard after paste",
+      clipboardRetryCount: "Clipboard retries",
+      clipboardRetryInterval: "Retry interval ms",
+      triggerConflictHint: "Right Alt and middle mouse may conflict with other apps. Enable them only after confirming.",
+      muteSystemAudioHint: "This can reduce echo, but may affect meetings, videos, or system notifications.",
+      recentContextHint: "Recent context stores recent recognized snippets locally to improve continuous dictation. It is off by default.",
       launchOnStartup: "Launch at startup",
       softwareUpdate: "Software update",
       softwareUpdateDescription: "Check the latest GitHub Release and download the Windows installer.",
@@ -755,6 +911,8 @@
       openLog: "View logs",
       openingLog: "Opening",
       logOpened: "Log file opened.",
+      testConnection: "Test",
+      testingConnection: "Testing",
       llmPostEdit: "LLM Post Edit",
       llmDescription: "OpenAI-compatible polishing fallback.",
       enablePolishing: "Enable polishing",
@@ -804,6 +962,8 @@
   let config = $state<AppConfig>(clonePlain(fallbackConfig));
   let stats = $state<StatsSnapshot>(emptyStats);
   let recording = $state(false);
+  let sessionPhase = $state<SessionPhase>("idle");
+  let sessionErrorCode = $state<string | null>(null);
   let language = $state<Language>("zh-CN");
   let statusMessage = $state(copy["zh-CN"].bridgeLoading);
   let selectedSection = $state<Section>("Overview");
@@ -832,9 +992,12 @@
   let actionNoticeKind = $state<"success" | "warning" | "error">("success");
   let actionNoticeTimer: number | undefined;
   let updateStatus = $state<UpdateStatus | null>(null);
+  let setupStatus = $state<SetupStatus | null>(null);
   let checkingUpdate = $state(false);
   let installingUpdate = $state(false);
   let openingLog = $state(false);
+  let testingAsr = $state(false);
+  let testingLlm = $state(false);
 
   onMount(() => {
     const onError = (event: ErrorEvent) => {
@@ -887,7 +1050,7 @@
           applyOverlayText(event.payload.text);
         }
         if (event.payload.warning) showActionNotice(event.payload.warning, "warning");
-        statusMessage = t("previewStopped");
+        statusMessage = event.payload.warning ? event.payload.warning : t("sessionSucceeded");
       });
       const unlistenPartial = listen<AsrPartialText>("asr-partial-text", (event) => {
         if (event.payload.text.trim()) {
@@ -1036,8 +1199,13 @@
   }
 
   async function toggleRecordingFromUi() {
+    if (isSessionBusy()) return;
     const result = await safeInvoke<SessionState>("toggle_recording");
     if (result) applySessionState(result);
+  }
+
+  function isSessionBusy() {
+    return ["waiting_final_result", "post_editing", "pasting"].includes(sessionPhase);
   }
 
   async function refreshOverlayText() {
@@ -1205,13 +1373,14 @@
 
   async function loadAll() {
     logFrontendEvent(`loadAll started mode=${frontendMode()}`);
-    const [snapshotResult, configResult, statsResult, devicesResult] = await Promise.all([
+    const [snapshotResult, configResult, statsResult, devicesResult, setupResult] = await Promise.all([
       safeInvoke<AppSnapshot>("get_app_snapshot"),
       safeInvoke<LoadedConfig>("load_app_config"),
       safeInvoke<StatsSnapshot>("get_usage_stats"),
       safeInvoke<AudioDeviceInfo[]>("list_audio_input_devices"),
+      safeInvoke<SetupStatus>("get_setup_status"),
     ]);
-    const loadedAny = Boolean(snapshotResult || configResult || statsResult || devicesResult);
+    const loadedAny = Boolean(snapshotResult || configResult || statsResult || devicesResult || setupResult);
     if (snapshotResult) snapshot = snapshotResult;
     if (configResult) {
       config = configResult.data;
@@ -1219,16 +1388,16 @@
       const setupMessage = configSetupMessage(configResult);
       if (setupMessage) {
         statusMessage = setupMessage;
-        selectedSection = "Settings";
       }
     }
     if (statsResult) stats = statsResult;
     if (devicesResult) audioDevices = devicesResult;
+    if (setupResult) setupStatus = setupResult;
     if ((snapshotResult || configResult || statsResult) && !configSetupMessage(configResult)) {
       statusMessage = t("bridgeConnected");
     }
     logFrontendEvent(
-      `loadAll completed mode=${frontendMode()} snapshot=${Boolean(snapshotResult)} config_loaded=${Boolean(configResult)} config_exists=${configResult?.exists ?? false} stats_records=${statsResult?.history.length ?? 0} audio_devices=${devicesResult?.length ?? 0}`,
+      `loadAll completed mode=${frontendMode()} snapshot=${Boolean(snapshotResult)} config_loaded=${Boolean(configResult)} config_exists=${configResult?.exists ?? false} stats_records=${statsResult?.history.length ?? 0} audio_devices=${devicesResult?.length ?? 0} setup_ready=${setupResult?.ready ?? false}`,
     );
     return loadedAny;
   }
@@ -1244,13 +1413,40 @@
 
   function applySessionState(state: SessionState) {
     recording = state.recording;
+    sessionPhase = state.phase ?? (state.recording ? "recording" : "idle");
+    sessionErrorCode = state.error_code;
     if (!state.recording) audioLevel = 0;
     if (isConfigError(state.message)) {
       statusMessage = state.message;
       selectedSection = "Settings";
       return;
     }
-    statusMessage = state.recording ? t("previewRecording") : t("previewStopped");
+    statusMessage = state.phase === "failed" && state.message ? state.message : sessionPhaseMessage(sessionPhase);
+  }
+
+  function sessionPhaseMessage(phase: SessionPhase) {
+    const hotkey = formatHotkey(snapshot.hotkey);
+    switch (phase) {
+      case "starting":
+        return t("sessionStarting");
+      case "recording":
+        return t("sessionRecording", { hotkey });
+      case "stopping":
+        return t("sessionStopping");
+      case "waiting_final_result":
+        return t("sessionWaitingFinal");
+      case "post_editing":
+        return t("sessionPostEditing");
+      case "pasting":
+        return t("sessionPasting");
+      case "succeeded":
+        return t("sessionSucceeded");
+      case "failed":
+        return t("sessionFailed");
+      case "idle":
+      default:
+        return t("sessionIdleHint", { hotkey });
+    }
   }
 
   async function persistConfig() {
@@ -1349,6 +1545,38 @@
     }
   }
 
+  async function testAsrConfig() {
+    if (testingAsr) return;
+    testingAsr = true;
+    try {
+      const result = await safeInvoke<ConnectionTestResult>("test_asr_config", { config: clonePlain(config) });
+      if (result) {
+        statusMessage = result.message;
+        showActionNotice(result.message, "success");
+      } else if (statusMessage) {
+        showActionNotice(statusMessage, "error");
+      }
+    } finally {
+      testingAsr = false;
+    }
+  }
+
+  async function testLlmConfig() {
+    if (testingLlm) return;
+    testingLlm = true;
+    try {
+      const result = await safeInvoke<ConnectionTestResult>("test_llm_config", { config: clonePlain(config) });
+      if (result) {
+        statusMessage = result.message;
+        showActionNotice(result.message, "success");
+      } else if (statusMessage) {
+        showActionNotice(statusMessage, "error");
+      }
+    } finally {
+      testingLlm = false;
+    }
+  }
+
   function showActionNotice(message: string, kind: "success" | "warning" | "error") {
     actionNotice = message;
     actionNoticeKind = kind;
@@ -1435,6 +1663,104 @@
       if (configured) return configured;
     }
     return audioDevices.find((device) => device.is_default) ?? audioDevices[0];
+  }
+
+  async function refreshSetupStatus() {
+    const [devicesResult, setupResult] = await Promise.all([
+      safeInvoke<AudioDeviceInfo[]>("list_audio_input_devices", undefined, true),
+      safeInvoke<SetupStatus>("get_setup_status", undefined, true),
+    ]);
+    if (devicesResult) audioDevices = devicesResult;
+    if (setupResult) setupStatus = setupResult;
+  }
+
+  function setupStatusItems(): SetupStatusItem[] {
+    const status = setupStatus;
+    const authReady = hasAuth();
+    const micReady = status ? status.has_audio_device : audioDevices.length > 0;
+    return [
+      {
+        label: t("setupAuthLabel"),
+        value: authReady ? t("setupOk") : t("setupMissing"),
+        ok: authReady,
+        action: "asr_auth",
+      },
+      {
+        label: t("setupMicLabel"),
+        value: micReady ? t("setupMicDetected") : t("setupMicMissing"),
+        ok: micReady,
+        action: "audio",
+      },
+      {
+        label: t("setupPasteLabel"),
+        value: pasteMethodLabel(config.typing.paste_method),
+        ok: true,
+        action: "typing",
+      },
+      {
+        label: t("setupTriggerLabel"),
+        value: formatEnabledTriggers(),
+        ok: config.triggers.hotkey_enabled,
+        action: "hotkey",
+      },
+      {
+        label: t("setupPrivacyLabel"),
+        value: config.context.enable_recent_context ? t("setupRecentOn") : t("setupRecentOff"),
+        ok: !config.context.enable_recent_context,
+        action: "privacy",
+      },
+    ];
+  }
+
+  function setupWarningCount() {
+    const warnings = setupStatus?.warnings.length ?? 0;
+    const blocking = setupStatusItems().filter((item) => !item.ok).length;
+    return Math.max(warnings, blocking);
+  }
+
+  function setupIsReady() {
+    return setupStatusItems().every((item) => item.ok);
+  }
+
+  function setupActionText(action: string) {
+    if (action === "asr_auth") return t("setupActionAsr");
+    if (action === "audio") return t("setupActionAudio");
+    if (action === "typing") return t("setupActionTyping");
+    if (action === "hotkey") return t("setupActionHotkey");
+    if (action === "privacy") return t("setupActionPrivacy");
+    return t("setupCta");
+  }
+
+  function handleSetupAction(action: string) {
+    if (action === "audio") void refreshSetupStatus();
+    selectedSection = "Settings";
+    const targetId =
+      action === "asr_auth"
+        ? "settings-auth"
+        : action === "audio"
+          ? "settings-audio"
+          : action === "typing"
+            ? "settings-output"
+            : action === "privacy"
+              ? "settings-context"
+              : "settings-output";
+    window.setTimeout(() => {
+      document.getElementById(targetId)?.scrollIntoView({ block: "start", behavior: "smooth" });
+    }, 50);
+  }
+
+  function pasteMethodLabel(value: string) {
+    if (value === "clipboard_only") return t("clipboardOnly");
+    if (value === "shift_insert") return "Shift + Insert";
+    return "Ctrl + V";
+  }
+
+  function formatEnabledTriggers() {
+    const triggers = [];
+    if (config.triggers.hotkey_enabled) triggers.push(formatHotkey(snapshot.hotkey));
+    if (config.triggers.middle_mouse_enabled) triggers.push(t("middleMouse"));
+    if (config.triggers.right_alt_enabled) triggers.push(t("rightAlt"));
+    return triggers.length > 0 ? triggers.join(" / ") : t("disabled");
   }
 
   function micStatusText() {
@@ -1538,20 +1864,26 @@
   }
 
   function inputStatus() {
-    if (isErrorStatus(statusMessage)) return "error";
-    return recording ? "listening" : "idle";
+    if (sessionPhase === "failed" || isErrorStatus(statusMessage)) return "error";
+    return recording || isSessionBusy() ? "listening" : "idle";
   }
 
   function inputStatusLabel() {
     const status = inputStatus();
     if (status === "error") return isConfigError(statusMessage) ? t("setupRequired") : t("inputError");
+    if (sessionPhase === "starting") return t("sessionStarting");
+    if (sessionPhase === "stopping") return t("sessionStopping");
+    if (sessionPhase === "waiting_final_result") return t("sessionWaitingFinal");
+    if (sessionPhase === "post_editing") return t("sessionPostEditing");
+    if (sessionPhase === "pasting") return t("sessionPasting");
+    if (sessionPhase === "succeeded") return t("sessionSucceeded");
     return recording ? t("recordingPreview") : t("idle");
   }
 
   function inputStatusDesc() {
     const status = inputStatus();
     if (status === "error") return statusMessage;
-    return recording ? t("previewRecording") : t("previewStopped");
+    return sessionPhaseMessage(sessionPhase);
   }
 
   function weeklySavedHours() {
@@ -1747,6 +2079,23 @@
     </header>
 
     {#if selectedSection === "Overview"}
+      <SetupStatusCard
+        ready={setupIsReady()}
+        items={setupStatusItems()}
+        warnings={setupStatus?.warnings ?? []}
+        texts={{
+          title: t("setupHealthTitle"),
+          pendingTitle: t("setupHealthPendingTitle", { count: String(setupWarningCount()) }),
+          pendingDescription: t("setupHealthPendingDescription"),
+          readyTitle: t("setupHealthReadyTitle"),
+          readyDescription: t("setupHealthReadyDescription", { hotkey: formatHotkey(snapshot.hotkey) }),
+          refresh: t("refreshSetup"),
+          actionText: setupActionText,
+        }}
+        onAction={handleSetupAction}
+        onRefresh={refreshSetupStatus}
+      />
+
       <section class="voice-card">
         <div class="section-title-row">
           <h3>{t("voiceInputTitle")}</h3>
@@ -1764,7 +2113,7 @@
           </div>
         {/if}
         <div class:listening={recording} class:error={inputStatus() === "error"} class="voice-hero">
-          <button class:listening={recording} class="mic-orb" aria-label={recording ? t("clickStop") : t("clickStart")} onclick={toggleRecordingFromUi}>
+          <button class:listening={recording || isSessionBusy()} class="mic-orb" aria-label={recording ? t("clickStop") : t("clickStart")} onclick={toggleRecordingFromUi} disabled={isSessionBusy()}>
             <span class="mic-ring"><Mic size={uiCompact ? 34 : 42} strokeWidth={2.15} /></span>
           </button>
           <div class="voice-copy">
@@ -1772,8 +2121,8 @@
               <span class="hero-dot" class:listening={recording} class:error={inputStatus() === "error"}></span>
               <strong>{inputStatusLabel()}</strong>
             </div>
-            <h4>{recording ? t("clickStop") : t("clickStart")}</h4>
-            <p>{t("quickStart", { hotkey: formatHotkey(snapshot.hotkey) })}</p>
+            <h4>{recording ? t("clickStop") : isSessionBusy() ? inputStatusLabel() : t("clickStart")}</h4>
+            <p>{inputStatusDesc()}</p>
             <div class="hero-features">
               <span><MessageSquareText size={17} />{t("speakAnywhere")}</span>
               <span><Globe2 size={17} />{t("mixedInput")}</span>
@@ -1882,19 +2231,23 @@
             <p>{t("softwareSettingsDescription")}</p>
           </div>
 
-          <div class="form-panel">
+          <div id="settings-output" class="form-panel">
             <div class="section-heading"><h3>{t("startAndOutput")}</h3><p>{t("typingDescription")}</p></div>
             <div class="form-grid">
               <label><span>{t("hotkey")}</span><input value={formatHotkey(config.hotkey)} oninput={(event) => setHotkey(event.currentTarget.value)} /></label>
               <label><span>{t("pasteDelayMs")}</span><input type="number" bind:value={config.typing.paste_delay_ms} /></label>
               <label><span>{t("pasteMethod")}</span><select bind:value={config.typing.paste_method}><option value="ctrl_v">Ctrl + V</option><option value="shift_insert">Shift + Insert</option><option value="clipboard_only">{t("clipboardOnly")}</option></select></label>
+              <label><span>{t("clipboardRetryCount")}</span><input type="number" bind:value={config.typing.clipboard_open_retry_count} /></label>
+              <label><span>{t("clipboardRetryInterval")}</span><input type="number" bind:value={config.typing.clipboard_open_retry_interval_ms} /></label>
             </div>
             <div class="toggle-grid">
               <label class="check"><input type="checkbox" bind:checked={config.triggers.hotkey_enabled} />{t("mainHotkey")}</label>
               <label class="check"><input type="checkbox" bind:checked={config.triggers.middle_mouse_enabled} />{t("middleMouse")}</label>
               <label class="check"><input type="checkbox" bind:checked={config.triggers.right_alt_enabled} />{t("rightAlt")}</label>
+              <label class="check"><input type="checkbox" bind:checked={config.typing.restore_clipboard_after_paste} />{t("restoreClipboardAfterPaste")}</label>
               <label class="check"><input type="checkbox" bind:checked={config.startup.launch_on_startup} />{t("launchOnStartup")}</label>
             </div>
+            <p class="field-hint">{t("triggerConflictHint")}</p>
           </div>
 
           <div class="form-panel">
@@ -1958,13 +2311,18 @@
             <p>{t("doubaoAsrSettingsDescription")}</p>
           </div>
 
-          <div class="form-panel">
-            <div class="section-heading">
-              <h3>{t("doubaoAuth")}</h3>
-              {#if !configExists || !hasAuth()}
-                <p class="setup-note">{!configExists ? t("setupMissingFile") : t("setupMissingAuth")}</p>
-                <button class="link-button" onclick={openSetupGuide}>{t("setupGuideCta")}</button>
-              {/if}
+          <div id="settings-auth" class="form-panel">
+            <div class="section-heading with-actions">
+              <div>
+                <h3>{t("doubaoAuth")}</h3>
+                {#if !configExists || !hasAuth()}
+                  <p class="setup-note">{!configExists ? t("setupMissingFile") : t("setupMissingAuth")}</p>
+                  <button class="link-button" onclick={openSetupGuide}>{t("setupGuideCta")}</button>
+                {/if}
+              </div>
+              <button class="test-button" onclick={testAsrConfig} disabled={testingAsr}>
+                <ShieldCheck size={16} />{testingAsr ? t("testingConnection") : t("testConnection")}
+              </button>
             </div>
             <div class="form-grid">
               <label><span>{t("resourceId")}</span><input bind:value={config.auth.resource_id} /></label>
@@ -1973,7 +2331,7 @@
             </div>
           </div>
 
-          <div class="form-panel">
+          <div id="settings-audio" class="form-panel">
             <div class="section-heading"><h3>{t("recordingParams")}</h3><p>{t("audioDescription")}</p></div>
             <div class="form-grid">
               <label><span>{t("sampleRate")}</span><input type="number" bind:value={config.audio.sample_rate} /></label>
@@ -1997,6 +2355,7 @@
             <div class="toggle-grid">
               <label class="check"><input type="checkbox" bind:checked={config.audio.mute_system_volume_while_recording} />{t("muteSystemAudio")}</label>
             </div>
+            <p class="field-hint">{t("muteSystemAudioHint")}</p>
           </div>
 
           <div class="form-panel">
@@ -2014,7 +2373,7 @@
             </div>
           </div>
 
-          <div class="form-panel">
+          <div id="settings-context" class="form-panel">
             <div class="section-heading"><h3>{t("context")}</h3><p>{t("contextDescription")}</p></div>
             <label><span>{t("hotwords")}</span><textarea value={config.context.hotwords.join("\n")} oninput={(event) => updateHotwords(event.currentTarget.value)}></textarea></label>
             <label><span>{t("promptContext")}</span><textarea value={config.context.prompt_context.map((item) => item.text).join("\n")} oninput={(event) => updatePromptContext(event.currentTarget.value)}></textarea></label>
@@ -2022,6 +2381,7 @@
             <div class="toggle-grid">
               <label class="check"><input type="checkbox" bind:checked={config.context.enable_recent_context} />{t("useRecentContext")}</label>
             </div>
+            <p class="field-hint">{t("recentContextHint")}</p>
           </div>
         </section>
 
@@ -2032,7 +2392,12 @@
           </div>
 
           <div class="form-panel">
-            <div class="section-heading"><h3>{t("llmPostEdit")}</h3><p>{t("llmDescription")}</p></div>
+            <div class="section-heading with-actions">
+              <div><h3>{t("llmPostEdit")}</h3><p>{t("llmDescription")}</p></div>
+              <button class="test-button" onclick={testLlmConfig} disabled={testingLlm}>
+                <ShieldCheck size={16} />{testingLlm ? t("testingConnection") : t("testConnection")}
+              </button>
+            </div>
             <label class="check"><input type="checkbox" bind:checked={config.llm_post_edit.enabled} />{t("enablePolishing")}</label>
             <div class="form-grid">
               <label><span>{t("minChars")}</span><input type="number" bind:value={config.llm_post_edit.min_chars} /></label>
@@ -3418,6 +3783,45 @@
     font-size: 13px;
   }
 
+  .section-heading.with-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .section-heading.with-actions > div {
+    min-width: 0;
+  }
+
+  .section-heading.with-actions .link-button {
+    margin-top: 8px;
+  }
+
+  .test-button {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 7px;
+    justify-content: center;
+    min-width: 78px;
+    min-height: 34px;
+    padding: 0 12px;
+    color: var(--primary);
+    background: var(--primary-light);
+    border: 1px solid rgba(47, 128, 237, 0.18);
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 800;
+    white-space: nowrap;
+  }
+
+  .test-button:disabled {
+    cursor: wait;
+    opacity: 0.68;
+  }
+
   input,
   textarea,
   select {
@@ -3440,6 +3844,13 @@
     min-height: 84px;
     padding: 10px 12px;
     resize: vertical;
+  }
+
+  .field-hint {
+    margin: 8px 0 0;
+    color: var(--text-muted);
+    font-size: 12px;
+    line-height: 1.45;
   }
 
   input:focus,

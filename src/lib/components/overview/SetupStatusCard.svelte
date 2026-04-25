@@ -1,0 +1,250 @@
+<script lang="ts">
+  import { AlertCircle, CheckCircle2, ChevronRight, RefreshCw } from "lucide-svelte";
+
+  export type SetupStatusItem = {
+    label: string;
+    value: string;
+    ok: boolean;
+    action: string;
+  };
+
+  export type SetupStatusWarning = {
+    code: string;
+    title: string;
+    message: string;
+    action: string;
+  };
+
+  type Texts = {
+    title: string;
+    pendingTitle: string;
+    pendingDescription: string;
+    readyTitle: string;
+    readyDescription: string;
+    refresh: string;
+    actionText: (action: string) => string;
+  };
+
+  type Props = {
+    ready: boolean;
+    items: SetupStatusItem[];
+    warnings: SetupStatusWarning[];
+    texts: Texts;
+    onAction: (action: string) => void;
+    onRefresh: () => void;
+  };
+
+  let { ready, items, warnings, texts, onAction, onRefresh }: Props = $props();
+</script>
+
+<section class:ready class="setup-status-card">
+  <div class="setup-status-head">
+    <div>
+      <span>{texts.title}</span>
+      <strong>{ready ? texts.readyTitle : texts.pendingTitle}</strong>
+      <p>{ready ? texts.readyDescription : texts.pendingDescription}</p>
+    </div>
+    <button type="button" onclick={onRefresh}>
+      <RefreshCw size={15} />
+      {texts.refresh}
+    </button>
+  </div>
+
+  <div class="setup-check-grid">
+    {#each items as item}
+      <button
+        type="button"
+        class:ok={item.ok}
+        class="setup-check-item"
+        onclick={() => onAction(item.action)}
+      >
+        <span class="setup-check-icon">
+          {#if item.ok}
+            <CheckCircle2 size={17} />
+          {:else}
+            <AlertCircle size={17} />
+          {/if}
+        </span>
+        <span>
+          <strong>{item.label}</strong>
+          <small>{item.value}</small>
+        </span>
+        <ChevronRight size={15} />
+      </button>
+    {/each}
+  </div>
+
+  {#if warnings.length > 0}
+    <div class="setup-warning-list">
+      {#each warnings as warning}
+        <article>
+          <div>
+            <strong>{warning.title}</strong>
+            <p>{warning.message}</p>
+          </div>
+          <button type="button" onclick={() => onAction(warning.action)}>
+            {texts.actionText(warning.action)}
+          </button>
+        </article>
+      {/each}
+    </div>
+  {/if}
+</section>
+
+<style>
+  .setup-status-card {
+    display: grid;
+    gap: 12px;
+    padding: 14px;
+    border: 1px solid #d9e7f7;
+    border-radius: 8px;
+    background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+    box-shadow: 0 14px 34px rgba(28, 56, 96, 0.08);
+  }
+
+  .setup-status-card.ready {
+    border-color: rgba(25, 135, 84, 0.28);
+    background: linear-gradient(180deg, #ffffff 0%, #f5fff9 100%);
+  }
+
+  .setup-status-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+  }
+
+  .setup-status-head > div {
+    min-width: 0;
+  }
+
+  .setup-status-head span {
+    display: block;
+    color: #2f80ed;
+    font-size: 12px;
+    font-weight: 800;
+  }
+
+  .setup-status-head strong {
+    display: block;
+    margin-top: 3px;
+    color: #132033;
+    font-size: 18px;
+    line-height: 1.2;
+  }
+
+  .setup-status-head p {
+    margin: 5px 0 0;
+    color: #66758a;
+    font-size: 13px;
+    line-height: 1.45;
+  }
+
+  .setup-status-head button,
+  .setup-warning-list button {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 32px;
+    padding: 0 11px;
+    border: 1px solid #d7e3f2;
+    border-radius: 8px;
+    background: #ffffff;
+    color: #2b5d9b;
+    font-size: 12px;
+    font-weight: 800;
+    cursor: pointer;
+  }
+
+  .setup-check-grid {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .setup-check-item {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+    min-height: 56px;
+    padding: 9px;
+    border: 1px solid #e0e9f5;
+    border-radius: 8px;
+    background: #ffffff;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .setup-check-item.ok .setup-check-icon {
+    color: #198754;
+    background: #eaf8ef;
+  }
+
+  .setup-check-icon {
+    display: grid;
+    width: 28px;
+    height: 28px;
+    place-items: center;
+    border-radius: 8px;
+    color: #d97706;
+    background: #fff5e6;
+  }
+
+  .setup-check-item strong,
+  .setup-check-item small {
+    display: block;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .setup-check-item strong {
+    color: #1b2533;
+    font-size: 13px;
+  }
+
+  .setup-check-item small {
+    margin-top: 3px;
+    color: #65758b;
+    font-size: 12px;
+  }
+
+  .setup-warning-list {
+    display: grid;
+    gap: 8px;
+  }
+
+  .setup-warning-list article {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 10px 12px;
+    border: 1px solid #f4d7ad;
+    border-radius: 8px;
+    background: #fffaf3;
+  }
+
+  .setup-warning-list strong {
+    color: #8a4b00;
+    font-size: 13px;
+  }
+
+  .setup-warning-list p {
+    margin: 3px 0 0;
+    color: #715536;
+    font-size: 12px;
+    line-height: 1.45;
+  }
+
+  @media (max-width: 1180px) {
+    .setup-check-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+</style>
