@@ -8,34 +8,32 @@ import { createWindowController } from "$lib/app/windowController.svelte";
 import type { SetupStatusItem } from "$lib/components/overview/SetupStatusCard.svelte";
 import type { HistoryDayRow, HistorySummaryCard } from "$lib/components/pages/HistorySection.svelte";
 import {
-    autoSaveDelayMs,
-    chineseTypingCharsPerMinute,
-    emptyStats,
-    emptyUsage,
-    fallbackConfig,
-    fallbackSnapshot,
-    micBars,
-    overlayColorPresets,
-    overlayOpacityPresets,
-    setupStatusCacheKey,
-  } from "$lib/app/defaults";
+  autoSaveDelayMs,
+  chineseTypingCharsPerMinute,
+  emptyStats,
+  emptyUsage,
+  fallbackConfig,
+  fallbackSnapshot,
+  micBars,
+  overlayColorPresets,
+  overlayOpacityPresets,
+  setupStatusCacheKey,
+} from "$lib/app/defaults";
 import { copy, type CopyKey, type Language, type UserErrorDetail } from "$lib/i18n";
+import { buildFinalPromptPreview } from "$lib/utils/autoHotwords";
 import {
-  buildFinalPromptPreview,
-} from "$lib/utils/autoHotwords";
-import {
-    configSetupMessage as getConfigSetupMessage,
-    hasAuth as configHasAuth,
-    hasLlmApiConfig as configHasLlmApiConfig,
-    isConfigError,
-    isErrorStatus as isUserErrorStatus,
-    requiresAsrAuth as configRequiresAsrAuth,
-    sectionForSettingsPanel as getSectionForSettingsPanel,
-    settingsPanelForError,
-    shouldOpenSettingsForError,
-    userErrorDetail as getUserErrorDetail,
-    userErrorMessage as getUserErrorMessage,
-  } from "$lib/utils/appRouting";
+  configSetupMessage as getConfigSetupMessage,
+  hasAuth as configHasAuth,
+  hasLlmApiConfig as configHasLlmApiConfig,
+  isConfigError,
+  isErrorStatus as isUserErrorStatus,
+  requiresAsrAuth as configRequiresAsrAuth,
+  sectionForSettingsPanel as getSectionForSettingsPanel,
+  settingsPanelForError,
+  shouldOpenSettingsForError,
+  userErrorDetail as getUserErrorDetail,
+  userErrorMessage as getUserErrorMessage,
+} from "$lib/utils/appRouting";
 import { clonePlain, configFingerprint, firstValidationField, validationErrorMap } from "$lib/utils/config";
 import {
   clampAudioLevel,
@@ -46,66 +44,66 @@ import {
   candidateConfidenceLabel,
   dedupeHotwords,
   effectiveHotwords as mergedEffectiveHotwords,
-    hotwordCount as countManualHotwords,
-    normalizeHotwords,
-  } from "$lib/utils/hotwords";
+  hotwordCount as countManualHotwords,
+  normalizeHotwords,
+} from "$lib/utils/hotwords";
 import { formatHotkey, hotkeyFromKeyboardEvent, validateHotkeyText } from "$lib/utils/hotkeys";
 import { overlayOpacityLabel } from "$lib/utils/overlayAppearance";
 import {
-    formatHours,
-    formatNumber as formatNumberForLanguage,
-    formatSavedHours as formatSavedHoursForLanguage,
-    historySummaryCards as buildHistorySummaryCards,
-    recentSevenDayDisplayRows as buildRecentSevenDayDisplayRows,
-    weeklySavedHours as weeklySavedHoursForStats,
-  } from "$lib/utils/stats";
+  formatHours,
+  formatNumber as formatNumberForLanguage,
+  formatSavedHours as formatSavedHoursForLanguage,
+  historySummaryCards as buildHistorySummaryCards,
+  recentSevenDayDisplayRows as buildRecentSevenDayDisplayRows,
+  weeklySavedHours as weeklySavedHoursForStats,
+} from "$lib/utils/stats";
 import {
-    asrConfigFingerprint as buildAsrConfigFingerprint,
-    asrConnectionStatusOk as isAsrConnectionStatusOk,
-    asrConnectionStatusText as getAsrConnectionStatusText,
-    buildLocalSetupStatus,
-    buildSetupStatusItems,
-    currentAsrConnectionStatus as getCurrentAsrConnectionStatus,
-    formatEnabledTriggers as getEnabledTriggersText,
-    mergeSetupStatusFromConfig,
-    pasteMethodLabel as getPasteMethodLabel,
-    readCachedSetupStatus,
-    setupActionText as getSetupActionText,
-    type SetupStatus,
-  } from "$lib/utils/setupStatus";
+  asrConfigFingerprint as buildAsrConfigFingerprint,
+  asrConnectionStatusOk as isAsrConnectionStatusOk,
+  asrConnectionStatusText as getAsrConnectionStatusText,
+  buildLocalSetupStatus,
+  buildSetupStatusItems,
+  currentAsrConnectionStatus as getCurrentAsrConnectionStatus,
+  formatEnabledTriggers as getEnabledTriggersText,
+  mergeSetupStatusFromConfig,
+  pasteMethodLabel as getPasteMethodLabel,
+  readCachedSetupStatus,
+  setupActionText as getSetupActionText,
+  type SetupStatus,
+} from "$lib/utils/setupStatus";
 import {
-    fieldAdvancedSection,
-    fieldRequiresAdvancedSettings,
-    settingsPanelForField,
-    type AdvancedSection,
-  } from "$lib/utils/settingsFields";
+  fieldAdvancedSection,
+  fieldRequiresAdvancedSettings,
+  settingsPanelForField,
+  type AdvancedSection,
+} from "$lib/utils/settingsFields";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type {
-    AppConfig,
-    AppSnapshot,
-    AsrConnectionStatus,
-    AsrFinalText,
-    AudioDeviceInfo,
-    AudioLevel,
-    CloseToTrayRequest,
-    ConfigSaveError,
-    ConfigValidationError,
-    ConnectionTestResult,
-    HotkeyCaptureState,
-    LoadedConfig,
-    OverlayConfig,
-    OverlayText,
-    PersistConfigOptions,
-    Section,
-    SelectableHotwordCandidate,
-    SessionPhase,
-    SessionState,
-    SoftConfigNoticeKey,
-    StatsSnapshot,
-    TriggerKey,
-    UsageStats,
-  } from "$lib/types/app";
+  AppConfig,
+  AppSnapshot,
+  AsrConnectionStatus,
+  AsrFinalText,
+  AudioDeviceInfo,
+  AudioLevel,
+  CloseToTrayRequest,
+  ConfigSaveError,
+  ConfigValidationError,
+  ConnectionTestResult,
+  HotkeyCaptureState,
+  LoadedConfig,
+  OverlayConfig,
+  OverlayText,
+  PersistConfigOptions,
+  Section,
+  SelectableHotwordCandidate,
+  SessionPhase,
+  SessionState,
+  SoftConfigNoticeKey,
+  StatsSnapshot,
+  TriggerKey,
+  UsageStats,
+} from "$lib/types/app";
 
 export function createVoxTypeController() {
 

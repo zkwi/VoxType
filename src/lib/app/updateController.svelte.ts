@@ -42,6 +42,10 @@ export function createUpdateController(options: UpdateControllerOptions) {
         } else {
           options.setStatusMessage(previousStatus);
         }
+      } else if (manual && options.getStatusMessage()) {
+        options.showActionNotice(options.getStatusMessage(), "error");
+      } else {
+        options.setStatusMessage(previousStatus);
       }
     } finally {
       checking = false;
@@ -84,6 +88,7 @@ export function createUpdateController(options: UpdateControllerOptions) {
   }
 
   function formatFileSize(bytes: number) {
+    if (!Number.isFinite(bytes) || bytes <= 0) return "";
     if (bytes < 1024 * 1024) return `${Math.ceil(bytes / 1024)} KB`;
     return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
   }
