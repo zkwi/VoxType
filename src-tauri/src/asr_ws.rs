@@ -21,13 +21,9 @@ pub struct AsrFinalText {
     pub warning: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
-pub struct AsrPartialText {
-    pub text: String,
-}
-
-const SUCCESS_OVERLAY_HOLD: Duration = Duration::from_millis(900);
 const ATTENTION_OVERLAY_HOLD: Duration = Duration::from_millis(1_800);
+const PARTIAL_TEXT_MIN_INTERVAL: Duration = Duration::from_millis(220);
+const POST_EDITING_OVERLAY_DELAY: Duration = Duration::from_millis(450);
 
 pub fn spawn_asr_worker(
     config: AppConfig,
@@ -35,13 +31,20 @@ pub fn spawn_asr_worker(
     started_at: Instant,
     app: AppHandle,
     session: SessionController,
+    generation: u64,
 ) {
     thread::spawn(move || {
-        app_log::info("ASR worker 已启动");
+        app_log::info(format!("ASR worker 已启动: generation={}", generation));
         if config.auth.app_key.trim().is_empty() || config.auth.access_key.trim().is_empty() {
             let error = "ASR skipped: app_key/access_key is not configured.".to_string();
-            session.abort_from_worker_with_code(&app, &error, "ASR_AUTH_MISSING");
-            emit_error(&app, "ASR_AUTH_MISSING", error);
+            if session.abort_generation_from_worker_with_code(
+                &app,
+                generation,
+                &error,
+                "ASR_AUTH_MISSING",
+            ) {
+                emit_error(&app, &session, generation, "ASR_AUTH_MISSING", error);
+            }
             return;
         }
 
@@ -49,21 +52,31 @@ pub fn spawn_asr_worker(
             Ok(runtime) => runtime,
             Err(err) => {
                 let error = format!("启动 ASR 运行时失败: {}", err);
-                session.set_phase(
-                    Some(&app),
-                    SessionPhase::Failed,
-                    &error,
-                    Some("ASR_NETWORK_FAILED"),
-                );
-                emit_error(&app, "ASR_NETWORK_FAILED", error);
+                if session
+                    .finish_generation(
+                        generation,
+                        Some(&app),
+                        SessionPhase::Failed,
+                        &error,
+                        Some("ASR_NETWORK_FAILED"),
+                    )
+                    .is_some()
+                {
+                    emit_error(&app, &session, generation, "ASR_NETWORK_FAILED", error);
+                }
                 return;
             }
         };
         let typing = config.typing.clone();
         let runtime_result = runtime.block_on(async {
-            let text =
-                run_websocket_session(config.clone(), audio_rx, app.clone(), session.clone())
-                    .await?;
+            let text = run_websocket_session(
+                config.clone(),
+                audio_rx,
+                app.clone(),
+                session.clone(),
+                generation,
+            )
+            .await?;
             if text.trim().is_empty() {
                 return Ok::<llm_post_edit::PolishOutcome, String>(llm_post_edit::PolishOutcome {
                     text,
@@ -71,15 +84,8 @@ pub fn spawn_asr_worker(
                 });
             }
             if llm_post_edit::should_polish(&config, &text) {
-                session.set_phase(
-                    Some(&app),
-                    SessionPhase::PostEditing,
-                    "Post-editing transcript.",
-                    None,
-                );
-                overlay::update_text(&app, overlay::POST_EDITING_TEXT);
                 Ok::<llm_post_edit::PolishOutcome, String>(
-                    llm_post_edit::polish(&config, &text).await,
+                    polish_with_delayed_status(&config, &text, &app, &session, generation).await,
                 )
             } else {
                 Ok::<llm_post_edit::PolishOutcome, String>(llm_post_edit::PolishOutcome {
@@ -92,9 +98,17 @@ pub fn spawn_asr_worker(
             Ok(outcome) => {
                 let text = outcome.text;
                 let mut output_warning = None;
+                if !session.is_current_generation(generation) {
+                    app_log::info(format!(
+                        "忽略过期 ASR worker 输出: generation={}, chars={}",
+                        generation,
+                        text.chars().count()
+                    ));
+                    return;
+                }
                 app_log::info(format!("ASR worker 返回文本长度: {}", text.chars().count()));
                 if text.trim().is_empty() {
-                    handle_empty_transcript(&app, &session);
+                    handle_empty_transcript(&app, &session, generation);
                     return;
                 }
                 if !text.trim().is_empty() {
@@ -110,13 +124,18 @@ pub fn spawn_asr_worker(
                     {
                         app_log::warn(format!("刷新统计事件发送失败: {}", err));
                     }
-                    session.set_phase(
-                        Some(&app),
-                        SessionPhase::Pasting,
-                        "Pasting transcript.",
-                        None,
-                    );
-                    overlay::update_text(&app, overlay::PASTING_TEXT);
+                    if session
+                        .set_phase_for_generation(
+                            generation,
+                            Some(&app),
+                            SessionPhase::Pasting,
+                            "Pasting transcript.",
+                            None,
+                        )
+                        .is_none()
+                    {
+                        return;
+                    }
                     output_warning = match text_output::output_text(&text, &typing) {
                         Ok(result) => result.warning,
                         Err(err) => {
@@ -125,13 +144,11 @@ pub fn spawn_asr_worker(
                             } else {
                                 "PASTE_FAILED"
                             };
-                            session.set_phase(
-                                Some(&app),
-                                SessionPhase::Failed,
-                                &err,
-                                Some(error_code),
-                            );
-                            emit_error(&app, error_code, err);
+                            if session.abort_generation_from_worker_with_code(
+                                &app, generation, &err, error_code,
+                            ) {
+                                emit_error(&app, &session, generation, error_code, err);
+                            }
                             return;
                         }
                     };
@@ -146,19 +163,24 @@ pub fn spawn_asr_worker(
                         text.chars().count()
                     ));
                 }
-                let final_overlay_text = output_warning.as_deref().unwrap_or(overlay::PASTED_TEXT);
-                let final_hold = if output_warning.is_some() {
-                    ATTENTION_OVERLAY_HOLD
-                } else {
-                    SUCCESS_OVERLAY_HOLD
-                };
-                overlay::update_text(&app, final_overlay_text);
-                session.set_phase(
-                    Some(&app),
-                    SessionPhase::Succeeded,
-                    "Transcript output completed.",
-                    None,
-                );
+                if let Some(warning) = output_warning.as_deref() {
+                    if session.is_current_generation(generation) {
+                        overlay::update_text(&app, warning);
+                    }
+                }
+                let should_hold_overlay = output_warning.is_some();
+                if session
+                    .finish_generation(
+                        generation,
+                        Some(&app),
+                        SessionPhase::Succeeded,
+                        "Transcript output completed.",
+                        None,
+                    )
+                    .is_none()
+                {
+                    return;
+                }
                 let _ = app.emit(
                     "asr-final-text",
                     AsrFinalText {
@@ -168,13 +190,20 @@ pub fn spawn_asr_worker(
                         warning: outcome.warning.or(output_warning),
                     },
                 );
-                thread::sleep(final_hold);
-                overlay::hide(&app);
+                if should_hold_overlay {
+                    thread::sleep(ATTENTION_OVERLAY_HOLD);
+                }
+                if session.is_current_generation(generation) {
+                    overlay::hide(&app);
+                }
             }
             Err(err) => {
                 let error_code = classify_asr_error(&err);
-                session.abort_from_worker_with_code(&app, &err, error_code);
-                emit_error(&app, error_code, err);
+                if session
+                    .abort_generation_from_worker_with_code(&app, generation, &err, error_code)
+                {
+                    emit_error(&app, &session, generation, error_code, err);
+                }
             }
         }
     });
@@ -258,6 +287,55 @@ pub async fn test_connection(config: &AppConfig) -> Result<(), String> {
     }
 }
 
+async fn polish_with_delayed_status(
+    config: &AppConfig,
+    text: &str,
+    app: &AppHandle,
+    session: &SessionController,
+    generation: u64,
+) -> llm_post_edit::PolishOutcome {
+    let config = config.clone();
+    let original_text = text.to_string();
+    let task_text = original_text.clone();
+    let mut polish_task =
+        tokio::spawn(async move { llm_post_edit::polish(&config, &task_text).await });
+
+    match tokio::time::timeout(POST_EDITING_OVERLAY_DELAY, &mut polish_task).await {
+        Ok(Ok(outcome)) => outcome,
+        Ok(Err(err)) => {
+            app_log::warn(format!("大模型润色任务异常: {}", err));
+            llm_post_edit::PolishOutcome {
+                text: original_text,
+                warning: Some("大模型润色任务异常，已使用原文。".to_string()),
+            }
+        }
+        Err(_) => {
+            if session
+                .set_phase_for_generation(
+                    generation,
+                    Some(app),
+                    SessionPhase::PostEditing,
+                    "Post-editing transcript.",
+                    None,
+                )
+                .is_some()
+            {
+                overlay::update_text(app, overlay::POST_EDITING_TEXT);
+            }
+            match polish_task.await {
+                Ok(outcome) => outcome,
+                Err(err) => {
+                    app_log::warn(format!("大模型润色任务异常: {}", err));
+                    llm_post_edit::PolishOutcome {
+                        text: original_text,
+                        warning: Some("大模型润色任务异常，已使用原文。".to_string()),
+                    }
+                }
+            }
+        }
+    }
+}
+
 fn silent_test_audio(config: &AppConfig) -> Vec<u8> {
     let bytes_per_second = config.audio.sample_rate as usize * config.audio.channels as usize * 2;
     let requested = bytes_per_second.saturating_mul(config.audio.segment_ms as usize) / 1000;
@@ -270,6 +348,7 @@ async fn run_websocket_session(
     audio_rx: Receiver<Vec<u8>>,
     app: AppHandle,
     session: SessionController,
+    generation: u64,
 ) -> Result<String, String> {
     let preview = asr::build_request_preview(&config);
     let mut request = preview
@@ -311,6 +390,7 @@ async fn run_websocket_session(
         Duration::from_secs_f64(config.request.final_result_timeout_seconds.max(0.5));
     let mut display_text = String::new();
     let mut definitive_segments = Vec::new();
+    let mut partial_limiter = PartialTextLimiter::new();
 
     loop {
         if !audio_finished {
@@ -336,13 +416,18 @@ async fn run_websocket_session(
                         .map_err(|err| format!("发送 ASR 结束包失败: {}", err))?;
                     audio_finished = true;
                     final_wait_started = Some(Instant::now());
-                    session.set_phase(
-                        Some(&app),
-                        SessionPhase::WaitingFinalResult,
-                        "Waiting for final ASR result.",
-                        None,
-                    );
-                    overlay::update_text(&app, overlay::WAITING_FINAL_TEXT);
+                    if session
+                        .set_phase_for_generation(
+                            generation,
+                            Some(&app),
+                            SessionPhase::WaitingFinalResult,
+                            "Waiting for final ASR result.",
+                            None,
+                        )
+                        .is_none()
+                    {
+                        return Err("ASR session expired.".to_string());
+                    }
                     app_log::info("ASR 音频结束包已发送");
                 }
             }
@@ -358,7 +443,9 @@ async fn run_websocket_session(
                     normalize_live_text(&asr::extract_display_text(parsed.payload_msg.as_ref()));
                 if !partial.is_empty() && partial != display_text {
                     display_text = partial;
-                    emit_partial_text(&app, &display_text);
+                    if partial_limiter.should_emit(&display_text) {
+                        emit_partial_text(&app, &display_text);
+                    }
                 }
                 for segment in asr::extract_definite_segments(parsed.payload_msg.as_ref()) {
                     if !definitive_segments
@@ -377,7 +464,9 @@ async fn run_websocket_session(
                             .join("");
                         if !text.trim().is_empty() {
                             let normalized = asr::normalize_final_text(&text);
-                            emit_partial_text(&app, &normalized);
+                            if partial_limiter.should_emit(&normalized) {
+                                emit_partial_text(&app, &normalized);
+                            }
                         }
                     }
                 }
@@ -419,24 +508,61 @@ fn emit_partial_text(app: &AppHandle, text: &str) {
     if text.trim().is_empty() {
         return;
     }
-    let text = text.to_string();
-    let _ = app.emit("asr-partial-text", AsrPartialText { text: text.clone() });
-    overlay::update_text(app, text);
+    overlay::update_text(app, text.to_string());
+}
+
+struct PartialTextLimiter {
+    last_emit_at: Option<Instant>,
+    last_text: String,
+}
+
+impl PartialTextLimiter {
+    fn new() -> Self {
+        Self {
+            last_emit_at: None,
+            last_text: String::new(),
+        }
+    }
+
+    fn should_emit(&mut self, text: &str) -> bool {
+        if text.trim().is_empty() || text == self.last_text {
+            return false;
+        }
+        let now = Instant::now();
+        let enough_time = self
+            .last_emit_at
+            .map(|last| last.elapsed() >= PARTIAL_TEXT_MIN_INTERVAL)
+            .unwrap_or(true);
+        if !enough_time {
+            return false;
+        }
+        self.last_emit_at = Some(now);
+        self.last_text = text.to_string();
+        true
+    }
 }
 
 fn normalize_live_text(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-fn handle_empty_transcript(app: &AppHandle, session: &SessionController) {
+fn handle_empty_transcript(app: &AppHandle, session: &SessionController, generation: u64) {
     app_log::info("ASR session finished: empty transcript");
-    session.set_phase(
-        Some(app),
-        SessionPhase::Failed,
-        overlay::EMPTY_TRANSCRIPT_TEXT,
-        Some("EMPTY_TRANSCRIPT"),
-    );
-    overlay::update_text(app, overlay::EMPTY_TRANSCRIPT_TEXT);
+    if session
+        .finish_generation(
+            generation,
+            Some(app),
+            SessionPhase::Failed,
+            overlay::EMPTY_TRANSCRIPT_TEXT,
+            Some("EMPTY_TRANSCRIPT"),
+        )
+        .is_none()
+    {
+        return;
+    }
+    if session.is_current_generation(generation) {
+        overlay::update_text(app, overlay::EMPTY_TRANSCRIPT_TEXT);
+    }
     let _ = app.emit(
         "asr-final-text",
         AsrFinalText {
@@ -447,19 +573,27 @@ fn handle_empty_transcript(app: &AppHandle, session: &SessionController) {
         },
     );
     thread::sleep(ATTENTION_OVERLAY_HOLD);
-    overlay::hide(app);
+    if session.is_current_generation(generation) {
+        overlay::hide(app);
+    }
 }
 
-fn emit_error(app: &AppHandle, error_code: &str, error: String) {
+fn emit_error(
+    app: &AppHandle,
+    session: &SessionController,
+    generation: u64,
+    error_code: &str,
+    error: String,
+) {
     app_log::warn(&error);
     let message = if error_code == "PASTE_FAILED" {
         overlay::PASTE_FAILED_TEXT.to_string()
     } else {
         format!("识别失败: {}", error)
     };
-    overlay::update_text(app, message);
-    thread::sleep(ATTENTION_OVERLAY_HOLD);
-    overlay::hide(app);
+    if session.is_current_generation(generation) {
+        overlay::update_text(app, message);
+    }
     let _ = app.emit(
         "asr-final-text",
         AsrFinalText {
@@ -469,6 +603,10 @@ fn emit_error(app: &AppHandle, error_code: &str, error: String) {
             warning: None,
         },
     );
+    thread::sleep(ATTENTION_OVERLAY_HOLD);
+    if session.is_current_generation(generation) {
+        overlay::hide(app);
+    }
 }
 
 fn classify_asr_error(error: &str) -> &'static str {

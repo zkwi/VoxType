@@ -37,7 +37,7 @@
     X as XIcon,
   } from "lucide-svelte";
 
-  type Section = "Overview" | "Settings" | "History";
+  type Section = "Home" | "Health" | "Settings" | "History";
   type AppSnapshot = {
     hotkey: string;
     current_version: string;
@@ -105,6 +105,7 @@
     privacy_recent_context_enabled: boolean;
     warnings: SetupStatusWarning[];
   };
+  type HotkeyCaptureState = "idle" | "recording";
   type LoadedConfig = {
     path: string;
     exists: boolean;
@@ -135,7 +136,6 @@
     warning: string | null;
   };
 
-  type AsrPartialText = { text: string };
   type OverlayText = { text: string };
   type AudioLevel = { level: number };
   type AudioDeviceInfo = { index: number; name: string; is_default: boolean };
@@ -304,13 +304,15 @@
   const chineseTypingCharsPerMinute = 50;
   const micBars = [0, 1, 2, 3, 4, 5];
   const navItems: { id: Section; icon: typeof Gauge }[] = [
-    { id: "Overview", icon: Gauge },
+    { id: "Home", icon: Gauge },
+    { id: "Health", icon: ShieldCheck },
     { id: "Settings", icon: Settings },
     { id: "History", icon: BarChart3 },
   ];
 
   const navLabelKeys: Record<Section, CopyKey> = {
-    Overview: "navOverview",
+    Home: "navHome",
+    Health: "navHealthCheck",
     Settings: "navSettings",
     History: "navHistory",
   };
@@ -324,7 +326,7 @@
   let sessionErrorCode = $state<string | null>(null);
   let language = $state<Language>("zh-CN");
   let statusMessage = $state(copy["zh-CN"].bridgeLoading);
-  let selectedSection = $state<Section>("Overview");
+  let selectedSection = $state<Section>("Home");
   let saving = $state(false);
   let configExists = $state(true);
   let audioLevel = $state(0);
@@ -363,6 +365,9 @@
   let closePromptFirstTime = $state(false);
   let closePromptBehavior = $state("close_to_tray");
   let succeededIdleTimer: number | undefined;
+  let setupStatusLoading = $state(true);
+  let hotkeyCaptureState = $state<HotkeyCaptureState>("idle");
+  let hotkeyValidationMessage = $state("");
   onMount(() => {
     const onError = (event: ErrorEvent) => {
       logFrontendError(`${event.message} (${event.filename}:${event.lineno}:${event.colno})`);
@@ -395,7 +400,7 @@
       window.addEventListener("resize", refreshOverlayLayout);
       overlayPoll = window.setInterval(() => {
         void refreshOverlayText();
-      }, 80);
+      }, 250);
     }
     let unlisteners: Array<Promise<() => void>> = [];
     if (hasTauriApi()) {
@@ -410,19 +415,9 @@
           if (shouldOpenSettingsForError(event.payload.error, event.payload.error_code)) selectedSection = "Settings";
           return;
         }
-        if (isOverlay && event.payload.text.trim()) {
-          applyOverlayText(event.payload.text);
-        }
         if (event.payload.warning) showActionNotice(event.payload.warning, "warning");
         statusMessage = event.payload.warning ? event.payload.warning : t("sessionSucceeded");
         if (sessionPhase === "succeeded") scheduleSucceededIdleHint();
-      });
-      const unlistenPartial = listen<AsrPartialText>("asr-partial-text", (event) => {
-        if (event.payload.text.trim()) {
-          if (isOverlay) {
-            applyOverlayText(event.payload.text);
-          }
-        }
       });
       const unlistenOverlay = listen<OverlayText>("overlay-text", (event) => {
         applyOverlayText(event.payload.text || defaultOverlayText);
@@ -441,7 +436,6 @@
       unlisteners = [
         unlistenSession,
         unlistenAsr,
-        unlistenPartial,
         unlistenOverlay,
         unlistenStats,
         unlistenAudioLevel,
@@ -734,6 +728,7 @@
 
   async function loadAll() {
     logFrontendEvent(`loadAll started mode=${frontendMode()}`);
+    if (!isOverlay && !isToast) setupStatusLoading = true;
     const [snapshotResult, configResult, statsResult, devicesResult, setupResult] = await Promise.all([
       safeInvoke<AppSnapshot>("get_app_snapshot"),
       safeInvoke<LoadedConfig>("load_app_config"),
@@ -757,6 +752,7 @@
     if (statsResult) stats = statsResult;
     if (devicesResult) audioDevices = devicesResult;
     if (setupResult) setupStatus = setupResult;
+    if (!isOverlay && !isToast) setupStatusLoading = false;
     if ((snapshotResult || configResult || statsResult) && !configSetupMessage(configResult)) {
       statusMessage = t("bridgeConnected");
     }
@@ -835,6 +831,13 @@
     saving = true;
     try {
       validationErrors = {};
+      const hotkeyError = validateHotkeyText(config.hotkey);
+      if (hotkeyError) {
+        validationErrors = { hotkey: hotkeyError };
+        statusMessage = hotkeyError;
+        scrollToSettingsPanel("settings-output");
+        return null;
+      }
       if (!requireAuthFields(false)) return null;
       if (!hasTauriApi()) {
         statusMessage = t("browserPreview");
@@ -1139,14 +1142,55 @@
     return audioDevices.find((device) => device.is_default) ?? audioDevices[0];
   }
   async function refreshSetupStatus() {
+    setupStatusLoading = true;
     const [devicesResult, setupResult] = await Promise.all([
       safeInvoke<AudioDeviceInfo[]>("list_audio_input_devices", undefined, true),
       safeInvoke<SetupStatus>("get_setup_status", undefined, true),
     ]);
     if (devicesResult) audioDevices = devicesResult;
     if (setupResult) setupStatus = setupResult;
+    setupStatusLoading = false;
   }
   function setupStatusItems(): SetupStatusItem[] {
+    if (setupStatusLoading) {
+      return [
+        {
+          label: t("setupAuthLabel"),
+          value: t("setupChecking"),
+          ok: false,
+          checking: true,
+          action: "asr_auth",
+        },
+        {
+          label: t("setupMicLabel"),
+          value: t("setupChecking"),
+          ok: false,
+          checking: true,
+          action: "audio",
+        },
+        {
+          label: t("setupPasteLabel"),
+          value: t("setupChecking"),
+          ok: false,
+          checking: true,
+          action: "typing",
+        },
+        {
+          label: t("setupTriggerLabel"),
+          value: t("setupChecking"),
+          ok: false,
+          checking: true,
+          action: "hotkey",
+        },
+        {
+          label: t("setupPrivacyLabel"),
+          value: t("setupChecking"),
+          ok: false,
+          checking: true,
+          action: "privacy",
+        },
+      ];
+    }
     const status = setupStatus;
     const authReady = hasAuth();
     const micReady = status ? status.has_audio_device : audioDevices.length > 0;
@@ -1177,16 +1221,18 @@
       },
       {
         label: t("setupPrivacyLabel"),
-        value: config.context.enable_recent_context ? t("setupRecentOn") : t("setupRecentOff"),
+        value: t("setupPrivacyChecked"),
         ok: true,
         action: "privacy",
       },
     ];
   }
   function setupWarningCount() {
+    if (setupStatusLoading) return 0;
     return setupStatusItems().filter((item) => !item.ok).length;
   }
   function setupIsReady() {
+    if (setupStatusLoading) return false;
     return setupStatus?.ready ?? setupStatusItems().every((item) => item.ok);
   }
   function setupActionText(action: string) {
@@ -1251,6 +1297,9 @@
         if (normalized === "alt") return "Alt";
         if (normalized === "shift") return "Shift";
         if (normalized === "win" || normalized === "meta") return "Win";
+        if (normalized === "space") return "Space";
+        if (normalized === "enter") return "Enter";
+        if (normalized === "tab") return "Tab";
         return part.trim().toUpperCase();
       })
       .filter(Boolean)
@@ -1258,7 +1307,92 @@
   }
 
   function setHotkey(value: string) {
-    config.hotkey = formatHotkey(value);
+    const formatted = formatHotkey(value);
+    config.hotkey = formatted;
+    hotkeyValidationMessage = validateHotkeyText(formatted);
+    if (!hotkeyValidationMessage) {
+      const next = { ...validationErrors };
+      delete next.hotkey;
+      validationErrors = next;
+    }
+  }
+
+  function beginHotkeyCapture() {
+    hotkeyValidationMessage = "";
+    hotkeyCaptureState = "recording";
+  }
+
+  function cancelHotkeyCapture() {
+    hotkeyCaptureState = "idle";
+    hotkeyValidationMessage = "";
+  }
+
+  function handleHotkeyKeydown(event: KeyboardEvent) {
+    if (hotkeyCaptureState !== "recording") return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.key === "Escape") {
+      cancelHotkeyCapture();
+      return;
+    }
+    if (event.key === "Backspace" || event.key === "Delete") {
+      config.hotkey = "";
+      hotkeyValidationMessage = t("hotkeyRequired");
+      validationErrors = { ...validationErrors, hotkey: hotkeyValidationMessage };
+      return;
+    }
+    if (event.key === "Enter" && !event.ctrlKey && !event.altKey && !event.shiftKey && !event.metaKey) {
+      hotkeyCaptureState = "idle";
+      return;
+    }
+    const captured = hotkeyFromKeyboardEvent(event);
+    if (!captured) {
+      hotkeyValidationMessage = t("hotkeyUnsupported");
+      return;
+    }
+    config.hotkey = captured;
+    hotkeyValidationMessage = validateHotkeyText(captured);
+    validationErrors = hotkeyValidationMessage
+      ? { ...validationErrors, hotkey: hotkeyValidationMessage }
+      : Object.fromEntries(Object.entries(validationErrors).filter(([field]) => field !== "hotkey"));
+    if (!hotkeyValidationMessage) hotkeyCaptureState = "idle";
+  }
+
+  function hotkeyFromKeyboardEvent(event: KeyboardEvent) {
+    const key = normalizedHotkeyMainKey(event.key);
+    if (!key) return "";
+    const parts: string[] = [];
+    if (event.ctrlKey) parts.push("Ctrl");
+    if (event.altKey) parts.push("Alt");
+    if (event.shiftKey) parts.push("Shift");
+    if (event.metaKey) parts.push("Win");
+    if (parts.length === 0) return "";
+    parts.push(key);
+    return parts.join(" + ");
+  }
+
+  function normalizedHotkeyMainKey(key: string) {
+    if (/^[a-z]$/i.test(key)) return key.toUpperCase();
+    if (/^[0-9]$/.test(key)) return key;
+    if (/^F([1-9]|1[0-2])$/i.test(key)) return key.toUpperCase();
+    if (key === " " || key.toLowerCase() === "space" || key === "Spacebar") return "Space";
+    if (key.toLowerCase() === "tab") return "Tab";
+    if (key.toLowerCase() === "enter") return "Enter";
+    return "";
+  }
+
+  function validateHotkeyText(value: string) {
+    const parts = value
+      .split("+")
+      .map((part) => part.trim())
+      .filter(Boolean);
+    if (parts.length === 0) return t("hotkeyRequired");
+    const modifiers = parts.slice(0, -1).map((part) => part.toLowerCase());
+    const key = parts[parts.length - 1];
+    const hasModifier = modifiers.some((part) => ["ctrl", "control", "alt", "shift", "win", "meta"].includes(part));
+    if (!hasModifier) return t("hotkeyNeedsModifier");
+    if (!normalizedHotkeyMainKey(key)) return t("hotkeyUnsupported");
+    return "";
   }
 
   async function minimizeWindow() {
@@ -1435,7 +1569,7 @@
     return true;
   }
   function selectSection(section: Section) {
-    if (section !== "Settings" && requireAsrAuthGate()) return;
+    if (section === "History" && requireAsrAuthGate()) return;
     selectedSection = section;
     if (section === "Settings" && requiresAsrAuth()) scrollToSettingsPanel("settings-auth");
   }
@@ -1567,7 +1701,7 @@
     <nav aria-label="Main sections">
       {#each navItems as item}
         {@const Icon = item.icon}
-        {@const locked = requiresAsrAuth() && item.id !== "Settings"}
+        {@const locked = requiresAsrAuth() && item.id === "History"}
         <button
           class:active={selectedSection === item.id}
           class:locked
@@ -1609,34 +1743,18 @@
   </aside>
 
   <section
-    class:overview-content={selectedSection === "Overview"}
+    class:overview-content={selectedSection === "Home" || selectedSection === "Health"}
     class:setup-required={!configExists || !hasAuth()}
     class="content"
   >
     <header class="topbar">
       <div>
         <p class="eyebrow">{t("topEyebrow")}</p>
-        <h2>{selectedSection === "Overview" ? t("navOverview") : t(navLabelKeys[selectedSection])}</h2>
+        <h2>{t(navLabelKeys[selectedSection])}</h2>
       </div>
     </header>
 
-    {#if selectedSection === "Overview"}
-      <SetupStatusCard
-        ready={setupIsReady()}
-        items={setupStatusItems()}
-        warnings={setupStatus?.warnings ?? []}
-        texts={{
-          title: t("setupHealthTitle"),
-          pendingTitle: t("setupHealthPendingTitle", { count: String(setupWarningCount()) }),
-          pendingDescription: t("setupHealthPendingDescription"),
-          readyTitle: t("setupHealthReadyTitle"),
-          readyDescription: t("setupHealthReadyDescription", { hotkey: formatHotkey(snapshot.hotkey) }),
-          refresh: t("refreshSetup"),
-          actionText: setupActionText,
-        }}
-        onAction={handleSetupAction}
-        onRefresh={refreshSetupStatus}
-      />
+    {#if selectedSection === "Home"}
       <section class="voice-card">
         <div class="section-title-row">
           <h3>{t("voiceInputTitle")}</h3>
@@ -1772,6 +1890,26 @@
         </div>
         <p class="usage-tip"><Sparkles size={15} />{usageTipText()}</p>
       </section>
+    {:else if selectedSection === "Health"}
+      <SetupStatusCard
+        ready={setupIsReady()}
+        checking={setupStatusLoading}
+        items={setupStatusItems()}
+        warnings={setupStatusLoading ? [] : setupStatus?.warnings ?? []}
+        texts={{
+          title: t("setupHealthTitle"),
+          pendingTitle: t("setupHealthPendingTitle", { count: String(setupWarningCount()) }),
+          pendingDescription: t("setupHealthPendingDescription"),
+          checkingTitle: t("setupHealthCheckingTitle"),
+          checkingDescription: t("setupHealthCheckingDescription"),
+          readyTitle: t("setupHealthReadyTitle"),
+          readyDescription: t("setupHealthReadyDescription", { hotkey: formatHotkey(snapshot.hotkey) }),
+          refresh: t("refreshSetup"),
+          actionText: setupActionText,
+        }}
+        onAction={handleSetupAction}
+        onRefresh={refreshSetupStatus}
+      />
     {:else if selectedSection === "Settings"}
       <section class="settings-stack">
         {#if requiresAsrAuth()}
@@ -1805,7 +1943,20 @@
           <div id="settings-output" class="form-panel">
             <div class="section-heading"><h3>{t("startAndOutput")}</h3><p>{t("typingDescription")}</p></div>
             <div class="form-grid">
-              <label><span>{t("hotkey")}</span><input value={formatHotkey(config.hotkey)} oninput={(event) => setHotkey(event.currentTarget.value)} /></label>
+              <label class:field-invalid={Boolean(fieldError("hotkey") || hotkeyValidationMessage)}>
+                <span>{t("hotkey")}</span>
+                <button
+                  type="button"
+                  class:recording={hotkeyCaptureState === "recording"}
+                  class="hotkey-recorder"
+                  onkeydown={handleHotkeyKeydown}
+                  onclick={beginHotkeyCapture}
+                >
+                  <Keyboard size={16} />
+                  <strong>{hotkeyCaptureState === "recording" ? t("hotkeyRecording") : formatHotkey(config.hotkey) || t("hotkeyUnset")}</strong>
+                </button>
+                <small class="field-hint">{hotkeyValidationMessage || fieldError("hotkey") || t("hotkeyRecordHint")}</small>
+              </label>
               <label class:field-invalid={Boolean(fieldError("typing.paste_delay_ms"))}>
                 <span>{t("pasteDelayMs")}</span>
                 <input type="number" bind:value={config.typing.paste_delay_ms} />
@@ -1823,6 +1974,7 @@
               <label class="check"><input type="checkbox" bind:checked={config.startup.launch_on_startup} />{t("launchOnStartup")}</label>
             </div>
             <p class="field-hint">{t("clipboardTextRestoreHint")}</p>
+            <p class="field-hint">{t("clipboardRetryHint")}</p>
             <p class="field-hint">{t("triggerConflictHint")}</p>
           </div>
           <div class="form-panel">
@@ -3366,6 +3518,42 @@
     min-height: 84px;
     padding: 10px 12px;
     resize: vertical;
+  }
+  .hotkey-recorder {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 9px;
+    width: 100%;
+    min-height: 38px;
+    padding: 0 12px;
+    color: var(--text-main);
+    background: #ffffff;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    text-align: left;
+  }
+  .hotkey-recorder strong {
+    min-width: 0;
+    overflow: hidden;
+    color: inherit;
+    font-size: 14px;
+    font-weight: 800;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .hotkey-recorder :global(svg) {
+    flex: 0 0 auto;
+    color: var(--primary);
+  }
+  .hotkey-recorder.recording {
+    border-color: var(--primary);
+    background: var(--primary-light);
+    box-shadow: 0 0 0 3px rgba(47, 128, 237, 0.14);
+  }
+  .field-invalid .hotkey-recorder {
+    border-color: var(--danger);
+    background: #fff7f7;
   }
   .field-hint {
     margin: 8px 0 0;

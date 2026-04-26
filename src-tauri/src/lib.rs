@@ -106,33 +106,17 @@ fn get_setup_status() -> Result<SetupStatus, String> {
             action: "audio".to_string(),
         });
     }
-    if data.triggers.middle_mouse_enabled || data.triggers.right_alt_enabled {
-        warnings.push(SetupWarning {
-            code: "EXTRA_TRIGGER_ENABLED".to_string(),
-            title: "额外触发方式已开启".to_string(),
-            message: "右 Alt 和鼠标中键可能和其他软件操作冲突，建议确认后再使用。".to_string(),
-            action: "hotkey".to_string(),
-        });
-    }
-    if data.audio.mute_system_volume_while_recording {
-        warnings.push(SetupWarning {
-            code: "SYSTEM_AUDIO_MUTE_ENABLED".to_string(),
-            title: "录音时会静音系统声音".to_string(),
-            message: "这能减少回声，但可能影响会议、视频或系统提示音。".to_string(),
-            action: "audio".to_string(),
-        });
-    }
-    if data.context.enable_recent_context {
-        warnings.push(SetupWarning {
-            code: "RECENT_CONTEXT_ENABLED".to_string(),
-            title: "最近上下文已开启".to_string(),
-            message: "最近识别片段会保存在单独的本地上下文文件中，可随时关闭或清除。".to_string(),
-            action: "privacy".to_string(),
-        });
-    }
     let any_trigger_enabled = data.triggers.hotkey_enabled
         || data.triggers.middle_mouse_enabled
         || data.triggers.right_alt_enabled;
+    if !any_trigger_enabled {
+        warnings.push(SetupWarning {
+            code: "TRIGGER_DISABLED".to_string(),
+            title: "触发方式未开启".to_string(),
+            message: "请至少开启主快捷键、右 Alt 或鼠标中键中的一种。".to_string(),
+            action: "hotkey".to_string(),
+        });
+    }
     Ok(SetupStatus {
         ready: !missing_auth && has_audio_device && any_trigger_enabled,
         missing_auth,
@@ -159,7 +143,7 @@ fn load_app_config() -> Result<LoadedConfig, String> {
 }
 
 #[tauri::command]
-fn save_app_config(config: AppConfig) -> Result<LoadedConfig, ConfigSaveError> {
+fn save_app_config(app: AppHandle, config: AppConfig) -> Result<LoadedConfig, ConfigSaveError> {
     if let Err(errors) = config::validate_config(&config) {
         app_log::warn(format!("配置保存失败: validation_errors={}", errors.len()));
         return Err(ConfigSaveError {
@@ -167,9 +151,29 @@ fn save_app_config(config: AppConfig) -> Result<LoadedConfig, ConfigSaveError> {
             errors,
         });
     }
+    let previous_hotkey = config::load_config()
+        .ok()
+        .map(|loaded| loaded.data.hotkey)
+        .unwrap_or_default();
+    if config.triggers.hotkey_enabled && !hotkey_equal(&previous_hotkey, &config.hotkey) {
+        if let Err(err) = hotkey::can_register_hotkey(&config.hotkey) {
+            app_log::warn(format!(
+                "配置保存失败: hotkey register test failed: {}",
+                err
+            ));
+            return Err(ConfigSaveError {
+                message: format!("快捷键注册测试失败：{}", err),
+                errors: vec![config::ConfigValidationError {
+                    field: "hotkey".to_string(),
+                    message: "该快捷键可能已被其他程序占用，请换一个。".to_string(),
+                }],
+            });
+        }
+    }
     match config::save_config(config) {
         Ok(loaded) => {
             hotkey::refresh_trigger_config_from(&loaded.data.triggers);
+            hotkey::restart_global_hotkey_thread(app.clone());
             if let Err(err) = autostart::apply(&loaded.data.startup) {
                 app_log::warn(format!("同步开机自启动失败: {}", err));
                 return Err(ConfigSaveError {
@@ -603,6 +607,18 @@ fn normalize_close_behavior(value: &str) -> &str {
         "ask_every_time" => "ask_every_time",
         _ => "close_to_tray",
     }
+}
+
+fn hotkey_equal(left: &str, right: &str) -> bool {
+    let normalize = |value: &str| {
+        value
+            .split('+')
+            .map(|part| part.trim().to_ascii_lowercase())
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>()
+            .join("+")
+    };
+    normalize(left) == normalize(right)
 }
 
 fn enabled_trigger_summary(config: &AppConfig) -> String {

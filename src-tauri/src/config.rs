@@ -502,6 +502,7 @@ pub fn recent_context_count() -> usize {
 pub fn validate_config(config: &AppConfig) -> Result<(), Vec<ConfigValidationError>> {
     let mut errors = Vec::new();
 
+    validate_hotkey(&mut errors, &config.hotkey);
     validate_u32_range(
         &mut errors,
         "audio.sample_rate",
@@ -595,6 +596,47 @@ pub fn validate_config(config: &AppConfig) -> Result<(), Vec<ConfigValidationErr
         Ok(())
     } else {
         Err(errors)
+    }
+}
+
+fn validate_hotkey(errors: &mut Vec<ConfigValidationError>, value: &str) {
+    let parts = value
+        .split('+')
+        .map(|part| part.trim().to_ascii_lowercase())
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>();
+    if parts.is_empty() {
+        push_validation_error(errors, "hotkey", "热键不能为空。");
+        return;
+    }
+    let modifiers = &parts[..parts.len() - 1];
+    if !modifiers.iter().any(|part| {
+        matches!(
+            part.as_str(),
+            "ctrl" | "control" | "alt" | "shift" | "win" | "meta"
+        )
+    }) {
+        push_validation_error(errors, "hotkey", "热键至少需要一个修饰键。");
+        return;
+    }
+    if modifiers.iter().any(|part| {
+        !matches!(
+            part.as_str(),
+            "ctrl" | "control" | "alt" | "shift" | "win" | "meta"
+        )
+    }) {
+        push_validation_error(errors, "hotkey", "热键包含不支持的修饰键。");
+        return;
+    }
+    let key = parts.last().map(String::as_str).unwrap_or_default();
+    let supported_key = matches!(key, "space" | "enter" | "tab")
+        || (key.len() == 1 && key.chars().all(|ch| ch.is_ascii_alphanumeric()))
+        || matches!(
+            key,
+            "f1" | "f2" | "f3" | "f4" | "f5" | "f6" | "f7" | "f8" | "f9" | "f10" | "f11" | "f12"
+        );
+    if !supported_key {
+        push_validation_error(errors, "hotkey", "热键按键暂不支持。");
     }
 }
 

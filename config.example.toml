@@ -1,7 +1,7 @@
 # 配置模板，复制为 config.toml 后按需修改
 # 不要把真实密钥提交到 Git
 
-# 全局热键，当前只支持 ctrl / alt / shift / win + 单个字符键
+# 全局热键，支持 ctrl / alt / shift / win + A-Z、0-9、Space、F1-F12、Enter
 hotkey = "ctrl+q"
 
 [auth]
@@ -65,9 +65,11 @@ right_alt_enabled = false
 paste_delay_ms = 120
 # 粘贴方式：ctrl_v / shift_insert / clipboard_only
 paste_method = "ctrl_v"
-# 自动粘贴后恢复原剪贴板文本；当前只能恢复纯文本，图片/文件/富文本会保留识别文本并提示
+# 自动粘贴后恢复原剪贴板；会尽量恢复纯文本、HTML/RTF 等常见富文本和可复制内存格式
+# 图片、位图句柄或部分私有格式可能无法恢复，并会保留识别文本并提示
 restore_clipboard_after_paste = true
-# 打开剪贴板失败时的短暂重试
+# 剪贴板被其他程序短暂占用时，重试打开、写入并校验文本剪贴板
+# 只提高剪贴板写入稳定性，不保证目标应用一定粘贴成功
 clipboard_open_retry_count = 5
 clipboard_open_retry_interval_ms = 50
 

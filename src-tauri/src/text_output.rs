@@ -16,9 +16,14 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 };
 
 const CF_UNICODETEXT: u32 = 13;
-const CF_TEXT: u32 = 1;
-const CF_OEMTEXT: u32 = 7;
-const CF_LOCALE: u32 = 16;
+const CF_BITMAP: u32 = 2;
+const CF_METAFILEPICT: u32 = 3;
+const CF_PALETTE: u32 = 9;
+const CF_ENHMETAFILE: u32 = 14;
+const CF_OWNERDISPLAY: u32 = 0x0080;
+const CF_DSPBITMAP: u32 = 0x0082;
+const CF_DSPMETAFILEPICT: u32 = 0x0083;
+const CF_DSPENHMETAFILE: u32 = 0x008E;
 const KEY_INTERVAL: Duration = Duration::from_millis(10);
 
 pub struct OutputResult {
@@ -26,9 +31,19 @@ pub struct OutputResult {
 }
 
 enum ClipboardBackup {
-    Text(String),
-    NonText,
+    Snapshot(ClipboardSnapshot),
+    NonRestorable,
     Empty,
+}
+
+struct ClipboardSnapshot {
+    formats: Vec<ClipboardFormatBackup>,
+    skipped_formats: usize,
+}
+
+struct ClipboardFormatBackup {
+    format: u32,
+    bytes: Vec<u8>,
 }
 
 pub fn output_text(text: &str, typing: &TypingConfig) -> Result<OutputResult, String> {
@@ -69,22 +84,38 @@ pub fn output_text(text: &str, typing: &TypingConfig) -> Result<OutputResult, St
         "粘贴快捷键已发送: method={}, delay_ms={}",
         typing.paste_method, typing.paste_delay_ms
     ));
-    if let ClipboardBackup::Text(original) = original_clipboard {
+    if let ClipboardBackup::Snapshot(original) = original_clipboard {
         thread::sleep(clipboard_restore_delay(typing));
-        match write_clipboard_text_with_retry(&original, typing) {
+        match write_clipboard_snapshot_with_retry(&original, typing) {
             Ok(()) => {
-                app_log::info("发送粘贴快捷键后已恢复原剪贴板文本");
-                Ok(OutputResult { warning: None })
+                app_log::info(format!(
+                    "发送粘贴快捷键后已恢复原剪贴板: formats={}, skipped={}",
+                    original.formats.len(),
+                    original.skipped_formats
+                ));
+                if original.skipped_formats > 0 {
+                    let warning =
+                        "已恢复剪贴板中的常见文本/富文本格式；少量图片或私有格式无法自动恢复。"
+                            .to_string();
+                    app_log::warn(&warning);
+                    Ok(OutputResult {
+                        warning: Some(warning),
+                    })
+                } else {
+                    Ok(OutputResult { warning: None })
+                }
             }
             Err(err) => {
-                app_log::warn(format!("恢复原剪贴板文本失败: {}", err));
+                app_log::warn(format!("恢复原剪贴板失败: {}", err));
                 Ok(OutputResult {
                     warning: Some("已发送粘贴快捷键，但恢复原剪贴板失败。".to_string()),
                 })
             }
         }
-    } else if matches!(original_clipboard, ClipboardBackup::NonText) {
-        let warning = "已发送粘贴快捷键；原剪贴板包含图片、文件或富文本，VoxType 暂时只能恢复纯文本剪贴板，当前剪贴板保留识别文本。".to_string();
+    } else if matches!(original_clipboard, ClipboardBackup::NonRestorable) {
+        let warning =
+            "已发送粘贴快捷键；原剪贴板包含暂不支持恢复的图片或私有格式，当前剪贴板保留识别文本。"
+                .to_string();
         app_log::warn(&warning);
         Ok(OutputResult {
             warning: Some(warning),
@@ -103,7 +134,14 @@ fn read_clipboard_backup_with_retry(typing: &TypingConfig) -> Result<ClipboardBa
 }
 
 fn write_clipboard_text_with_retry(text: &str, typing: &TypingConfig) -> Result<(), String> {
-    with_clipboard_retry(typing, || write_clipboard_text(text))
+    with_clipboard_retry(typing, || write_clipboard_text_verified(text))
+}
+
+fn write_clipboard_snapshot_with_retry(
+    snapshot: &ClipboardSnapshot,
+    typing: &TypingConfig,
+) -> Result<(), String> {
+    with_clipboard_retry(typing, || write_clipboard_snapshot(snapshot))
 }
 
 fn with_clipboard_retry<T>(
@@ -132,54 +170,108 @@ fn read_clipboard_backup() -> Result<ClipboardBackup, String> {
         OpenClipboard(None).map_err(|err| format!("打开剪贴板失败: {}", err))?;
         let result = (|| {
             let format_count = CountClipboardFormats();
-            if IsClipboardFormatAvailable(CF_UNICODETEXT).is_err() {
-                return Ok(if format_count > 0 {
-                    ClipboardBackup::NonText
-                } else {
-                    ClipboardBackup::Empty
-                });
-            }
-            if !clipboard_contains_only_text_formats() {
-                return Ok(ClipboardBackup::NonText);
-            }
-            let handle = GetClipboardData(CF_UNICODETEXT)
-                .map_err(|err| format!("读取剪贴板失败: {}", err))?;
-            if handle.is_invalid() {
+            if format_count == 0 {
                 return Ok(ClipboardBackup::Empty);
             }
-            let memory = HGLOBAL(handle.0);
-            let size = GlobalSize(memory);
-            let locked = GlobalLock(memory) as *const u16;
-            if locked.is_null() {
-                return Err("锁定剪贴板内存失败".to_string());
+            let mut formats = Vec::new();
+            let mut skipped_formats = 0;
+            let mut format = 0;
+            loop {
+                format = EnumClipboardFormats(format);
+                if format == 0 {
+                    break;
+                }
+                if is_known_non_memory_clipboard_format(format) {
+                    skipped_formats += 1;
+                    continue;
+                }
+                match read_clipboard_format_bytes(format) {
+                    Some(bytes) => formats.push(ClipboardFormatBackup { format, bytes }),
+                    None => skipped_formats += 1,
+                }
             }
-            let units = size / size_of::<u16>();
-            let slice = std::slice::from_raw_parts(locked, units);
-            let len = slice.iter().position(|value| *value == 0).unwrap_or(units);
-            let text = String::from_utf16_lossy(&slice[..len]);
-            let _ = GlobalUnlock(memory);
-            Ok(ClipboardBackup::Text(text))
+
+            if formats.is_empty() {
+                Ok(ClipboardBackup::NonRestorable)
+            } else {
+                Ok(ClipboardBackup::Snapshot(ClipboardSnapshot {
+                    formats,
+                    skipped_formats,
+                }))
+            }
         })();
         let _ = CloseClipboard();
         result
     }
 }
 
-fn clipboard_contains_only_text_formats() -> bool {
-    let mut format = 0;
-    loop {
-        format = unsafe { EnumClipboardFormats(format) };
-        if format == 0 {
-            return true;
-        }
-        if !is_text_clipboard_format(format) {
-            return false;
-        }
+fn read_clipboard_text() -> Result<String, String> {
+    unsafe {
+        OpenClipboard(None).map_err(|err| format!("打开剪贴板失败: {}", err))?;
+        let result = (|| {
+            if IsClipboardFormatAvailable(CF_UNICODETEXT).is_err() {
+                return Ok(String::new());
+            }
+            let handle = GetClipboardData(CF_UNICODETEXT)
+                .map_err(|err| format!("读取剪贴板失败: {}", err))?;
+            read_clipboard_text_from_handle(handle)
+        })();
+        let _ = CloseClipboard();
+        result
     }
 }
 
-fn is_text_clipboard_format(format: u32) -> bool {
-    matches!(format, CF_TEXT | CF_OEMTEXT | CF_UNICODETEXT | CF_LOCALE)
+unsafe fn read_clipboard_format_bytes(format: u32) -> Option<Vec<u8>> {
+    let handle = unsafe { GetClipboardData(format) }.ok()?;
+    if handle.is_invalid() {
+        return None;
+    }
+    let memory = HGLOBAL(handle.0);
+    let size = unsafe { GlobalSize(memory) };
+    if size == 0 {
+        return None;
+    }
+    let locked = unsafe { GlobalLock(memory) } as *const u8;
+    if locked.is_null() {
+        return None;
+    }
+    let bytes = unsafe { std::slice::from_raw_parts(locked, size) }.to_vec();
+    let _ = unsafe { GlobalUnlock(memory) };
+    Some(bytes)
+}
+
+fn read_clipboard_text_from_handle(handle: HANDLE) -> Result<String, String> {
+    if handle.is_invalid() {
+        return Ok(String::new());
+    }
+    unsafe {
+        let memory = HGLOBAL(handle.0);
+        let size = GlobalSize(memory);
+        let locked = GlobalLock(memory) as *const u16;
+        if locked.is_null() {
+            return Err("锁定剪贴板内存失败".to_string());
+        }
+        let units = size / size_of::<u16>();
+        let slice = std::slice::from_raw_parts(locked, units);
+        let len = slice.iter().position(|value| *value == 0).unwrap_or(units);
+        let text = String::from_utf16_lossy(&slice[..len]);
+        let _ = GlobalUnlock(memory);
+        Ok(text)
+    }
+}
+
+fn is_known_non_memory_clipboard_format(format: u32) -> bool {
+    matches!(
+        format,
+        CF_BITMAP
+            | CF_METAFILEPICT
+            | CF_PALETTE
+            | CF_ENHMETAFILE
+            | CF_OWNERDISPLAY
+            | CF_DSPBITMAP
+            | CF_DSPMETAFILEPICT
+            | CF_DSPENHMETAFILE
+    )
 }
 
 fn write_clipboard_text(text: &str) -> Result<(), String> {
@@ -219,6 +311,59 @@ fn write_clipboard_text(text: &str) -> Result<(), String> {
     }
 }
 
+fn write_clipboard_snapshot(snapshot: &ClipboardSnapshot) -> Result<(), String> {
+    if snapshot.formats.is_empty() {
+        return Err("没有可恢复的剪贴板格式".to_string());
+    }
+    unsafe {
+        OpenClipboard(None).map_err(|err| format!("打开剪贴板失败: {}", err))?;
+        let result = (|| {
+            EmptyClipboard().map_err(|err| format!("清空剪贴板失败: {}", err))?;
+            for item in &snapshot.formats {
+                set_clipboard_memory(item.format, &item.bytes)?;
+            }
+            Ok(())
+        })();
+        let _ = CloseClipboard();
+        result
+    }
+}
+
+fn write_clipboard_text_verified(text: &str) -> Result<(), String> {
+    write_clipboard_text(text)?;
+    let actual = read_clipboard_text()?;
+    if actual == text {
+        app_log::info(format!("剪贴板写入已确认: chars={}", text.chars().count()));
+        Ok(())
+    } else {
+        Err("剪贴板写入后校验失败：读取内容与目标文本不一致".to_string())
+    }
+}
+
+fn set_clipboard_memory(format: u32, bytes: &[u8]) -> Result<(), String> {
+    if bytes.is_empty() {
+        return Err("剪贴板格式内容为空，无法恢复".to_string());
+    }
+    unsafe {
+        let memory = GlobalAlloc(GMEM_MOVEABLE, bytes.len())
+            .map_err(|err| format!("分配剪贴板内存失败: {}", err))?;
+        let locked = GlobalLock(memory) as *mut u8;
+        if locked.is_null() {
+            let _ = GlobalFree(Some(memory));
+            return Err("锁定剪贴板内存失败".to_string());
+        }
+        std::ptr::copy_nonoverlapping(bytes.as_ptr(), locked, bytes.len());
+        let _ = GlobalUnlock(memory);
+
+        let result = SetClipboardData(format, Some(HANDLE(memory.0)))
+            .map_err(|err| format!("恢复剪贴板格式失败: {}", err));
+        if result.is_err() {
+            let _ = GlobalFree(Some(memory));
+        }
+        result.map(|_| ())
+    }
+}
+
 fn clipboard_restore_delay(typing: &TypingConfig) -> Duration {
     Duration::from_millis(typing.paste_delay_ms.max(200))
 }
@@ -249,7 +394,7 @@ fn send_key_event(key: VIRTUAL_KEY, key_up: bool, extended: bool) {
 
 #[cfg(test)]
 mod tests {
-    use super::{clipboard_restore_delay, is_text_clipboard_format};
+    use super::{clipboard_restore_delay, is_known_non_memory_clipboard_format};
     use crate::config::TypingConfig;
     use std::time::Duration;
 
@@ -268,12 +413,12 @@ mod tests {
     }
 
     #[test]
-    fn only_text_clipboard_formats_are_treated_as_restorable() {
-        assert!(is_text_clipboard_format(1));
-        assert!(is_text_clipboard_format(7));
-        assert!(is_text_clipboard_format(13));
-        assert!(is_text_clipboard_format(16));
-        assert!(!is_text_clipboard_format(15));
-        assert!(!is_text_clipboard_format(49350));
+    fn known_handle_clipboard_formats_are_not_memory_snapshotted() {
+        assert!(is_known_non_memory_clipboard_format(2));
+        assert!(is_known_non_memory_clipboard_format(9));
+        assert!(is_known_non_memory_clipboard_format(14));
+        assert!(!is_known_non_memory_clipboard_format(13));
+        assert!(!is_known_non_memory_clipboard_format(15));
+        assert!(!is_known_non_memory_clipboard_format(49350));
     }
 }

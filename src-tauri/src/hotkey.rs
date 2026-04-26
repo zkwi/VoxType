@@ -2,6 +2,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Mutex, OnceLock};
 use std::thread;
+use std::time::Duration;
 use tauri::{AppHandle, Manager};
 use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::Threading::GetCurrentThreadId;
@@ -22,6 +23,7 @@ use crate::config::{self, TriggerConfig};
 use crate::session::SessionController;
 
 const HOTKEY_ID: i32 = 1;
+const HOTKEY_TEST_ID: i32 = 991;
 static GLOBAL_HOTKEY_THREAD_ID: OnceLock<Mutex<Option<u32>>> = OnceLock::new();
 static INPUT_HOOK_THREAD_ID: OnceLock<Mutex<Option<u32>>> = OnceLock::new();
 static HOOK_TRIGGER_TX: OnceLock<Sender<&'static str>> = OnceLock::new();
@@ -52,6 +54,24 @@ pub fn start_global_hotkey_thread(app: AppHandle) {
             ));
         }
     });
+}
+
+pub fn restart_global_hotkey_thread(app: AppHandle) {
+    post_quit(&GLOBAL_HOTKEY_THREAD_ID);
+    thread::spawn(move || {
+        thread::sleep(Duration::from_millis(80));
+        start_global_hotkey_thread(app);
+    });
+}
+
+pub fn can_register_hotkey(value: &str) -> Result<(), String> {
+    let (modifiers, key) = parse_hotkey(value)?;
+    unsafe {
+        RegisterHotKey(None, HOTKEY_TEST_ID, modifiers, key.0 as u32)
+            .map_err(|err| format!("该快捷键可能已被其他程序占用: {}", err))?;
+        let _ = UnregisterHotKey(None, HOTKEY_TEST_ID);
+    }
+    Ok(())
 }
 
 pub fn start_input_hook_thread(app: AppHandle) {
@@ -85,6 +105,10 @@ fn run_global_hotkey_loop(app: AppHandle) -> Result<(), String> {
     let _thread_id = ThreadIdGuard::new(&GLOBAL_HOTKEY_THREAD_ID);
     let loaded = config::load_config()?;
     refresh_trigger_config_from(&loaded.data.triggers);
+    if !loaded.data.triggers.hotkey_enabled {
+        app_log::info("主快捷键触发已关闭，跳过全局热键注册。");
+        return Ok(());
+    }
     let hotkey_text = loaded.data.hotkey.clone();
     let (modifiers, key) = parse_hotkey(&loaded.data.hotkey)?;
     unsafe {
@@ -141,6 +165,9 @@ fn parse_hotkey(value: &str) -> Result<(HOT_KEY_MODIFIERS, VIRTUAL_KEY), String>
             other => return Err(format!("不支持的热键修饰键: {}", other)),
         }
     }
+    if modifiers.0 == 0 {
+        return Err("热键至少需要一个修饰键".to_string());
+    }
 
     let key = match parts.last().map(String::as_str) {
         Some("a") => VK_A,
@@ -169,6 +196,31 @@ fn parse_hotkey(value: &str) -> Result<(HOT_KEY_MODIFIERS, VIRTUAL_KEY), String>
         Some("x") => VK_X,
         Some("y") => VK_Y,
         Some("z") => VK_Z,
+        Some("0") => VIRTUAL_KEY(0x30),
+        Some("1") => VIRTUAL_KEY(0x31),
+        Some("2") => VIRTUAL_KEY(0x32),
+        Some("3") => VIRTUAL_KEY(0x33),
+        Some("4") => VIRTUAL_KEY(0x34),
+        Some("5") => VIRTUAL_KEY(0x35),
+        Some("6") => VIRTUAL_KEY(0x36),
+        Some("7") => VIRTUAL_KEY(0x37),
+        Some("8") => VIRTUAL_KEY(0x38),
+        Some("9") => VIRTUAL_KEY(0x39),
+        Some("space") => VIRTUAL_KEY(0x20),
+        Some("enter") => VIRTUAL_KEY(0x0d),
+        Some("tab") => VIRTUAL_KEY(0x09),
+        Some("f1") => VIRTUAL_KEY(0x70),
+        Some("f2") => VIRTUAL_KEY(0x71),
+        Some("f3") => VIRTUAL_KEY(0x72),
+        Some("f4") => VIRTUAL_KEY(0x73),
+        Some("f5") => VIRTUAL_KEY(0x74),
+        Some("f6") => VIRTUAL_KEY(0x75),
+        Some("f7") => VIRTUAL_KEY(0x76),
+        Some("f8") => VIRTUAL_KEY(0x77),
+        Some("f9") => VIRTUAL_KEY(0x78),
+        Some("f10") => VIRTUAL_KEY(0x79),
+        Some("f11") => VIRTUAL_KEY(0x7a),
+        Some("f12") => VIRTUAL_KEY(0x7b),
         Some(other) => return Err(format!("暂不支持的热键按键: {}", other)),
         None => return Err("热键不能为空".to_string()),
     };

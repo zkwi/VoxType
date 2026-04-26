@@ -10,11 +10,7 @@ use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
 
 const OVERLAY_LABEL: &str = "caption-overlay";
 pub const RECORDING_TEXT: &str = "正在听你说话...";
-pub const STOPPING_TEXT: &str = "正在收尾...";
-pub const WAITING_FINAL_TEXT: &str = "正在等待最后一句识别完成...";
 pub const POST_EDITING_TEXT: &str = "正在润色...";
-pub const PASTING_TEXT: &str = "正在粘贴...";
-pub const PASTED_TEXT: &str = "文本已输出";
 pub const EMPTY_TRANSCRIPT_TEXT: &str = "没有识别到文字，请重试一次。";
 pub const PASTE_FAILED_TEXT: &str = "粘贴失败，文本已复制，可手动 Ctrl+V。";
 const DEFAULT_TEXT: &str = RECORDING_TEXT;
@@ -97,11 +93,7 @@ fn cursor_position() -> Option<POINT> {
 pub fn update_text(app: &AppHandle, text: impl Into<String>) {
     let payload = OverlayText { text: text.into() };
     set_current_text(payload.text.clone());
-    if let Some(window) = app.get_webview_window(OVERLAY_LABEL) {
-        let _ = window.emit("overlay-text", payload.clone());
-    }
-    let _ = app.emit_to(OVERLAY_LABEL, "overlay-text", payload.clone());
-    let _ = app.emit("overlay-text", payload);
+    let _ = app.emit_to(OVERLAY_LABEL, "overlay-text", payload);
 }
 
 pub fn hide(app: &AppHandle) {

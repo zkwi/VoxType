@@ -1,10 +1,11 @@
 <script lang="ts">
-  import { AlertCircle, CheckCircle2, ChevronRight, RefreshCw } from "lucide-svelte";
+  import { AlertCircle, CheckCircle2, ChevronRight, LoaderCircle, RefreshCw } from "lucide-svelte";
 
   export type SetupStatusItem = {
     label: string;
     value: string;
     ok: boolean;
+    checking?: boolean;
     action: string;
   };
 
@@ -19,6 +20,8 @@
     title: string;
     pendingTitle: string;
     pendingDescription: string;
+    checkingTitle: string;
+    checkingDescription: string;
     readyTitle: string;
     readyDescription: string;
     refresh: string;
@@ -27,6 +30,7 @@
 
   type Props = {
     ready: boolean;
+    checking: boolean;
     items: SetupStatusItem[];
     warnings: SetupStatusWarning[];
     texts: Texts;
@@ -34,15 +38,15 @@
     onRefresh: () => void;
   };
 
-  let { ready, items, warnings, texts, onAction, onRefresh }: Props = $props();
+  let { ready, checking, items, warnings, texts, onAction, onRefresh }: Props = $props();
 </script>
 
-<section class:ready class="setup-status-card">
+<section class:ready={ready && !checking} class:checking class="setup-status-card">
   <div class="setup-status-head">
     <div>
       <span>{texts.title}</span>
-      <strong>{ready ? texts.readyTitle : texts.pendingTitle}</strong>
-      <p>{ready ? texts.readyDescription : texts.pendingDescription}</p>
+      <strong>{checking ? texts.checkingTitle : ready ? texts.readyTitle : texts.pendingTitle}</strong>
+      <p>{checking ? texts.checkingDescription : ready ? texts.readyDescription : texts.pendingDescription}</p>
     </div>
     <button type="button" onclick={onRefresh}>
       <RefreshCw size={15} />
@@ -55,11 +59,15 @@
       <button
         type="button"
         class:ok={item.ok}
+        class:checking={item.checking}
         class="setup-check-item"
         onclick={() => onAction(item.action)}
+        disabled={item.checking}
       >
         <span class="setup-check-icon">
-          {#if item.ok}
+          {#if item.checking}
+            <LoaderCircle size={17} />
+          {:else if item.ok}
             <CheckCircle2 size={17} />
           {:else}
             <AlertCircle size={17} />
@@ -106,6 +114,11 @@
   .setup-status-card.ready {
     border-color: rgba(25, 135, 84, 0.28);
     background: linear-gradient(180deg, #ffffff 0%, #f5fff9 100%);
+  }
+
+  .setup-status-card.checking {
+    border-color: rgba(100, 116, 139, 0.22);
+    background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
   }
 
   .setup-status-head {
@@ -195,6 +208,19 @@
   .setup-check-item.ok .setup-check-icon {
     color: #198754;
     background: #eaf8ef;
+  }
+
+  .setup-check-item.checking .setup-check-icon {
+    color: #64748b;
+    background: #f1f5f9;
+  }
+
+  .setup-check-item.checking .setup-check-icon :global(svg) {
+    animation: setup-spin 900ms linear infinite;
+  }
+
+  .setup-check-item:disabled {
+    cursor: wait;
   }
 
   .setup-check-icon {
@@ -290,6 +316,12 @@
   @media (max-width: 520px) {
     .setup-check-grid {
       grid-template-columns: 1fr;
+    }
+  }
+
+  @keyframes setup-spin {
+    to {
+      transform: rotate(360deg);
     }
   }
 </style>
