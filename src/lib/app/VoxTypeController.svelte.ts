@@ -34,6 +34,7 @@ import {
   userErrorDetail as getUserErrorDetail,
   userErrorMessage as getUserErrorMessage,
 } from "$lib/utils/appRouting";
+import { actionsForUserError } from "$lib/utils/errorActions";
 import { clonePlain, configFingerprint, firstValidationField, validationErrorMap } from "$lib/utils/config";
 import {
   clampAudioLevel,
@@ -49,6 +50,7 @@ import {
 } from "$lib/utils/hotwords";
 import { formatHotkey, hotkeyFromKeyboardEvent, validateHotkeyText } from "$lib/utils/hotkeys";
 import { overlayOpacityLabel } from "$lib/utils/overlayAppearance";
+import { userFacingInvokeFailure } from "$lib/utils/userFacingErrors";
 import {
   formatHours,
   formatNumber as formatNumberForLanguage,
@@ -91,6 +93,7 @@ import type {
   ConfigValidationError,
   ConnectionTestResult,
   HotkeyCaptureState,
+  LastSessionOutcome,
   LoadedConfig,
   OverlayConfig,
   OverlayText,
@@ -103,7 +106,16 @@ import type {
   StatsSnapshot,
   TriggerKey,
   UsageStats,
+  UserErrorAction,
 } from "$lib/types/app";
+
+const blockingSessionPhases: SessionPhase[] = [
+  "starting",
+  "stopping",
+  "waiting_final_result",
+  "post_editing",
+  "pasting",
+];
 
 export function createVoxTypeController() {
 
@@ -115,6 +127,7 @@ export function createVoxTypeController() {
   let recording = $state(false);
   let sessionPhase = $state<SessionPhase>("idle");
   let sessionErrorCode = $state<string | null>(null);
+  let lastSessionOutcome = $state<LastSessionOutcome>(null);
   let language = $state<Language>("zh-CN");
   let statusMessage = $state(copy["zh-CN"].bridgeLoading);
   let selectedSection = $state<Section>("Home");
@@ -239,6 +252,7 @@ export function createVoxTypeController() {
       const unlistenAsr = listen<AsrFinalText>("asr-final-text", (event) => {
         if (event.payload.error) {
           sessionErrorCode = event.payload.error_code;
+          rememberErrorOutcome(event.payload.error_code, event.payload.error);
           statusMessage = userErrorMessage(event.payload.error_code, event.payload.error);
           showActionNotice(statusMessage, "error");
           if (shouldOpenSettingsForError(event.payload.error, event.payload.error_code)) {
@@ -252,6 +266,13 @@ export function createVoxTypeController() {
         if (visibleWarning) {
           showActionNotice(visibleWarning, "warning");
         }
+        lastSessionOutcome = {
+          kind: "success",
+          text: event.payload.text,
+          warning: visibleWarning,
+          warningCode: visibleWarning ? event.payload.warning_code : null,
+          createdAt: Date.now(),
+        };
         statusMessage = visibleWarning ?? t("sessionSucceeded");
         if (sessionPhase === "succeeded") scheduleSucceededIdleHint();
       });
@@ -418,7 +439,7 @@ export function createVoxTypeController() {
     try {
       return await invoke<T>(command, args);
     } catch (error) {
-      if (!quiet) statusMessage = typeof error === "string" ? error : t("browserPreview");
+      if (!quiet) statusMessage = userFacingInvokeFailure(command, error, t("operationFailedGeneric"));
       logFrontendError(`invoke failed command=${command}: ${formatFrontendError(error)}`);
       return null;
     }
@@ -426,11 +447,12 @@ export function createVoxTypeController() {
   async function toggleRecordingFromUi() {
     if (requireAsrAuthGate()) return;
     if (isSessionBusy()) return;
+    lastSessionOutcome = null;
     const result = await safeInvoke<SessionState>("toggle_recording");
     if (result) applySessionState(result);
   }
   function isSessionBusy() {
-    return ["waiting_final_result", "post_editing", "pasting"].includes(sessionPhase);
+    return blockingSessionPhases.includes(sessionPhase);
   }
 
   function rememberSetupStatus(status: SetupStatus) {
@@ -512,12 +534,14 @@ export function createVoxTypeController() {
     recording = state.recording;
     sessionPhase = state.phase ?? (state.recording ? "recording" : "idle");
     sessionErrorCode = state.error_code;
+    if (sessionPhase === "starting") lastSessionOutcome = null;
     if (sessionPhase !== "succeeded" && succeededIdleTimer !== undefined) {
       window.clearTimeout(succeededIdleTimer);
       succeededIdleTimer = undefined;
     }
     if (!state.recording) audioLevel = 0;
     if (state.phase === "failed" && state.error_code) {
+      rememberErrorOutcome(state.error_code, state.message);
       statusMessage = userErrorMessage(state.error_code, state.message);
       if (shouldOpenSettingsForError(state.message, state.error_code)) {
         scrollToSettingsPanel(settingsPanelForError(state.message, state.error_code));
@@ -525,6 +549,7 @@ export function createVoxTypeController() {
       return;
     }
     if (isConfigError(state.message)) {
+      rememberErrorOutcome(state.error_code, state.message);
       statusMessage = userErrorMessage(state.error_code, state.message);
       scrollToSettingsPanel(settingsPanelForError(state.message, state.error_code));
       return;
@@ -564,6 +589,18 @@ export function createVoxTypeController() {
       default:
         return t("sessionIdleHint", { hotkey });
     }
+  }
+
+  function rememberErrorOutcome(errorCode: string | null | undefined, fallback: string) {
+    const detail = userErrorDetail(errorCode, fallback);
+    lastSessionOutcome = {
+      kind: "error",
+      errorCode: errorCode ?? null,
+      title: detail.title,
+      cause: detail.cause,
+      action: detail.action,
+      createdAt: Date.now(),
+    };
   }
 
   async function persistConfig(options: PersistConfigOptions = {}) {
@@ -703,7 +740,7 @@ export function createVoxTypeController() {
       showActionNotice(statusMessage, "success");
       await refreshSetupStatus();
     } catch (error) {
-      statusMessage = typeof error === "string" ? error : t("browserPreview");
+      statusMessage = t("operationFailedGeneric");
       logFrontendError(`clear recent context failed: ${formatFrontendError(error)}`);
       showActionNotice(statusMessage, "error");
     } finally {
@@ -1131,6 +1168,33 @@ export function createVoxTypeController() {
     if (inputStatus() !== "error") return null;
     return userErrorDetail(sessionErrorCode, statusMessage);
   }
+  function activeUserErrorActions() {
+    if (inputStatus() !== "error") return [];
+    if (requiresAsrAuth() || isConfigError(statusMessage)) return actionsForUserError("ASR_AUTH_MISSING");
+    return actionsForUserError(sessionErrorCode);
+  }
+  function handleUserErrorAction(action: UserErrorAction) {
+    switch (action) {
+      case "retry_recording":
+        if (!isSessionBusy() && !requiresAsrAuth()) void toggleRecordingFromUi();
+        break;
+      case "open_api_config":
+        scrollToSettingsPanel("settings-auth");
+        break;
+      case "open_options":
+        selectedSection = "Options";
+        break;
+      case "open_setup_guide":
+        void openSetupGuide();
+        break;
+      case "copy_diagnostic_report":
+        void diagnostics.copyReport();
+        break;
+      case "open_log":
+        void diagnostics.openLog();
+        break;
+    }
+  }
   function isErrorStatus(message: string) {
     return isUserErrorStatus(message);
   }
@@ -1175,6 +1239,8 @@ export function createVoxTypeController() {
       requiresAsrAuth: requiresAsrAuth(),
       setupRequiredMessage,
       activeErrorDetail: activeUserErrorDetail(),
+      activeErrorActions: activeUserErrorActions(),
+      lastSessionOutcome,
       sessionBusy: isSessionBusy(),
       snapshotHotkey: snapshot.hotkey,
       chineseTypingCharsPerMinute,
@@ -1234,6 +1300,7 @@ export function createVoxTypeController() {
       recentSevenDayDisplayRows,
       onOpenSettings: openSettings,
       onOpenSetupGuide: openSetupGuide,
+      onUserErrorAction: handleUserErrorAction,
       onToggleRecording: toggleRecordingFromUi,
       onSelectSection: selectSection,
       onToggleTrigger: toggleTrigger,

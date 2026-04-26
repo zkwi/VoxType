@@ -82,7 +82,7 @@ export function userErrorDetail(
   }
   return {
     title: t("inputError"),
-    cause: fallback || t("sessionFailed"),
+    cause: t("genericErrorCause"),
     action: t("genericErrorAction"),
   };
 }

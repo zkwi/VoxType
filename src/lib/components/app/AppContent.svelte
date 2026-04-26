@@ -12,11 +12,13 @@
   import type {
     AppConfig,
     AudioDeviceInfo,
+    LastSessionOutcome,
     Section,
     SelectableHotwordCandidate,
     SoftConfigNoticeKey,
     StatsSnapshot,
     UpdateStatus,
+    UserErrorAction,
   } from "$lib/types/app";
 
   type Translate = (key: CopyKey, values?: Record<string, string>) => string;
@@ -39,6 +41,8 @@
     requiresAsrAuth: boolean;
     setupRequiredMessage: () => string;
     activeErrorDetail: UserErrorDetail | null;
+    activeErrorActions: UserErrorAction[];
+    lastSessionOutcome: LastSessionOutcome;
     sessionBusy: boolean;
     snapshotHotkey: string;
     chineseTypingCharsPerMinute: number;
@@ -98,6 +102,7 @@
     recentSevenDayDisplayRows: () => HistoryDayRow[];
     onOpenSettings: () => void;
     onOpenSetupGuide: () => void;
+    onUserErrorAction: (action: UserErrorAction) => void;
     onToggleRecording: () => void;
     onSelectSection: (section: Section) => void;
     onToggleTrigger: (key: keyof AppConfig["triggers"]) => void;
@@ -153,6 +158,8 @@
     requiresAsrAuth,
     setupRequiredMessage,
     activeErrorDetail,
+    activeErrorActions,
+    lastSessionOutcome,
     sessionBusy,
     snapshotHotkey,
     chineseTypingCharsPerMinute,
@@ -212,6 +219,7 @@
     recentSevenDayDisplayRows,
     onOpenSettings,
     onOpenSetupGuide,
+    onUserErrorAction,
     onToggleRecording,
     onSelectSection,
     onToggleTrigger,
@@ -264,6 +272,8 @@
     {requiresAsrAuth}
     setupRequiredMessage={setupRequiredMessage()}
     {activeErrorDetail}
+    {activeErrorActions}
+    {lastSessionOutcome}
     {sessionBusy}
     {snapshotHotkey}
     {chineseTypingCharsPerMinute}
@@ -276,6 +286,7 @@
     {triggerLabel}
     onOpenSettings={onOpenSettings}
     onOpenSetupGuide={onOpenSetupGuide}
+    onUserErrorAction={onUserErrorAction}
     onToggleRecording={onToggleRecording}
     onSelectSection={onSelectSection}
     onToggleTrigger={onToggleTrigger}

@@ -152,7 +152,6 @@
     >
       <header class="topbar">
         <div>
-          <p class="eyebrow">{t("topEyebrow")}</p>
           <h2>{t(navLabelKeys[selectedSection])}</h2>
         </div>
       </header>
@@ -554,6 +553,30 @@
     width: min(100%, 1120px);
     margin-left: auto;
     margin-right: auto;
+  }
+
+  .topbar {
+    display: flex;
+    align-items: flex-end;
+    min-width: 0;
+    margin-bottom: 12px;
+  }
+
+  .topbar h2 {
+    margin: 0;
+    color: var(--text-main);
+    font-size: 24px;
+    font-weight: 800;
+    line-height: 1.2;
+    letter-spacing: 0;
+  }
+
+  .ui-compact .topbar {
+    margin-bottom: 10px;
+  }
+
+  .ui-compact .topbar h2 {
+    font-size: 22px;
   }
 
   .ui-compact .content {

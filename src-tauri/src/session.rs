@@ -342,13 +342,19 @@ impl SessionController {
 
     pub fn toggle(&self, app: Option<AppHandle>) -> Result<SessionState, String> {
         let current = self.current_state();
-        if current.recording {
-            self.stop(app)
-        } else if is_processing_phase(current.phase) {
-            emit_state(app.as_ref(), &current);
-            Ok(current)
-        } else {
-            self.start(app)
+        match current.phase {
+            SessionPhase::Starting | SessionPhase::Stopping => {
+                emit_state(app.as_ref(), &current);
+                Ok(current)
+            }
+            SessionPhase::Recording => self.stop(app),
+            SessionPhase::WaitingFinalResult
+            | SessionPhase::PostEditing
+            | SessionPhase::Pasting => {
+                emit_state(app.as_ref(), &current);
+                Ok(current)
+            }
+            _ => self.start(app),
         }
     }
 
@@ -688,5 +694,41 @@ mod tests {
         assert!(super::is_processing_phase(SessionPhase::Pasting));
         assert!(!super::is_processing_phase(SessionPhase::Idle));
         assert!(!super::is_processing_phase(SessionPhase::Recording));
+    }
+
+    #[test]
+    fn toggle_ignores_starting_phase() {
+        let controller = SessionController::default();
+        {
+            let mut inner = controller.inner.lock().unwrap();
+            inner.recording = true;
+            inner.phase = SessionPhase::Starting;
+            inner.message = "Recording is starting.".to_string();
+            inner.generation = 3;
+        }
+
+        let state = controller.toggle(None).unwrap();
+
+        assert!(state.recording);
+        assert_eq!(state.phase, SessionPhase::Starting);
+        assert!(controller.is_current_generation(3));
+    }
+
+    #[test]
+    fn toggle_ignores_stopping_phase() {
+        let controller = SessionController::default();
+        {
+            let mut inner = controller.inner.lock().unwrap();
+            inner.recording = true;
+            inner.phase = SessionPhase::Stopping;
+            inner.message = "Recording is stopping.".to_string();
+            inner.generation = 5;
+        }
+
+        let state = controller.toggle(None).unwrap();
+
+        assert!(state.recording);
+        assert_eq!(state.phase, SessionPhase::Stopping);
+        assert!(controller.is_current_generation(5));
     }
 }

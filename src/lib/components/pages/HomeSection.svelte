@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { AppConfig, StatsSnapshot, TriggerKey } from "$lib/types/app";
+  import type { AppConfig, LastSessionOutcome, StatsSnapshot, TriggerKey, UserErrorAction } from "$lib/types/app";
   import type { CopyKey, UserErrorDetail } from "$lib/i18n";
   import {
     CalendarDays,
@@ -31,6 +31,8 @@
     requiresAsrAuth: boolean;
     setupRequiredMessage: string;
     activeErrorDetail: UserErrorDetail | null;
+    activeErrorActions: UserErrorAction[];
+    lastSessionOutcome: LastSessionOutcome;
     sessionBusy: boolean;
     snapshotHotkey: string;
     chineseTypingCharsPerMinute: number;
@@ -43,6 +45,7 @@
     triggerLabel: (enabled: boolean) => string;
     onOpenSettings: () => void;
     onOpenSetupGuide: () => void;
+    onUserErrorAction: (action: UserErrorAction) => void;
     onToggleRecording: () => void;
     onSelectSection: (section: "Options") => void;
     onToggleTrigger: (key: TriggerKey) => void;
@@ -61,6 +64,8 @@
     requiresAsrAuth,
     setupRequiredMessage,
     activeErrorDetail,
+    activeErrorActions,
+    lastSessionOutcome,
     sessionBusy,
     snapshotHotkey,
     chineseTypingCharsPerMinute,
@@ -73,10 +78,44 @@
     triggerLabel,
     onOpenSettings,
     onOpenSetupGuide,
+    onUserErrorAction,
     onToggleRecording,
     onSelectSection,
     onToggleTrigger,
   }: Props = $props();
+
+  const outcomePreviewLimit = 500;
+  let lastOutcomeExpanded = $state(false);
+  let lastOutcomeCreatedAt = $state<number | null>(null);
+
+  $effect(() => {
+    const createdAt = lastSessionOutcome?.createdAt ?? null;
+    if (createdAt !== lastOutcomeCreatedAt) {
+      lastOutcomeCreatedAt = createdAt;
+      lastOutcomeExpanded = false;
+    }
+  });
+
+  function actionLabel(action: UserErrorAction) {
+    switch (action) {
+      case "retry_recording":
+        return t("errorActionRetry");
+      case "open_api_config":
+        return t("errorActionConfigure");
+      case "open_options":
+        return t("errorActionOpenOptions");
+      case "open_setup_guide":
+        return t("errorActionOpenSetupGuide");
+      case "copy_diagnostic_report":
+        return t("errorActionCopyDiagnosticReport");
+      case "open_log":
+        return t("errorActionOpenLogs");
+    }
+  }
+
+  function outcomeTextPreview(text: string) {
+    return text.length > outcomePreviewLimit ? text.slice(0, outcomePreviewLimit) : text;
+  }
 </script>
 
 <section class="voice-card">
@@ -100,6 +139,19 @@
       <strong>{activeErrorDetail.title}</strong>
       <p><span>{t("errorCauseLabel")}：</span>{activeErrorDetail.cause}</p>
       <p><span>{t("errorActionLabel")}：</span>{activeErrorDetail.action}</p>
+      {#if activeErrorActions.length > 0}
+        <div class="error-action-row">
+          {#each activeErrorActions as action}
+            <button
+              type="button"
+              disabled={action === "retry_recording" && (sessionBusy || requiresAsrAuth)}
+              onclick={() => onUserErrorAction(action)}
+            >
+              {actionLabel(action)}
+            </button>
+          {/each}
+        </div>
+      {/if}
     </div>
   {/if}
   <div class:listening={recording} class:error={inputStatus === "error"} class:locked={requiresAsrAuth} class="voice-hero">
@@ -124,6 +176,31 @@
     </button>
   </div>
 </section>
+{#if lastSessionOutcome?.kind === "success"}
+  <section class="last-outcome-card">
+    <div class="last-outcome-copy">
+      <strong>{t("lastOutcomeSuccessTitle")}</strong>
+      <p>{t("lastOutcomeSuccessDescription")}</p>
+      {#if lastSessionOutcome.warning}
+        <p class="last-outcome-warning">
+          <span>{t("lastOutcomeWarningLabel")}：</span>{lastSessionOutcome.warning}
+        </p>
+      {/if}
+      <p class="last-outcome-memory">{t("lastOutcomeTextMemoryHint")}</p>
+    </div>
+    <button type="button" class="link-action compact" onclick={() => (lastOutcomeExpanded = !lastOutcomeExpanded)}>
+      {lastOutcomeExpanded ? t("lastOutcomeHideText") : t("lastOutcomeViewText")}
+    </button>
+    {#if lastOutcomeExpanded}
+      <div class="last-outcome-text">
+        <p>{outcomeTextPreview(lastSessionOutcome.text)}</p>
+        {#if lastSessionOutcome.text.length > outcomePreviewLimit}
+          <small>{t("lastOutcomeTextTruncated")}</small>
+        {/if}
+      </div>
+    {/if}
+  </section>
+{/if}
 <section class="launch-card">
   <div class="section-title-row">
     <div>
@@ -314,6 +391,100 @@
 
   .error-help-card span {
     font-weight: 800;
+  }
+
+  .error-action-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 4px;
+  }
+
+  .error-action-row button {
+    min-height: 32px;
+    padding: 0 10px;
+    color: #ffffff;
+    background: var(--danger);
+    border-radius: 10px;
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .error-action-row button:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+  }
+
+  .last-outcome-card {
+    display: grid;
+    gap: 10px;
+    min-width: 0;
+    padding: 14px;
+    overflow: hidden;
+    background: #f7fffb;
+    border: 1px solid rgba(16, 185, 129, 0.24);
+    border-radius: 16px;
+    box-shadow: var(--shadow-card);
+  }
+
+  .last-outcome-copy {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  .last-outcome-copy strong {
+    color: var(--text-main);
+    font-size: 15px;
+    font-weight: 800;
+  }
+
+  .last-outcome-copy p {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+  }
+
+  .last-outcome-warning {
+    color: #92400e !important;
+  }
+
+  .last-outcome-warning span {
+    font-weight: 800;
+  }
+
+  .last-outcome-memory {
+    color: var(--text-muted) !important;
+  }
+
+  .link-action.compact {
+    justify-self: start;
+  }
+
+  .last-outcome-text {
+    display: grid;
+    gap: 6px;
+    min-width: 0;
+    padding: 10px 12px;
+    background: #ffffff;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+  }
+
+  .last-outcome-text p {
+    margin: 0;
+    color: var(--text-main);
+    font-size: 13px;
+    line-height: 1.55;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .last-outcome-text small {
+    color: var(--text-secondary);
+    font-size: 12px;
   }
 
   .voice-hero {

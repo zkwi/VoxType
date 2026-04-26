@@ -30,7 +30,7 @@ export function createDiagnosticsController(options: DiagnosticsControllerOption
       await invoke("open_log_file");
       options.showActionNotice(options.t("logOpened"), "success");
     } catch (error) {
-      const message = typeof error === "string" ? error : options.t("browserPreview");
+      const message = options.t("operationFailedGeneric");
       options.setStatusMessage(message);
       options.logError(`open log failed: ${formatError(error)}`);
       options.showActionNotice(message, "error");
@@ -55,7 +55,7 @@ export function createDiagnosticsController(options: DiagnosticsControllerOption
       options.setStatusMessage(message);
       options.showActionNotice(message, "success");
     } catch (error) {
-      const message = typeof error === "string" ? error : options.t("browserPreview");
+      const message = options.t("operationFailedGeneric");
       options.setStatusMessage(message);
       options.logError(`copy diagnostic report failed: ${formatError(error)}`);
       options.showActionNotice(message, "error");

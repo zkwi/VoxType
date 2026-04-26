@@ -127,6 +127,32 @@ export type AsrFinalText = {
   warning_code: string | null;
 };
 
+export type LastSessionOutcome =
+  | {
+      kind: "success";
+      text: string;
+      warning: string | null;
+      warningCode: string | null;
+      createdAt: number;
+    }
+  | {
+      kind: "error";
+      errorCode: string | null;
+      title: string;
+      cause: string;
+      action: string;
+      createdAt: number;
+    }
+  | null;
+
+export type UserErrorAction =
+  | "retry_recording"
+  | "open_api_config"
+  | "open_options"
+  | "open_setup_guide"
+  | "copy_diagnostic_report"
+  | "open_log";
+
 export type AudioLevel = { level: number };
 export type AudioDeviceInfo = { index: number; name: string; is_default: boolean };
 export type OverlayMode = "single" | "double";
