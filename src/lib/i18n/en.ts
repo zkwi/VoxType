@@ -53,11 +53,11 @@ export const en = {
   "sessionFailed": "This dictation failed. Check the hint.",
   "setupRequired": "Setup required",
   "inputError": "Input issue",
-  "setupMissingFile": "No config file found. Fill credentials on the API config page and save, or open the config file manually.",
-  "setupMissingAuth": "ASR credentials are missing. Fill App Key and Access Key on the API config page, then save.",
+  "setupMissingFile": "No config file found. Fill credentials on the API config page to auto-save, or open the config file manually.",
+  "setupMissingAuth": "ASR credentials are missing. Fill App Key and Access Key on the API config page to auto-save.",
   "authGateTitle": "Fill Doubao ASR keys first",
   "authGateDescription": "Recording, recognition, paste, and the remaining flow cannot work without the Doubao App Key and Access Key.",
-  "authGateNotice": "Fill and save Doubao ASR keys before using voice input.",
+  "authGateNotice": "Fill Doubao ASR keys. They auto-save before voice input is available.",
   "setupCta": "Open API config",
   "setupGuideCta": "Setup Guide",
   "setupHealthTitle": "Setup health",
@@ -176,7 +176,7 @@ export const en = {
   "interface": "Interface",
   "interfaceDescription": "Floating caption size, position, colors, and tray notices.",
   "floatingCaptionAppearance": "Floating caption appearance",
-  "floatingCaptionAppearanceDescription": "Adjust caption skin and opacity directly. Saved changes apply to the floating caption immediately.",
+  "floatingCaptionAppearanceDescription": "Adjust caption skin and opacity directly. Changes auto-apply to the floating caption.",
   "width": "Width",
   "height": "Height",
   "marginBottom": "Bottom margin",
@@ -271,7 +271,7 @@ export const en = {
   "copyDiagnosticReport": "Copy diagnostic report",
   "copyingReport": "Copying",
   "diagnosticCopied": "Diagnostic report copied.",
-  "validationFailed": "Some config fields are invalid. Fix them before saving.",
+  "validationFailed": "Some config fields are invalid. Fix them to auto-save.",
   "requiredField": "Required.",
   "errorCauseLabel": "Possible cause",
   "errorActionLabel": "Next step",
@@ -288,9 +288,11 @@ export const en = {
   "enablePolishing": "Enable polishing",
   "minChars": "Min chars",
   "timeout": "Timeout",
-  "settingsActionTitle": "Config actions",
-  "settingsActionHint": "Save after editing. Changes take effect immediately after saving.",
-  "settingsUnsavedHint": "You have unsaved changes. Save to apply them immediately.",
+  "settingsActionTitle": "Config status",
+  "settingsActionHint": "Changes auto-save and take effect immediately.",
+  "settingsUnsavedHint": "You have unsaved changes. They will auto-save shortly.",
+  "settingsAutoSavePendingHint": "Changes detected. Auto-saving shortly.",
+  "settingsAutoSavingHint": "Auto-saving and applying changes...",
   "saveConfig": "Save config",
   "saving": "Saving",
   "reload": "Reload",
@@ -325,12 +327,12 @@ export const enUserErrorDetails = {
   "CONFIG_MISSING": {
     "title": "Config file is missing",
     "cause": "This may be the first launch, or the config file was moved or deleted.",
-    "action": "Open API config, fill Doubao ASR credentials, then save."
+    "action": "Open API config and fill Doubao ASR credentials. They auto-save."
   },
   "ASR_AUTH_MISSING": {
     "title": "ASR credentials are not usable",
     "cause": "App Key, Access Key, or Resource ID is missing or lacks permission.",
-    "action": "Check Doubao credentials in API config, save, then run Test."
+    "action": "Check Doubao credentials in API config, wait for auto-save, then run Test."
   },
   "ASR_NETWORK_FAILED": {
     "title": "Cannot reach recognition service",

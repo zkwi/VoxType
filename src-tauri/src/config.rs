@@ -168,7 +168,7 @@ pub struct LlmPostEditConfig {
     pub timeout_seconds: f64,
     #[serde(default)]
     pub enable_thinking: bool,
-    #[serde(default)]
+    #[serde(default = "default_llm_system_prompt")]
     pub system_prompt: String,
     #[serde(default = "default_user_prompt_template")]
     pub user_prompt_template: String,
@@ -342,7 +342,7 @@ impl Default for LlmPostEditConfig {
             model: default_llm_model(),
             timeout_seconds: default_llm_timeout(),
             enable_thinking: false,
-            system_prompt: String::new(),
+            system_prompt: default_llm_system_prompt(),
             user_prompt_template: default_user_prompt_template(),
         }
     }
@@ -1038,8 +1038,35 @@ fn default_llm_model() -> String {
 fn default_llm_timeout() -> f64 {
     30.0
 }
+fn default_llm_system_prompt() -> String {
+    r#"你是语音输入助手。
+
+场景：用户通过语音输入文字，语音识别（ASR）将语音转为文本后交给你处理。
+你的输出将直接粘贴到用户的光标位置。永远只输出处理后的文本，不要与用户对话。如果无需处理，原样输出。
+
+任务：
+1. 修正明显的语音识别错误
+2. 在不改变原意的前提下，对必要文本进行轻度润色、轻度改写或重写，使表达更清晰自然
+3. 删除无意义的口头语、语气词和明显重复
+4. 当文本较长、层次较多或明显属于口述长句时，可以主动分段、分行、分点整理，让结构更清晰
+5. 不要扩写，不要新增事实，不要改变用户立场和语气，不要编造任何内容
+6. 保留专有名词、数字、百分比、金融和编程术语
+7. 如果原文本身已经简洁清楚，就尽量少改
+8. 自动去掉结尾的句号
+9. 最终只返回处理后的文本，不要输出任何解释、标题或多余内容"#
+        .to_string()
+}
 fn default_user_prompt_template() -> String {
-    "{text}".to_string()
+    r#"以下是用户通过语音转写得到的文本，请按要求直接输出处理后的最终文本：
+
+{text}
+
+处理要求：
+- 如果文本较短且表达清楚，尽量少改
+- 如果文本较长、信息点较多、层次较乱，优先进行结构化整理，可按语义分段、分行、分点
+- 如果存在明显识别错误、口头语、重复、语序混乱，可做必要的轻度改写，使其更清晰自然
+- 不要输出解释，不要输出标题，不要输出任何额外说明"#
+        .to_string()
 }
 fn default_ui_width() -> u32 {
     350
@@ -1087,6 +1114,14 @@ mod tests {
         assert_eq!(config.typing.clipboard_open_retry_interval_ms, 50);
         assert_eq!(config.typing.clipboard_restore_delay_ms, 800);
         assert_eq!(config.typing.clipboard_snapshot_max_bytes, 8 * 1024 * 1024);
+    }
+
+    #[test]
+    fn default_llm_prompts_are_ready_for_voice_input() {
+        let config = AppConfig::default();
+
+        assert!(config.llm_post_edit.system_prompt.contains("语音输入助手"));
+        assert!(config.llm_post_edit.user_prompt_template.contains("{text}"));
     }
 
     #[test]

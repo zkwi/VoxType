@@ -29,7 +29,6 @@
     Mic,
     Minus,
     PenLine,
-    Save,
     Settings,
     ShieldCheck,
     Sparkles,
@@ -92,6 +91,10 @@
   type ConfigSaveError = {
     message: string;
     errors?: ConfigValidationError[];
+  };
+  type PersistConfigOptions = {
+    enforceAuth?: boolean;
+    focusErrors?: boolean;
   };
   type CloseToTrayRequest = {
     first_time: boolean;
@@ -232,6 +235,31 @@
   type TriggerKey = keyof AppConfig["triggers"];
   type SoftConfigNoticeKey = TriggerKey | "mute_system_volume_while_recording" | "enable_recent_context";
 
+  const defaultLlmSystemPrompt = `你是语音输入助手。
+
+场景：用户通过语音输入文字，语音识别（ASR）将语音转为文本后交给你处理。
+你的输出将直接粘贴到用户的光标位置。永远只输出处理后的文本，不要与用户对话。如果无需处理，原样输出。
+
+任务：
+1. 修正明显的语音识别错误
+2. 在不改变原意的前提下，对必要文本进行轻度润色、轻度改写或重写，使表达更清晰自然
+3. 删除无意义的口头语、语气词和明显重复
+4. 当文本较长、层次较多或明显属于口述长句时，可以主动分段、分行、分点整理，让结构更清晰
+5. 不要扩写，不要新增事实，不要改变用户立场和语气，不要编造任何内容
+6. 保留专有名词、数字、百分比、金融和编程术语
+7. 如果原文本身已经简洁清楚，就尽量少改
+8. 自动去掉结尾的句号
+9. 最终只返回处理后的文本，不要输出任何解释、标题或多余内容`;
+  const defaultLlmUserPromptTemplate = `以下是用户通过语音转写得到的文本，请按要求直接输出处理后的最终文本：
+
+{text}
+
+处理要求：
+- 如果文本较短且表达清楚，尽量少改
+- 如果文本较长、信息点较多、层次较乱，优先进行结构化整理，可按语义分段、分行、分点
+- 如果存在明显识别错误、口头语、重复、语序混乱，可做必要的轻度改写，使其更清晰自然
+- 不要输出解释，不要输出标题，不要输出任何额外说明`;
+
   const fallbackConfig: AppConfig = {
     hotkey: "ctrl+q",
     auth: { app_key: "", access_key: "", resource_id: "volc.seedasr.sauc.duration" },
@@ -286,8 +314,8 @@
       model: "qwen3.5-plus",
       timeout_seconds: 30,
       enable_thinking: false,
-      system_prompt: "",
-      user_prompt_template: "{text}",
+      system_prompt: defaultLlmSystemPrompt,
+      user_prompt_template: defaultLlmUserPromptTemplate,
     },
     ui: {
       width: 350,
@@ -346,6 +374,7 @@
     History: "navHistory",
   };
   const setupStatusCacheKey = "voxtype-setup-status-v1";
+  const autoSaveDelayMs = 700;
 
   function readCachedSetupStatus(): SetupStatus | null {
     if (!browser) return null;
@@ -429,6 +458,7 @@
   let closePromptFirstTime = $state(false);
   let closePromptBehavior = $state("close_to_tray");
   let succeededIdleTimer: number | undefined;
+  let autoSaveTimer: number | undefined;
   let setupStatusLoading = $state(false);
   let hotkeyCaptureState = $state<HotkeyCaptureState>("idle");
   let hotkeyValidationMessage = $state("");
@@ -518,6 +548,7 @@
       if (overlayPoll !== undefined) window.clearInterval(overlayPoll);
       if (actionNoticeTimer !== undefined) window.clearTimeout(actionNoticeTimer);
       if (succeededIdleTimer !== undefined) window.clearTimeout(succeededIdleTimer);
+      clearAutoSaveTimer();
       stopOverlayScroll();
       window.removeEventListener("resize", refreshMainDensity);
       window.removeEventListener("resize", refreshOverlayLayout);
@@ -528,11 +559,52 @@
       });
     };
   });
+
+  $effect(() => {
+    const fingerprint = configFingerprint(config);
+    const shouldSave =
+      fingerprint !== savedConfigFingerprint &&
+      configLoaded &&
+      hotkeyCaptureState === "idle" &&
+      !isOverlay &&
+      !isToast &&
+      hasTauriApi();
+
+    if (shouldSave) {
+      scheduleAutoSaveConfig();
+    } else if (fingerprint === savedConfigFingerprint) {
+      clearAutoSaveTimer();
+    }
+  });
+
   function clonePlain<T>(value: T): T {
     return JSON.parse(JSON.stringify(value)) as T;
   }
   function configFingerprint(value: AppConfig) {
     return JSON.stringify(value);
+  }
+  function clearAutoSaveTimer() {
+    if (autoSaveTimer !== undefined && browser) window.clearTimeout(autoSaveTimer);
+    autoSaveTimer = undefined;
+  }
+  function canAutoSaveConfig() {
+    return configLoaded && !isOverlay && !isToast && hasTauriApi() && hotkeyCaptureState === "idle";
+  }
+  function scheduleAutoSaveConfig() {
+    if (!canAutoSaveConfig()) return;
+    clearAutoSaveTimer();
+    autoSaveTimer = window.setTimeout(() => {
+      autoSaveTimer = undefined;
+      void autoSaveConfig();
+    }, autoSaveDelayMs);
+  }
+  async function autoSaveConfig() {
+    if (!canAutoSaveConfig() || !settingsDirty) return;
+    if (saving) {
+      scheduleAutoSaveConfig();
+      return;
+    }
+    await persistConfig({ enforceAuth: false, focusErrors: false });
   }
   function refreshMainDensity() {
     if (isOverlay || isToast) {
@@ -948,27 +1020,34 @@
     }
   }
 
-  async function persistConfig() {
+  async function persistConfig(options: PersistConfigOptions = {}) {
+    const { enforceAuth = true, focusErrors = true } = options;
     if (saving) return null;
+    const configToSave = clonePlain(config);
+    const saveFingerprint = configFingerprint(configToSave);
     saving = true;
     try {
       validationErrors = {};
-      const hotkeyError = validateHotkeyText(config.hotkey);
+      const hotkeyError = validateHotkeyText(configToSave.hotkey);
       if (hotkeyError) {
         validationErrors = { hotkey: hotkeyError };
         statusMessage = hotkeyError;
-        scrollToSettingsPanel("settings-output");
+        if (focusErrors) scrollToSettingsPanel("settings-output");
         return null;
       }
-      if (!requireAuthFields(false)) return null;
+      if (enforceAuth && !requireAuthFields(focusErrors, focusErrors)) return null;
       if (!hasTauriApi()) {
         statusMessage = t("browserPreview");
         return null;
       }
-      const result = await invoke<LoadedConfig>("save_app_config", { config });
+      const result = await invoke<LoadedConfig>("save_app_config", { config: configToSave });
       if (result) {
-        config = result.data;
-        savedConfigFingerprint = configFingerprint(result.data);
+        const resultFingerprint = configFingerprint(result.data);
+        const currentFingerprint = configFingerprint(config);
+        savedConfigFingerprint = resultFingerprint;
+        if (currentFingerprint === saveFingerprint) config = result.data;
+        snapshot = { ...snapshot, hotkey: result.data.hotkey };
+        syncSetupStatusFromConfig(result.data);
         configExists = result.exists;
         configLoaded = true;
         statusMessage = t("configSaved");
@@ -978,23 +1057,12 @@
       const saveError = parseConfigSaveError(error);
       const errors = saveError.errors ?? [];
       validationErrors = validationErrorMap(errors);
-      focusFirstValidationError(errors);
+      if (focusErrors) focusFirstValidationError(errors);
       statusMessage = saveError.message || t("validationFailed");
       logFrontendError(`save config failed: ${formatFrontendError(error)}`);
       return null;
     } finally {
       saving = false;
-    }
-  }
-  async function saveConfig() {
-    const result = await persistConfig();
-    if (result) {
-      snapshot = { ...snapshot, hotkey: result.data.hotkey };
-      syncSetupStatusFromConfig(result.data);
-      void refreshSetupStatus(false);
-      showActionNotice(t("configSaved"), "success");
-    } else if (statusMessage) {
-      showActionNotice(statusMessage, "error");
     }
   }
   function parseConfigSaveError(error: unknown): ConfigSaveError {
@@ -1033,7 +1101,7 @@
     return (
       field.startsWith("audio.") && field !== "audio.input_device" ||
       (field.startsWith("ui.") && !["ui.opacity", "ui.background_color", "ui.text_color"].includes(field)) ||
-      field.startsWith("update.") ||
+      field === "update.github_repo" ||
       field === "typing.clipboard_restore_delay_ms" ||
       field === "typing.clipboard_snapshot_max_bytes" ||
       field === "typing.clipboard_open_retry_count" ||
@@ -1084,7 +1152,7 @@
     delete next["auth.access_key"];
     validationErrors = next;
   }
-  function requireAuthFields(showNotice = true) {
+  function requireAuthFields(showNotice = true, focusTarget = true) {
     const errors = authFieldErrors();
     if (Object.keys(errors).length === 0) {
       clearAuthFieldErrors();
@@ -1092,7 +1160,7 @@
     }
     validationErrors = { ...validationErrors, ...errors };
     statusMessage = authGateMessage();
-    focusAsrAuthSettings();
+    if (focusTarget) focusAsrAuthSettings();
     if (showNotice) showActionNotice(statusMessage, "warning");
     return false;
   }
@@ -1264,7 +1332,7 @@
     if (saving) return;
     const previous = config.triggers[key];
     config.triggers[key] = !previous;
-    const result = await persistConfig();
+    const result = await persistConfig({ enforceAuth: false });
     if (!result) {
       config.triggers[key] = previous;
       if (statusMessage) showActionNotice(statusMessage, "error");
@@ -1677,8 +1745,9 @@
   }
 
   function settingsToolbarMessage() {
+    if (saving) return t("settingsAutoSavingHint");
     if (Object.keys(validationErrors).length > 0 && statusMessage) return statusMessage;
-    if (settingsDirty) return t("settingsUnsavedHint");
+    if (settingsDirty) return t("settingsAutoSavePendingHint");
     return statusMessage || t("settingsActionHint");
   }
 
@@ -2238,12 +2307,9 @@
           title={t("settingsActionTitle")}
           hint={t("settingsActionHint")}
           statusMessage={settingsToolbarMessage()}
-          saveLabel={t("saveConfig")}
-          savingLabel={t("saving")}
           reloadLabel={t("reload")}
           {saving}
           dirty={settingsDirty}
-          onSave={saveConfig}
           onReload={reloadConfigFromUi}
         />
         <section class="settings-group">
@@ -2319,12 +2385,9 @@
           title={t("settingsActionTitle")}
           hint={t("settingsActionHint")}
           statusMessage={settingsToolbarMessage()}
-          saveLabel={t("saveConfig")}
-          savingLabel={t("saving")}
           reloadLabel={t("reload")}
           {saving}
           dirty={settingsDirty}
-          onSave={saveConfig}
           onReload={reloadConfigFromUi}
         />
         <SetupStatusCard
@@ -2370,9 +2433,6 @@
                 {/if}
               </div>
               <div class="settings-inline-actions">
-                <button class="test-button primary" onclick={saveConfig} disabled={saving}>
-                  <Save size={16} />{saving ? t("saving") : t("saveConfig")}
-                </button>
                 <button class="test-button" onclick={testAsrConfig} disabled={testingAsr}>
                   <ShieldCheck size={16} />{testingAsr ? t("testingConnection") : t("testConnection")}
                 </button>
@@ -2466,12 +2526,9 @@
           title={t("settingsActionTitle")}
           hint={t("settingsActionHint")}
           statusMessage={settingsToolbarMessage()}
-          saveLabel={t("saveConfig")}
-          savingLabel={t("saving")}
           reloadLabel={t("reload")}
           {saving}
           dirty={settingsDirty}
-          onSave={saveConfig}
           onReload={reloadConfigFromUi}
         />
         <section class="settings-mode-panel">
@@ -2684,7 +2741,6 @@
             <p class="field-hint">{t("muteSystemAudioHint")}</p>
             {/if}
           </div>
-          {#if showAdvancedSettings}
           <div id="settings-update" class="form-panel update-panel">
             <div class="section-heading"><h3>{t("softwareUpdate")}</h3><p>{t("softwareUpdateDescription")}</p></div>
             <div class:available={updateStatus?.update_available} class="update-card">
@@ -2707,13 +2763,14 @@
             <div class="toggle-grid">
               <label class="check"><input type="checkbox" bind:checked={config.update.auto_check_on_startup} />{t("autoCheckUpdates")}</label>
             </div>
-            <label class:field-invalid={Boolean(fieldError("update.github_repo"))}>
-              <span>GitHub Release Repo</span>
-              <input bind:value={config.update.github_repo} />
-              {#if fieldError("update.github_repo")}<small class="field-error">{fieldError("update.github_repo")}</small>{/if}
-            </label>
+            {#if showAdvancedSettings}
+              <label class:field-invalid={Boolean(fieldError("update.github_repo"))}>
+                <span>GitHub Release Repo</span>
+                <input bind:value={config.update.github_repo} />
+                {#if fieldError("update.github_repo")}<small class="field-error">{fieldError("update.github_repo")}</small>{/if}
+              </label>
+            {/if}
           </div>
-          {/if}
           {#if showAdvancedSettings}
           <div id="settings-diagnostics" class="form-panel">
             <div class="section-heading"><h3>{t("diagnosticsAndLogs")}</h3><p>{t("diagnosticsDescription")}</p></div>
@@ -4200,11 +4257,6 @@
   }
   .settings-inline-actions .test-button {
     min-width: 96px;
-  }
-  .test-button.primary {
-    color: #ffffff;
-    background: var(--primary);
-    border-color: var(--primary);
   }
   .test-button:disabled {
     cursor: wait;

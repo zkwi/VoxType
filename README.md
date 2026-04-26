@@ -68,7 +68,7 @@ $env:PATH="$env:USERPROFILE\.cargo\bin;$env:PATH"
 
 首次使用可以参考配置指南：[Setup Guide](https://github.com/zkwi/VoxType/wiki/Setup-Guide)。如果安装版启动时找不到 `config.toml`，程序会自动打开该指南；主窗口首页也会显示配置健康检查，提示还缺少哪些配置。
 
-豆包 ASR 的 App Key 和 Access Key 是主流程必填项。未填写时，主窗口会优先引导到 API配置页，录音、识别、粘贴等后续入口会被锁定，直到填写并保存认证信息。
+豆包 ASR 的 App Key 和 Access Key 是主流程必填项。未填写时，主窗口会优先引导到 API配置页，录音、识别、粘贴等后续入口会被锁定，填写后会自动保存并生效。
 
 复制配置模板：
 
@@ -95,9 +95,11 @@ base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 model = "qwen3.5-plus"
 ```
 
+VoxType 已内置一套面向语音输入的默认润色提示词。可在热词页修改 System Prompt 和 User Prompt 模板，也可以点击“恢复默认提示词”回到内置版本。
+
 填写豆包 ASR 或大模型 Key 后，可在 API配置页点击对应区域的“测试”按钮，先确认 Key、Base URL、模型名称和网络环境是否可用，再开始正式录音。
 
-保存配置前会做基础字段校验，明显非法的采样率、声道数、录音时长、粘贴延迟、剪贴板恢复延迟、快照大小、枚举值、URL scheme、GitHub 仓库格式、LLM 必填项、超时时间、悬浮窗尺寸和字幕颜色不会写入配置文件。
+配置修改后会自动保存。自动保存前会做基础字段校验，明显非法的采样率、声道数、录音时长、粘贴延迟、剪贴板恢复延迟、快照大小、枚举值、URL scheme、GitHub 仓库格式、LLM 必填项、超时时间、悬浮窗尺寸和字幕颜色不会写入配置文件。
 
 剪贴板恢复相关配置：
 
@@ -172,7 +174,7 @@ src-tauri\target\release\voxtype-desktop.exe
 ## 使用
 
 1. 启动 `VoxType`。
-2. 先在 API配置页填写并保存豆包 ASR 的 App Key 和 Access Key；未填写时主流程入口会保持锁定。
+2. 先在 API配置页填写豆包 ASR 的 App Key 和 Access Key，填写后会自动保存；未填写时主流程入口会保持锁定。
 3. 把光标放到目标输入框。
 4. 按 `Ctrl + Q` 开始录音；如已在选项页开启，也可使用右 Alt 或鼠标中键。
 5. 录音时查看屏幕居下悬浮字幕。
@@ -227,6 +229,45 @@ npm run scan:secrets
 ```
 
 钩子会调用 `scripts/scan-secrets.mjs` 扫描暂存文件，避免误提交本地配置、密钥、热词和上下文。
+
+## AI 维护与本地检查
+
+本项目允许使用 AI 辅助维护代码，但所有 AI 改动必须遵守根目录 `AGENTS.md`。
+
+日常改动后，在仓库根目录运行：
+
+```powershell
+.\scripts\ai-check.ps1
+```
+
+该脚本会依次执行：
+
+```text
+npm run check
+npm run build
+npm run scan:secrets
+cargo fmt --check
+cargo check
+cargo test
+```
+
+如果本次改动涉及 UI，还需要手工检查：
+
+- 首页空闲状态
+- 配置缺失状态
+- 录音中状态
+- 空识别提示
+- LLM 关闭和开启两种状态
+- 剪贴板纯文本恢复
+- 托盘关闭提示
+- 简体中文、繁体中文、英文三语言
+- 1100 × 680 和 1280 × 760 两类窗口尺寸
+
+更多规则见：
+
+- `AGENTS.md`
+- `docs/code-style.md`
+- `docs/directory-structure.md`
 
 ## 界面与适配
 

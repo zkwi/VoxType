@@ -1,16 +1,13 @@
 <script lang="ts">
-  import { Save, ShieldCheck } from "lucide-svelte";
+  import { ShieldCheck } from "lucide-svelte";
 
   type Props = {
     title: string;
     hint: string;
     statusMessage: string;
-    saveLabel: string;
-    savingLabel: string;
     reloadLabel: string;
     saving: boolean;
     dirty?: boolean;
-    onSave: () => void;
     onReload: () => void;
   };
 
@@ -18,12 +15,9 @@
     title,
     hint,
     statusMessage,
-    saveLabel,
-    savingLabel,
     reloadLabel,
     saving,
     dirty = false,
-    onSave,
     onReload,
   }: Props = $props();
 </script>
@@ -34,11 +28,7 @@
     <span>{statusMessage || hint}</span>
   </div>
   <div class="toolbar-actions">
-    <button type="button" class="primary" onclick={onSave} disabled={saving}>
-      <Save size={16} />
-      {saving ? savingLabel : saveLabel}
-    </button>
-    <button type="button" onclick={onReload}>
+    <button type="button" onclick={onReload} disabled={saving}>
       <ShieldCheck size={16} />
       {reloadLabel}
     </button>
@@ -103,17 +93,6 @@
     font-weight: 800;
     cursor: pointer;
     white-space: nowrap;
-  }
-
-  .toolbar-actions .primary {
-    color: #ffffff;
-    background: var(--primary, #2f80ed);
-    border-color: var(--primary, #2f80ed);
-  }
-
-  .settings-toolbar.dirty .toolbar-actions .primary {
-    background: #1d4ed8;
-    border-color: #1d4ed8;
   }
 
   .toolbar-actions button:disabled {

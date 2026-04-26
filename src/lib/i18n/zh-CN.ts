@@ -52,11 +52,11 @@ export const zhCN = {
   "sessionFailed": "本次语音输入失败，请查看提示。",
   "setupRequired": "需要先完成配置",
   "inputError": "输入异常",
-  "setupMissingFile": "未找到配置文件。请在 API 配置页填写认证信息并保存，或打开配置文件手动编辑。",
-  "setupMissingAuth": "ASR 认证信息未填写。请在 API 配置页填写 App Key 和 Access Key 后保存。",
+  "setupMissingFile": "未找到配置文件。请在 API 配置页填写认证信息，系统会自动保存；也可以打开配置文件手动编辑。",
+  "setupMissingAuth": "ASR 认证信息未填写。请在 API 配置页填写 App Key 和 Access Key，系统会自动保存。",
   "authGateTitle": "请先填写豆包 ASR Key",
   "authGateDescription": "没有豆包 App Key 和 Access Key 时，录音、识别、粘贴和后续流程都无法工作。",
-  "authGateNotice": "请先填写并保存豆包 ASR Key，才能继续使用语音输入。",
+  "authGateNotice": "请先填写豆包 ASR Key，系统会自动保存后即可使用语音输入。",
   "setupCta": "去 API配置",
   "setupGuideCta": "查看配置指南",
   "setupHealthTitle": "配置健康检查",
@@ -175,7 +175,7 @@ export const zhCN = {
   "interface": "界面",
   "interfaceDescription": "悬浮字幕尺寸、位置、颜色和托盘提示。",
   "floatingCaptionAppearance": "悬浮字幕外观",
-  "floatingCaptionAppearanceDescription": "直接调整字幕皮肤和透明度，保存后会立即用于悬浮字幕。",
+  "floatingCaptionAppearanceDescription": "直接调整字幕皮肤和透明度，修改后会自动用于悬浮字幕。",
   "width": "宽度",
   "height": "高度",
   "marginBottom": "底部边距",
@@ -270,7 +270,7 @@ export const zhCN = {
   "copyDiagnosticReport": "复制诊断报告",
   "copyingReport": "复制中",
   "diagnosticCopied": "诊断报告已复制。",
-  "validationFailed": "配置存在不合法字段，请修改后再保存。",
+  "validationFailed": "配置存在不合法字段，修正后会自动保存。",
   "requiredField": "此项必填。",
   "errorCauseLabel": "可能原因",
   "errorActionLabel": "下一步",
@@ -287,9 +287,11 @@ export const zhCN = {
   "enablePolishing": "启用润色",
   "minChars": "最少字符数",
   "timeout": "超时",
-  "settingsActionTitle": "配置操作",
-  "settingsActionHint": "修改配置后点击保存，保存后会立即生效。",
-  "settingsUnsavedHint": "有未保存的修改，点击保存后立即生效。",
+  "settingsActionTitle": "配置状态",
+  "settingsActionHint": "修改后会自动保存并立即生效。",
+  "settingsUnsavedHint": "有未保存的修改，稍后会自动保存。",
+  "settingsAutoSavePendingHint": "检测到修改，稍后会自动保存。",
+  "settingsAutoSavingHint": "正在自动保存并应用修改...",
   "saveConfig": "保存配置",
   "saving": "保存中",
   "reload": "重新加载",
@@ -324,12 +326,12 @@ export const zhCNUserErrorDetails = {
   "CONFIG_MISSING": {
     "title": "配置文件未创建",
     "cause": "首次启动或配置文件被移动、删除。",
-    "action": "打开 API 配置页填写豆包 ASR 密钥并保存。"
+    "action": "打开 API 配置页填写豆包 ASR 密钥，系统会自动保存。"
   },
   "ASR_AUTH_MISSING": {
     "title": "ASR 密钥不可用",
     "cause": "App Key、Access Key、Resource ID 未填写或权限不正确。",
-    "action": "在 API 配置页检查豆包认证信息，保存后点击测试。"
+    "action": "在 API 配置页检查豆包认证信息，自动保存后点击测试。"
   },
   "ASR_NETWORK_FAILED": {
     "title": "无法连接识别服务",

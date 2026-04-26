@@ -53,11 +53,11 @@ export const zhTW = {
   "sessionFailed": "本次語音輸入失敗，請查看提示。",
   "setupRequired": "需要先完成配置",
   "inputError": "輸入異常",
-  "setupMissingFile": "未找到配置檔案。請在 API 配置頁填寫認證資訊並儲存，或打開配置檔案手動編輯。",
-  "setupMissingAuth": "ASR 認證資訊未填寫。請在 API 配置頁填寫 App Key 和 Access Key 後儲存。",
+  "setupMissingFile": "未找到配置檔案。請在 API 配置頁填寫認證資訊，系統會自動儲存；也可以打開配置檔案手動編輯。",
+  "setupMissingAuth": "ASR 認證資訊未填寫。請在 API 配置頁填寫 App Key 和 Access Key，系統會自動儲存。",
   "authGateTitle": "請先填寫豆包 ASR Key",
   "authGateDescription": "沒有豆包 App Key 和 Access Key 時，錄音、識別、貼上和後續流程都無法工作。",
-  "authGateNotice": "請先填寫並儲存豆包 ASR Key，才能繼續使用語音輸入。",
+  "authGateNotice": "請先填寫豆包 ASR Key，系統會自動儲存後即可使用語音輸入。",
   "setupCta": "去 API配置",
   "setupGuideCta": "查看配置指南",
   "setupHealthTitle": "配置健康檢查",
@@ -176,7 +176,7 @@ export const zhTW = {
   "interface": "介面",
   "interfaceDescription": "懸浮字幕尺寸、位置、顏色和系統匣提示。",
   "floatingCaptionAppearance": "懸浮字幕外觀",
-  "floatingCaptionAppearanceDescription": "直接調整字幕皮膚和透明度，儲存後會立即用於懸浮字幕。",
+  "floatingCaptionAppearanceDescription": "直接調整字幕皮膚和透明度，修改後會自動用於懸浮字幕。",
   "width": "寬度",
   "height": "高度",
   "marginBottom": "底部邊距",
@@ -271,7 +271,7 @@ export const zhTW = {
   "copyDiagnosticReport": "複製診斷報告",
   "copyingReport": "複製中",
   "diagnosticCopied": "診斷報告已複製。",
-  "validationFailed": "配置存在不合法欄位，請修改後再保存。",
+  "validationFailed": "配置存在不合法欄位，修正後會自動儲存。",
   "requiredField": "此項必填。",
   "errorCauseLabel": "可能原因",
   "errorActionLabel": "下一步",
@@ -288,9 +288,11 @@ export const zhTW = {
   "enablePolishing": "啟用潤飾",
   "minChars": "最少字元數",
   "timeout": "逾時",
-  "settingsActionTitle": "配置操作",
-  "settingsActionHint": "修改配置後點擊儲存，儲存後會立即生效。",
-  "settingsUnsavedHint": "有未儲存的修改，點擊儲存後立即生效。",
+  "settingsActionTitle": "配置狀態",
+  "settingsActionHint": "修改後會自動儲存並立即生效。",
+  "settingsUnsavedHint": "有未儲存的修改，稍後會自動儲存。",
+  "settingsAutoSavePendingHint": "偵測到修改，稍後會自動儲存。",
+  "settingsAutoSavingHint": "正在自動儲存並套用修改...",
   "saveConfig": "儲存配置",
   "saving": "儲存中",
   "reload": "重新載入",
@@ -325,12 +327,12 @@ export const zhTWUserErrorDetails = {
   "CONFIG_MISSING": {
     "title": "配置檔案未建立",
     "cause": "首次啟動或配置檔案被移動、刪除。",
-    "action": "打開 API 配置頁填寫豆包 ASR 密鑰並保存。"
+    "action": "打開 API 配置頁填寫豆包 ASR 密鑰，系統會自動儲存。"
   },
   "ASR_AUTH_MISSING": {
     "title": "ASR 密鑰不可用",
     "cause": "App Key、Access Key、Resource ID 未填寫或權限不正確。",
-    "action": "在 API 配置頁檢查豆包認證資訊，保存後點擊測試。"
+    "action": "在 API 配置頁檢查豆包認證資訊，自動儲存後點擊測試。"
   },
   "ASR_NETWORK_FAILED": {
     "title": "無法連接識別服務",
