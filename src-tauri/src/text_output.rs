@@ -39,6 +39,7 @@ enum ClipboardBackup {
 struct ClipboardSnapshot {
     formats: Vec<ClipboardFormatBackup>,
     skipped_formats: usize,
+    total_bytes: usize,
 }
 
 struct ClipboardFormatBackup {
@@ -46,15 +47,24 @@ struct ClipboardFormatBackup {
     bytes: Vec<u8>,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum ClipboardFormatSnapshotAction {
+    TakeFormat,
+    SkipFormat,
+    StopSnapshot,
+}
+
 pub fn output_text(text: &str, typing: &TypingConfig) -> Result<OutputResult, String> {
     if text.trim().is_empty() {
         return Ok(OutputResult { warning: None });
     }
     app_log::info(format!(
-        "准备输出文本: chars={}, method={}, restore_clipboard={}",
+        "准备输出文本: chars={}, method={}, restore_clipboard={}, clipboard_restore_delay_ms={}, clipboard_snapshot_max_bytes={}",
         text.chars().count(),
         typing.paste_method,
-        typing.restore_clipboard_after_paste
+        typing.restore_clipboard_after_paste,
+        typing.clipboard_restore_delay_ms,
+        typing.clipboard_snapshot_max_bytes
     ));
     let original_clipboard =
         if typing.restore_clipboard_after_paste && typing.paste_method != "clipboard_only" {
@@ -68,6 +78,15 @@ pub fn output_text(text: &str, typing: &TypingConfig) -> Result<OutputResult, St
         } else {
             ClipboardBackup::Empty
         };
+    if let ClipboardBackup::Snapshot(snapshot) = &original_clipboard {
+        app_log::info(format!(
+            "剪贴板快照完成: clipboard_snapshot_formats={}, clipboard_skipped_formats={}, clipboard_snapshot_bytes={}, clipboard_snapshot_max_bytes={}",
+            snapshot.formats.len(),
+            snapshot.skipped_formats,
+            snapshot.total_bytes,
+            typing.clipboard_snapshot_max_bytes
+        ));
+    }
 
     write_clipboard_text_with_retry(text, typing)?;
     if typing.paste_method == "clipboard_only" {
@@ -89,13 +108,15 @@ pub fn output_text(text: &str, typing: &TypingConfig) -> Result<OutputResult, St
         match write_clipboard_snapshot_with_retry(&original, typing) {
             Ok(()) => {
                 app_log::info(format!(
-                    "发送粘贴快捷键后已恢复原剪贴板: formats={}, skipped={}",
+                    "发送粘贴快捷键后已恢复原剪贴板: clipboard_snapshot_formats={}, clipboard_skipped_formats={}, clipboard_snapshot_bytes={}, clipboard_restore_delay_ms={}",
                     original.formats.len(),
-                    original.skipped_formats
+                    original.skipped_formats,
+                    original.total_bytes,
+                    typing.clipboard_restore_delay_ms
                 ));
                 if original.skipped_formats > 0 {
                     let warning =
-                        "已恢复剪贴板中的常见文本/富文本格式；少量图片或私有格式无法自动恢复。"
+                        "原剪贴板内容较大或包含特殊格式，已恢复可备份部分，部分格式未备份。"
                             .to_string();
                     app_log::warn(&warning);
                     Ok(OutputResult {
@@ -114,7 +135,7 @@ pub fn output_text(text: &str, typing: &TypingConfig) -> Result<OutputResult, St
         }
     } else if matches!(original_clipboard, ClipboardBackup::NonRestorable) {
         let warning =
-            "已发送粘贴快捷键；原剪贴板包含暂不支持恢复的图片或私有格式，当前剪贴板保留识别文本。"
+            "已发送粘贴快捷键；原剪贴板内容较大或包含暂不支持恢复的格式，当前剪贴板保留识别文本。"
                 .to_string();
         app_log::warn(&warning);
         Ok(OutputResult {
@@ -130,7 +151,7 @@ pub fn copy_text_to_clipboard(text: &str) -> Result<(), String> {
 }
 
 fn read_clipboard_backup_with_retry(typing: &TypingConfig) -> Result<ClipboardBackup, String> {
-    with_clipboard_retry(typing, read_clipboard_backup)
+    with_clipboard_retry(typing, || read_clipboard_backup(typing))
 }
 
 fn write_clipboard_text_with_retry(text: &str, typing: &TypingConfig) -> Result<(), String> {
@@ -165,7 +186,7 @@ fn with_clipboard_retry<T>(
     Err(last_error)
 }
 
-fn read_clipboard_backup() -> Result<ClipboardBackup, String> {
+fn read_clipboard_backup(typing: &TypingConfig) -> Result<ClipboardBackup, String> {
     unsafe {
         OpenClipboard(None).map_err(|err| format!("打开剪贴板失败: {}", err))?;
         let result = (|| {
@@ -175,6 +196,9 @@ fn read_clipboard_backup() -> Result<ClipboardBackup, String> {
             }
             let mut formats = Vec::new();
             let mut skipped_formats = 0;
+            let mut total_bytes = 0usize;
+            let max_bytes =
+                usize::try_from(typing.clipboard_snapshot_max_bytes).unwrap_or(usize::MAX);
             let mut format = 0;
             loop {
                 format = EnumClipboardFormats(format);
@@ -185,9 +209,25 @@ fn read_clipboard_backup() -> Result<ClipboardBackup, String> {
                     skipped_formats += 1;
                     continue;
                 }
-                match read_clipboard_format_bytes(format) {
-                    Some(bytes) => formats.push(ClipboardFormatBackup { format, bytes }),
-                    None => skipped_formats += 1,
+                let Some(size) = clipboard_format_size(format) else {
+                    skipped_formats += 1;
+                    continue;
+                };
+                match clipboard_format_snapshot_action(total_bytes, size, max_bytes) {
+                    ClipboardFormatSnapshotAction::TakeFormat => {
+                        match read_clipboard_format_bytes(format) {
+                            Some(bytes) => {
+                                total_bytes += bytes.len();
+                                formats.push(ClipboardFormatBackup { format, bytes });
+                            }
+                            None => skipped_formats += 1,
+                        }
+                    }
+                    ClipboardFormatSnapshotAction::SkipFormat => skipped_formats += 1,
+                    ClipboardFormatSnapshotAction::StopSnapshot => {
+                        skipped_formats += 1;
+                        break;
+                    }
                 }
             }
 
@@ -197,6 +237,7 @@ fn read_clipboard_backup() -> Result<ClipboardBackup, String> {
                 Ok(ClipboardBackup::Snapshot(ClipboardSnapshot {
                     formats,
                     skipped_formats,
+                    total_bytes,
                 }))
             }
         })();
@@ -238,6 +279,34 @@ unsafe fn read_clipboard_format_bytes(format: u32) -> Option<Vec<u8>> {
     let bytes = unsafe { std::slice::from_raw_parts(locked, size) }.to_vec();
     let _ = unsafe { GlobalUnlock(memory) };
     Some(bytes)
+}
+
+fn clipboard_format_size(format: u32) -> Option<usize> {
+    unsafe {
+        let handle = GetClipboardData(format).ok()?;
+        if handle.is_invalid() {
+            return None;
+        }
+        let size = GlobalSize(HGLOBAL(handle.0));
+        if size == 0 {
+            return None;
+        }
+        Some(size)
+    }
+}
+
+fn clipboard_format_snapshot_action(
+    current_total_bytes: usize,
+    format_bytes: usize,
+    max_total_bytes: usize,
+) -> ClipboardFormatSnapshotAction {
+    if format_bytes > max_total_bytes {
+        return ClipboardFormatSnapshotAction::SkipFormat;
+    }
+    if current_total_bytes.saturating_add(format_bytes) > max_total_bytes {
+        return ClipboardFormatSnapshotAction::StopSnapshot;
+    }
+    ClipboardFormatSnapshotAction::TakeFormat
 }
 
 fn read_clipboard_text_from_handle(handle: HANDLE) -> Result<String, String> {
@@ -333,7 +402,10 @@ fn write_clipboard_text_verified(text: &str) -> Result<(), String> {
     write_clipboard_text(text)?;
     let actual = read_clipboard_text()?;
     if actual == text {
-        app_log::info(format!("剪贴板写入已确认: chars={}", text.chars().count()));
+        app_log::info(format!(
+            "剪贴板写入已确认: chars={}, readback_verified=true",
+            text.chars().count()
+        ));
         Ok(())
     } else {
         Err("剪贴板写入后校验失败：读取内容与目标文本不一致".to_string())
@@ -365,7 +437,7 @@ fn set_clipboard_memory(format: u32, bytes: &[u8]) -> Result<(), String> {
 }
 
 fn clipboard_restore_delay(typing: &TypingConfig) -> Duration {
-    Duration::from_millis(typing.paste_delay_ms.max(200))
+    Duration::from_millis(typing.clipboard_restore_delay_ms)
 }
 
 fn send_shortcut(modifier: VIRTUAL_KEY, key: VIRTUAL_KEY, key_extended: bool) {
@@ -394,22 +466,46 @@ fn send_key_event(key: VIRTUAL_KEY, key_up: bool, extended: bool) {
 
 #[cfg(test)]
 mod tests {
-    use super::{clipboard_restore_delay, is_known_non_memory_clipboard_format};
+    use super::{
+        clipboard_format_snapshot_action, clipboard_restore_delay,
+        is_known_non_memory_clipboard_format, ClipboardFormatSnapshotAction,
+    };
     use crate::config::TypingConfig;
     use std::time::Duration;
 
     #[test]
-    fn restore_delay_leaves_time_for_target_app_to_read_clipboard() {
+    fn restore_delay_uses_independent_clipboard_restore_setting() {
         let typing = TypingConfig {
             paste_delay_ms: 0,
+            clipboard_restore_delay_ms: 800,
             ..TypingConfig::default()
         };
-        assert_eq!(clipboard_restore_delay(&typing), Duration::from_millis(200));
+        assert_eq!(clipboard_restore_delay(&typing), Duration::from_millis(800));
         let typing = TypingConfig {
-            paste_delay_ms: 350,
+            paste_delay_ms: 120,
+            clipboard_restore_delay_ms: 1_200,
             ..TypingConfig::default()
         };
-        assert_eq!(clipboard_restore_delay(&typing), Duration::from_millis(350));
+        assert_eq!(
+            clipboard_restore_delay(&typing),
+            Duration::from_millis(1_200)
+        );
+    }
+
+    #[test]
+    fn snapshot_limit_skips_large_formats_and_stops_when_total_is_full() {
+        assert_eq!(
+            clipboard_format_snapshot_action(0, 9 * 1024 * 1024, 8 * 1024 * 1024),
+            ClipboardFormatSnapshotAction::SkipFormat
+        );
+        assert_eq!(
+            clipboard_format_snapshot_action(7 * 1024 * 1024, 2 * 1024 * 1024, 8 * 1024 * 1024),
+            ClipboardFormatSnapshotAction::StopSnapshot
+        );
+        assert_eq!(
+            clipboard_format_snapshot_action(2 * 1024 * 1024, 512 * 1024, 8 * 1024 * 1024),
+            ClipboardFormatSnapshotAction::TakeFormat
+        );
     }
 
     #[test]

@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Mutex, OnceLock};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager};
 use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::Threading::GetCurrentThreadId;
@@ -30,13 +30,16 @@ static INPUT_HOOK_THREAD_ID: OnceLock<Mutex<Option<u32>>> = OnceLock::new();
 static HOOK_TRIGGER_TX: OnceLock<Sender<&'static str>> = OnceLock::new();
 static TOGGLE_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
 static HOTKEY_TRIGGER_ENABLED: AtomicBool = AtomicBool::new(true);
-static MIDDLE_MOUSE_TRIGGER_ENABLED: AtomicBool = AtomicBool::new(true);
-static RIGHT_ALT_TRIGGER_ENABLED: AtomicBool = AtomicBool::new(true);
+static MIDDLE_MOUSE_TRIGGER_ENABLED: AtomicBool = AtomicBool::new(false);
+static RIGHT_ALT_TRIGGER_ENABLED: AtomicBool = AtomicBool::new(false);
 
 pub fn refresh_trigger_config() {
     match config::load_config() {
         Ok(loaded) => refresh_trigger_config_from(&loaded.data.triggers),
-        Err(err) => app_log::warn(format!("读取启动方式配置失败，保留现有触发开关: {}", err)),
+        Err(err) => {
+            app_log::warn(format!("读取启动方式配置失败，使用保守触发默认值: {}", err));
+            apply_conservative_trigger_defaults();
+        }
     }
 }
 
@@ -46,9 +49,22 @@ pub fn refresh_trigger_config_from(triggers: &TriggerConfig) {
     RIGHT_ALT_TRIGGER_ENABLED.store(triggers.right_alt_enabled, Ordering::Release);
 }
 
+fn apply_conservative_trigger_defaults() {
+    HOTKEY_TRIGGER_ENABLED.store(true, Ordering::Release);
+    MIDDLE_MOUSE_TRIGGER_ENABLED.store(false, Ordering::Release);
+    RIGHT_ALT_TRIGGER_ENABLED.store(false, Ordering::Release);
+}
+
 pub fn start_global_hotkey_thread(app: AppHandle) {
+    start_global_hotkey_thread_with_ready(app, None);
+}
+
+fn start_global_hotkey_thread_with_ready(
+    app: AppHandle,
+    ready: Option<Sender<Result<(), String>>>,
+) {
     thread::spawn(move || {
-        if let Err(err) = run_global_hotkey_loop(app.clone()) {
+        if let Err(err) = run_global_hotkey_loop(app.clone(), ready) {
             app_log::warn(format!(
                 "HOTKEY_REGISTER_FAILED: global hotkey thread failed: {}。如果提示热键已注册，通常是已有 VoxType 实例或其他软件占用了该快捷键；右 Alt / 鼠标中键仍会继续工作。",
                 err
@@ -57,12 +73,18 @@ pub fn start_global_hotkey_thread(app: AppHandle) {
     });
 }
 
-pub fn restart_global_hotkey_thread(app: AppHandle) {
+pub fn restart_global_hotkey_thread(app: AppHandle) -> Result<(), String> {
     post_quit(&GLOBAL_HOTKEY_THREAD_ID);
+    let (ready_tx, ready_rx) = mpsc::channel();
     thread::spawn(move || {
-        thread::sleep(Duration::from_millis(80));
-        start_global_hotkey_thread(app);
+        if !wait_for_thread_to_stop(&GLOBAL_HOTKEY_THREAD_ID, Duration::from_millis(800)) {
+            app_log::warn("等待旧全局热键线程退出超时，继续尝试重新注册。");
+        }
+        start_global_hotkey_thread_with_ready(app, Some(ready_tx));
     });
+    ready_rx
+        .recv_timeout(Duration::from_millis(1200))
+        .map_err(|_| "等待快捷键重新注册超时，请稍后再试或重启应用。".to_string())?
 }
 
 pub fn can_register_hotkey(value: &str) -> Result<(), String> {
@@ -102,21 +124,41 @@ pub fn stop_input_threads() {
     post_quit(&INPUT_HOOK_THREAD_ID);
 }
 
-fn run_global_hotkey_loop(app: AppHandle) -> Result<(), String> {
+fn run_global_hotkey_loop(
+    app: AppHandle,
+    mut ready: Option<Sender<Result<(), String>>>,
+) -> Result<(), String> {
     let _thread_id = ThreadIdGuard::new(&GLOBAL_HOTKEY_THREAD_ID);
-    let loaded = config::load_config()?;
+    let loaded = match config::load_config() {
+        Ok(loaded) => loaded,
+        Err(err) => {
+            send_hotkey_ready(&mut ready, Err(err.clone()));
+            return Err(err);
+        }
+    };
     refresh_trigger_config_from(&loaded.data.triggers);
     if !loaded.data.triggers.hotkey_enabled {
         app_log::info("主快捷键触发已关闭，跳过全局热键注册。");
+        send_hotkey_ready(&mut ready, Ok(()));
         return Ok(());
     }
     let hotkey_text = loaded.data.hotkey.clone();
-    let (modifiers, key) = parse_hotkey(&loaded.data.hotkey)?;
+    let (modifiers, key) = match parse_hotkey(&loaded.data.hotkey) {
+        Ok(parsed) => parsed,
+        Err(err) => {
+            send_hotkey_ready(&mut ready, Err(err.clone()));
+            return Err(err);
+        }
+    };
     unsafe {
-        RegisterHotKey(None, HOTKEY_ID, modifiers, key.0 as u32)
-            .map_err(|err| format!("注册全局热键失败: {}，hotkey={}", err, hotkey_text))?;
+        if let Err(err) = RegisterHotKey(None, HOTKEY_ID, modifiers, key.0 as u32) {
+            let message = format!("注册全局热键失败: {}，hotkey={}", err, hotkey_text);
+            send_hotkey_ready(&mut ready, Err(message.clone()));
+            return Err(message);
+        }
     }
     app_log::info(format!("全局热键已注册: {}", hotkey_text.to_uppercase()));
+    send_hotkey_ready(&mut ready, Ok(()));
 
     let mut msg = MSG::default();
     loop {
@@ -144,6 +186,12 @@ fn run_global_hotkey_loop(app: AppHandle) -> Result<(), String> {
         let _ = UnregisterHotKey(None, HOTKEY_ID);
     }
     Ok(())
+}
+
+fn send_hotkey_ready(ready: &mut Option<Sender<Result<(), String>>>, result: Result<(), String>) {
+    if let Some(tx) = ready.take() {
+        let _ = tx.send(result);
+    }
 }
 
 fn parse_hotkey(value: &str) -> Result<(HOT_KEY_MODIFIERS, VIRTUAL_KEY), String> {
@@ -384,5 +432,79 @@ fn post_quit(slot: &'static OnceLock<Mutex<Option<u32>>>) {
         unsafe {
             let _ = PostThreadMessageW(thread_id, WM_QUIT, WPARAM(0), LPARAM(0));
         }
+    }
+}
+
+fn wait_for_thread_to_stop(slot: &'static OnceLock<Mutex<Option<u32>>>, timeout: Duration) -> bool {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let running = slot
+            .get()
+            .and_then(|lock| lock.lock().ok().and_then(|guard| *guard))
+            .is_some();
+        if !running {
+            return true;
+        }
+        if Instant::now() >= deadline {
+            return false;
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        apply_conservative_trigger_defaults, refresh_trigger_config_from, trigger_enabled,
+        HOTKEY_TRIGGER_ENABLED, MIDDLE_MOUSE_TRIGGER_ENABLED, RIGHT_ALT_TRIGGER_ENABLED,
+    };
+    use crate::config::TriggerConfig;
+    use std::sync::atomic::Ordering;
+
+    struct TriggerStateGuard {
+        hotkey: bool,
+        middle_mouse: bool,
+        right_alt: bool,
+    }
+
+    impl TriggerStateGuard {
+        fn new() -> Self {
+            Self {
+                hotkey: HOTKEY_TRIGGER_ENABLED.load(Ordering::Acquire),
+                middle_mouse: MIDDLE_MOUSE_TRIGGER_ENABLED.load(Ordering::Acquire),
+                right_alt: RIGHT_ALT_TRIGGER_ENABLED.load(Ordering::Acquire),
+            }
+        }
+    }
+
+    impl Drop for TriggerStateGuard {
+        fn drop(&mut self) {
+            HOTKEY_TRIGGER_ENABLED.store(self.hotkey, Ordering::Release);
+            MIDDLE_MOUSE_TRIGGER_ENABLED.store(self.middle_mouse, Ordering::Release);
+            RIGHT_ALT_TRIGGER_ENABLED.store(self.right_alt, Ordering::Release);
+        }
+    }
+
+    #[test]
+    fn trigger_static_defaults_are_conservative() {
+        assert!(trigger_enabled("hotkey"));
+        assert!(!trigger_enabled("middle_mouse"));
+        assert!(!trigger_enabled("right_alt"));
+    }
+
+    #[test]
+    fn can_restore_conservative_trigger_state() {
+        let _guard = TriggerStateGuard::new();
+        refresh_trigger_config_from(&TriggerConfig {
+            hotkey_enabled: false,
+            middle_mouse_enabled: true,
+            right_alt_enabled: true,
+        });
+
+        apply_conservative_trigger_defaults();
+
+        assert!(trigger_enabled("hotkey"));
+        assert!(!trigger_enabled("middle_mouse"));
+        assert!(!trigger_enabled("right_alt"));
     }
 }

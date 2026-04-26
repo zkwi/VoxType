@@ -152,11 +152,10 @@ fn save_app_config(app: AppHandle, config: AppConfig) -> Result<LoadedConfig, Co
             errors,
         });
     }
-    let previous_hotkey = config::load_config()
-        .ok()
-        .map(|loaded| loaded.data.hotkey)
-        .unwrap_or_default();
-    if config.triggers.hotkey_enabled && !hotkey_equal(&previous_hotkey, &config.hotkey) {
+    let previous_config = config::load_config().ok().map(|loaded| loaded.data);
+    let should_restart_hotkey = hotkey_runtime_update_needed(previous_config.as_ref(), &config);
+    let should_apply_autostart = autostart_update_needed(previous_config.as_ref(), &config);
+    if hotkey_registration_test_needed(previous_config.as_ref(), &config) {
         if let Err(err) = hotkey::can_register_hotkey(&config.hotkey) {
             app_log::warn(format!(
                 "配置保存失败: hotkey register test failed: {}",
@@ -174,20 +173,29 @@ fn save_app_config(app: AppHandle, config: AppConfig) -> Result<LoadedConfig, Co
     match config::save_config(config) {
         Ok(loaded) => {
             hotkey::refresh_trigger_config_from(&loaded.data.triggers);
-            hotkey::restart_global_hotkey_thread(app.clone());
-            if let Err(err) = autostart::apply(&loaded.data.startup) {
-                app_log::warn(format!("同步开机自启动失败: {}", err));
-                return Err(ConfigSaveError {
-                    message: format!("配置已保存，但开机自启动设置失败: {}", err),
-                    errors: Vec::new(),
-                });
+            if should_restart_hotkey {
+                if let Err(err) = hotkey::restart_global_hotkey_thread(app.clone()) {
+                    app_log::warn(format!("配置已保存，但快捷键重新注册未确认完成: {}", err));
+                }
+            }
+            overlay::update_config(&app, &loaded.data.ui);
+            if should_apply_autostart {
+                if let Err(err) = autostart::apply(&loaded.data.startup) {
+                    app_log::warn(format!("同步开机自启动失败: {}", err));
+                    return Err(ConfigSaveError {
+                        message: format!("配置已保存，但开机自启动设置失败: {}", err),
+                        errors: Vec::new(),
+                    });
+                }
             }
             app_log::info(format!(
-                "配置保存完成: hotkey_enabled={}, middle_mouse_enabled={}, right_alt_enabled={}, launch_on_startup={}, update_auto_check={}, update_repo={}, llm_enabled={}, close_behavior={}",
+                "配置保存完成: hotkey_enabled={}, middle_mouse_enabled={}, right_alt_enabled={}, hotkey_restarted={}, launch_on_startup={}, autostart_synced={}, update_auto_check={}, update_repo={}, llm_enabled={}, close_behavior={}",
                 loaded.data.triggers.hotkey_enabled,
                 loaded.data.triggers.middle_mouse_enabled,
                 loaded.data.triggers.right_alt_enabled,
+                should_restart_hotkey,
                 loaded.data.startup.launch_on_startup,
+                should_apply_autostart,
                 loaded.data.update.auto_check_on_startup,
                 loaded.data.update.github_repo,
                 loaded.data.llm_post_edit.enabled,
@@ -619,6 +627,32 @@ fn hotkey_equal(left: &str, right: &str) -> bool {
     normalize(left) == normalize(right)
 }
 
+fn hotkey_registration_test_needed(previous: Option<&AppConfig>, next: &AppConfig) -> bool {
+    if !next.triggers.hotkey_enabled {
+        return false;
+    }
+    previous
+        .map(|previous| {
+            !previous.triggers.hotkey_enabled || !hotkey_equal(&previous.hotkey, &next.hotkey)
+        })
+        .unwrap_or(true)
+}
+
+fn hotkey_runtime_update_needed(previous: Option<&AppConfig>, next: &AppConfig) -> bool {
+    previous
+        .map(|previous| {
+            previous.triggers.hotkey_enabled != next.triggers.hotkey_enabled
+                || !hotkey_equal(&previous.hotkey, &next.hotkey)
+        })
+        .unwrap_or(true)
+}
+
+fn autostart_update_needed(previous: Option<&AppConfig>, next: &AppConfig) -> bool {
+    previous
+        .map(|previous| previous.startup.launch_on_startup != next.startup.launch_on_startup)
+        .unwrap_or(true)
+}
+
 fn enabled_trigger_summary(config: &AppConfig) -> String {
     let mut triggers = Vec::new();
     if config.triggers.hotkey_enabled {
@@ -650,5 +684,70 @@ fn redact_user_path(value: &str) -> String {
         format!("%USERPROFILE%{}", &value[profile.len()..])
     } else {
         value.to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        autostart_update_needed, hotkey_registration_test_needed, hotkey_runtime_update_needed,
+        AppConfig,
+    };
+
+    #[test]
+    fn hotkey_registration_test_is_needed_when_enabled_with_same_text() {
+        let mut previous = AppConfig::default();
+        previous.triggers.hotkey_enabled = false;
+
+        let mut next = previous.clone();
+        next.triggers.hotkey_enabled = true;
+
+        assert!(hotkey_registration_test_needed(Some(&previous), &next));
+    }
+
+    #[test]
+    fn hotkey_registration_test_is_skipped_when_still_disabled() {
+        let mut previous = AppConfig::default();
+        previous.triggers.hotkey_enabled = false;
+
+        let next = previous.clone();
+
+        assert!(!hotkey_registration_test_needed(Some(&previous), &next));
+    }
+
+    #[test]
+    fn hotkey_runtime_update_is_skipped_for_unrelated_settings() {
+        let previous = AppConfig::default();
+        let mut next = previous.clone();
+        next.typing.paste_delay_ms += 10;
+
+        assert!(!hotkey_runtime_update_needed(Some(&previous), &next));
+    }
+
+    #[test]
+    fn hotkey_runtime_update_is_needed_when_hotkey_changes() {
+        let previous = AppConfig::default();
+        let mut next = previous.clone();
+        next.hotkey = "Ctrl + Space".to_string();
+
+        assert!(hotkey_runtime_update_needed(Some(&previous), &next));
+    }
+
+    #[test]
+    fn autostart_update_is_skipped_for_unrelated_settings() {
+        let previous = AppConfig::default();
+        let mut next = previous.clone();
+        next.ui.width += 10;
+
+        assert!(!autostart_update_needed(Some(&previous), &next));
+    }
+
+    #[test]
+    fn autostart_update_is_needed_when_startup_changes() {
+        let previous = AppConfig::default();
+        let mut next = previous.clone();
+        next.startup.launch_on_startup = !previous.startup.launch_on_startup;
+
+        assert!(autostart_update_needed(Some(&previous), &next));
     }
 }

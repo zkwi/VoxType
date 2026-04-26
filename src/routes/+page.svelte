@@ -138,9 +138,16 @@
   };
 
   type OverlayText = { text: string };
+  type OverlayConfig = { ui: AppConfig["ui"] };
   type AudioLevel = { level: number };
   type AudioDeviceInfo = { index: number; name: string; is_default: boolean };
   type OverlayMode = "single" | "double";
+  type AsrConnectionStatus =
+    | "missing_auth"
+    | "configured_not_tested"
+    | "testing"
+    | "tested_ok"
+    | "tested_failed";
 
   type TextContext = { text: string };
 
@@ -187,6 +194,8 @@
       paste_delay_ms: number;
       paste_method: string;
       restore_clipboard_after_paste: boolean;
+      clipboard_restore_delay_ms: number;
+      clipboard_snapshot_max_bytes: number;
       clipboard_open_retry_count: number;
       clipboard_open_retry_interval_ms: number;
     };
@@ -262,6 +271,8 @@
       paste_delay_ms: 120,
       paste_method: "ctrl_v",
       restore_clipboard_after_paste: true,
+      clipboard_restore_delay_ms: 800,
+      clipboard_snapshot_max_bytes: 8 * 1024 * 1024,
       clipboard_open_retry_count: 5,
       clipboard_open_retry_interval_ms: 50,
     },
@@ -298,7 +309,7 @@
 
   const fallbackSnapshot: AppSnapshot = {
     hotkey: "ctrl+q",
-    current_version: "0.1.11",
+    current_version: "0.1.16",
   };
 
   const emptyStats: StatsSnapshot = {
@@ -374,6 +385,8 @@
   let installingUpdate = $state(false);
   let openingLog = $state(false);
   let testingAsr = $state(false);
+  let asrConnectionStatus = $state<AsrConnectionStatus>("missing_auth");
+  let asrTestedConfigFingerprint = $state("");
   let testingLlm = $state(false);
   let copyingDiagnosticReport = $state(false);
   let clearingRecentContext = $state(false);
@@ -385,6 +398,7 @@
   let setupStatusLoading = $state(true);
   let hotkeyCaptureState = $state<HotkeyCaptureState>("idle");
   let hotkeyValidationMessage = $state("");
+  let showAdvancedSettings = $state(false);
   onMount(() => {
     const onError = (event: ErrorEvent) => {
       logFrontendError(`${event.message} (${event.filename}:${event.lineno}:${event.colno})`);
@@ -439,6 +453,9 @@
       const unlistenOverlay = listen<OverlayText>("overlay-text", (event) => {
         applyOverlayText(event.payload.text || defaultOverlayText);
       });
+      const unlistenOverlayConfig = listen<OverlayConfig>("overlay-config", (event) => {
+        applyOverlayConfig(event.payload.ui);
+      });
       const unlistenStats = listen<StatsSnapshot>("usage-stats-updated", (event) => {
         if (!isOverlay && !isToast) stats = event.payload;
       });
@@ -454,6 +471,7 @@
         unlistenSession,
         unlistenAsr,
         unlistenOverlay,
+        unlistenOverlayConfig,
         unlistenStats,
         unlistenAudioLevel,
         unlistenClosePrompt,
@@ -597,6 +615,13 @@
 
   function refreshOverlayLayout() {
     if (isOverlay) applyOverlayText(overlayText, true);
+  }
+
+  function applyOverlayConfig(ui: AppConfig["ui"]) {
+    if (!isOverlay) return;
+    config.ui = { ...config.ui, ...ui };
+    stopOverlayScroll();
+    applyOverlayText(overlayText, true);
   }
 
   function applyOverlayText(rawText: string, force = false) {
@@ -875,6 +900,7 @@
     } catch (error) {
       const saveError = parseConfigSaveError(error);
       validationErrors = validationErrorMap(saveError.errors ?? []);
+      if ((saveError.errors ?? []).length > 0) showAdvancedSettings = true;
       statusMessage = saveError.message || t("validationFailed");
       logFrontendError(`save config failed: ${formatFrontendError(error)}`);
       return null;
@@ -885,7 +911,9 @@
   async function saveConfig() {
     const result = await persistConfig();
     if (result) {
-      await loadAll();
+      snapshot = { ...snapshot, hotkey: result.data.hotkey };
+      syncSetupStatusFromConfig(result.data);
+      void refreshSetupStatus();
       showActionNotice(t("configSaved"), "success");
     } else if (statusMessage) {
       showActionNotice(statusMessage, "error");
@@ -913,6 +941,22 @@
   }
   function fieldError(field: string) {
     return validationErrors[field] ?? "";
+  }
+  function syncSetupStatusFromConfig(nextConfig: AppConfig) {
+    const missingAuth = !nextConfig.auth.app_key.trim() || !nextConfig.auth.access_key.trim();
+    const anyTriggerEnabled =
+      nextConfig.triggers.hotkey_enabled ||
+      nextConfig.triggers.middle_mouse_enabled ||
+      nextConfig.triggers.right_alt_enabled;
+    if (!setupStatus) return;
+    setupStatus = {
+      ...setupStatus,
+      missing_auth: missingAuth,
+      hotkey: nextConfig.hotkey,
+      paste_method: nextConfig.typing.paste_method,
+      privacy_recent_context_enabled: nextConfig.context.enable_recent_context,
+      ready: !missingAuth && setupStatus.has_audio_device && anyTriggerEnabled,
+    };
   }
   function authFieldErrors() {
     const errors: Record<string, string> = {};
@@ -1048,12 +1092,17 @@
     if (testingAsr) return;
     if (!requireAuthFields()) return;
     testingAsr = true;
+    asrConnectionStatus = "testing";
     try {
       const result = await safeInvoke<ConnectionTestResult>("test_asr_config", { config: clonePlain(config) });
       if (result) {
+        asrConnectionStatus = "tested_ok";
+        asrTestedConfigFingerprint = asrConfigFingerprint();
         statusMessage = result.message;
         showActionNotice(result.message, "success");
       } else if (statusMessage) {
+        asrConnectionStatus = "tested_failed";
+        asrTestedConfigFingerprint = asrConfigFingerprint();
         showActionNotice(statusMessage, "error");
       }
     } finally {
@@ -1216,13 +1265,14 @@
       ];
     }
     const status = setupStatus;
+    const asrStatus = currentAsrConnectionStatus();
     const authReady = hasAuth();
     const micReady = status ? status.has_audio_device : audioDevices.length > 0;
     return [
       {
         label: t("setupAuthLabel"),
-        value: authReady ? t("setupOk") : t("setupMissing"),
-        ok: authReady,
+        value: asrConnectionStatusText(asrStatus),
+        ok: asrConnectionStatusOk(asrStatus),
         action: "asr_auth",
       },
       {
@@ -1257,7 +1307,8 @@
   }
   function setupIsReady() {
     if (setupStatusLoading) return false;
-    return setupStatus?.ready ?? setupStatusItems().every((item) => item.ok);
+    const baseReady = setupStatus?.ready ?? setupStatusItems().every((item) => item.ok);
+    return baseReady && currentAsrConnectionStatus() !== "tested_failed";
   }
   function setupActionText(action: string) {
     if (action === "asr_auth") return t("setupActionAsr");
@@ -1286,6 +1337,37 @@
     if (value === "clipboard_only") return t("clipboardOnly");
     if (value === "shift_insert") return "Shift + Insert";
     return "Ctrl + V";
+  }
+  function asrConfigFingerprint(configValue = config) {
+    return JSON.stringify({
+      app_key: configValue.auth.app_key,
+      access_key: configValue.auth.access_key,
+      resource_id: configValue.auth.resource_id,
+      ws_url: configValue.request.ws_url,
+      model_name: configValue.request.model_name,
+    });
+  }
+  function currentAsrConnectionStatus(): AsrConnectionStatus {
+    if (!hasAuth()) return "missing_auth";
+    if (testingAsr) return "testing";
+    const currentFingerprint = asrConfigFingerprint();
+    if (
+      asrTestedConfigFingerprint === currentFingerprint &&
+      (asrConnectionStatus === "tested_ok" || asrConnectionStatus === "tested_failed")
+    ) {
+      return asrConnectionStatus;
+    }
+    return "configured_not_tested";
+  }
+  function asrConnectionStatusText(status: AsrConnectionStatus) {
+    if (status === "missing_auth") return t("setupAsrMissingAuth");
+    if (status === "testing") return t("setupAsrTesting");
+    if (status === "tested_ok") return t("setupAsrTestedOk");
+    if (status === "tested_failed") return t("setupAsrTestedFailed");
+    return t("setupAsrConfiguredNotTested");
+  }
+  function asrConnectionStatusOk(status: AsrConnectionStatus) {
+    return status === "configured_not_tested" || status === "tested_ok";
   }
   function formatEnabledTriggers() {
     const triggers = [];
@@ -1508,6 +1590,20 @@
     return normalizedHexColor(config.ui.text_color, fallbackConfig.ui.text_color);
   }
 
+  function overlayBackgroundRgb() {
+    const hex = overlayBackgroundColor().slice(1);
+    const red = parseInt(hex.slice(0, 2), 16);
+    const green = parseInt(hex.slice(2, 4), 16);
+    const blue = parseInt(hex.slice(4, 6), 16);
+    return `${red}, ${green}, ${blue}`;
+  }
+
+  function overlayOpacity() {
+    const value = Number(config.ui.opacity);
+    if (!Number.isFinite(value)) return fallbackConfig.ui.opacity;
+    return Math.min(1, Math.max(0.05, value));
+  }
+
   function applyOverlayPreset(background: string, text: string) {
     config.ui.background_color = background;
     config.ui.text_color = text;
@@ -1617,7 +1713,6 @@
     return true;
   }
   function selectSection(section: Section) {
-    if (section === "History" && requireAsrAuthGate()) return;
     selectedSection = section;
     if (section === "Settings" && requiresAsrAuth()) scrollToSettingsPanel("settings-auth");
   }
@@ -1700,7 +1795,7 @@
 </svelte:head>
 
 {#if isOverlay}
-  <main class="overlay-root" style={`--overlay-bg: ${overlayBackgroundColor()}; --overlay-text: ${overlayTextColor()};`}>
+  <main class="overlay-root" style={`--overlay-bg: ${overlayBackgroundColor()}; --overlay-bg-rgb: ${overlayBackgroundRgb()}; --overlay-opacity: ${overlayOpacity()}; --overlay-text: ${overlayTextColor()};`}>
     <div class="overlay-caption">
       <span class="overlay-dot"></span>
       <div
@@ -1749,12 +1844,8 @@
     <nav aria-label="Main sections">
       {#each navItems as item}
         {@const Icon = item.icon}
-        {@const locked = requiresAsrAuth() && item.id === "History"}
         <button
           class:active={selectedSection === item.id}
-          class:locked
-          aria-disabled={locked}
-          title={locked ? t("authGateNotice") : ""}
           onclick={() => selectSection(item.id)}
         >
           <Icon size={17} />
@@ -1984,6 +2075,15 @@
           onSave={saveConfig}
           onReload={reloadConfigFromUi}
         />
+        <section class="settings-mode-panel">
+          <div>
+            <h3>{showAdvancedSettings ? t("advancedSettings") : t("basicSettings")}</h3>
+            <p>{showAdvancedSettings ? t("advancedSettingsHint") : t("basicSettingsHint")}</p>
+          </div>
+          <button type="button" onclick={() => (showAdvancedSettings = !showAdvancedSettings)}>
+            {showAdvancedSettings ? t("hideAdvancedSettings") : t("showAdvancedSettings")}
+          </button>
+        </section>
         <section class="settings-group">
           <div class="settings-group-heading">
             <h3>{t("softwareSettings")}</h3>
@@ -2011,21 +2111,52 @@
                 <input type="number" bind:value={config.typing.paste_delay_ms} />
                 {#if fieldError("typing.paste_delay_ms")}<small class="field-error">{fieldError("typing.paste_delay_ms")}</small>{/if}
               </label>
-              <label><span>{t("pasteMethod")}</span><select bind:value={config.typing.paste_method}><option value="ctrl_v">Ctrl + V</option><option value="shift_insert">Shift + Insert</option><option value="clipboard_only">{t("clipboardOnly")}</option></select></label>
-              <label><span>{t("clipboardRetryCount")}</span><input type="number" bind:value={config.typing.clipboard_open_retry_count} /></label>
-              <label><span>{t("clipboardRetryInterval")}</span><input type="number" bind:value={config.typing.clipboard_open_retry_interval_ms} /></label>
+              <label class:field-invalid={Boolean(fieldError("typing.paste_method"))}>
+                <span>{t("pasteMethod")}</span>
+                <select bind:value={config.typing.paste_method}><option value="ctrl_v">Ctrl + V</option><option value="shift_insert">Shift + Insert</option><option value="clipboard_only">{t("clipboardOnly")}</option></select>
+                {#if fieldError("typing.paste_method")}<small class="field-error">{fieldError("typing.paste_method")}</small>{/if}
+              </label>
+              <label class:field-invalid={Boolean(fieldError("tray.close_behavior"))}>
+                <span>{t("closeBehavior")}</span>
+                <select bind:value={config.tray.close_behavior}>
+                  <option value="close_to_tray">{t("closeBehaviorCloseToTray")}</option>
+                  <option value="direct_exit">{t("closeBehaviorDirectExit")}</option>
+                  <option value="ask_every_time">{t("closeBehaviorAskEveryTime")}</option>
+                </select>
+                {#if fieldError("tray.close_behavior")}<small class="field-error">{fieldError("tray.close_behavior")}</small>{/if}
+              </label>
+              {#if showAdvancedSettings}
+                <label class:field-invalid={Boolean(fieldError("typing.clipboard_restore_delay_ms"))}>
+                  <span>{t("clipboardRestoreDelay")}</span>
+                  <input type="number" bind:value={config.typing.clipboard_restore_delay_ms} />
+                  {#if fieldError("typing.clipboard_restore_delay_ms")}<small class="field-error">{fieldError("typing.clipboard_restore_delay_ms")}</small>{/if}
+                </label>
+                <label class:field-invalid={Boolean(fieldError("typing.clipboard_snapshot_max_bytes"))}>
+                  <span>{t("clipboardSnapshotMaxBytes")}</span>
+                  <input type="number" bind:value={config.typing.clipboard_snapshot_max_bytes} />
+                  {#if fieldError("typing.clipboard_snapshot_max_bytes")}<small class="field-error">{fieldError("typing.clipboard_snapshot_max_bytes")}</small>{/if}
+                </label>
+                <label><span>{t("clipboardRetryCount")}</span><input type="number" bind:value={config.typing.clipboard_open_retry_count} /></label>
+                <label><span>{t("clipboardRetryInterval")}</span><input type="number" bind:value={config.typing.clipboard_open_retry_interval_ms} /></label>
+              {/if}
             </div>
             <div class="toggle-grid">
               <label class="check"><input type="checkbox" bind:checked={config.triggers.hotkey_enabled} />{t("mainHotkey")}</label>
               <label class="check"><input type="checkbox" bind:checked={config.triggers.middle_mouse_enabled} onchange={(event) => maybeShowOptionEnabledNotice("middle_mouse_enabled", event.currentTarget.checked)} />{t("middleMouse")}</label>
               <label class="check"><input type="checkbox" bind:checked={config.triggers.right_alt_enabled} onchange={(event) => maybeShowOptionEnabledNotice("right_alt_enabled", event.currentTarget.checked)} />{t("rightAlt")}</label>
-              <label class="check"><input type="checkbox" bind:checked={config.typing.restore_clipboard_after_paste} />{t("restoreClipboardAfterPaste")}</label>
+              {#if showAdvancedSettings}
+                <label class="check"><input type="checkbox" bind:checked={config.typing.restore_clipboard_after_paste} />{t("restoreClipboardAfterPaste")}</label>
+              {/if}
               <label class="check"><input type="checkbox" bind:checked={config.startup.launch_on_startup} />{t("launchOnStartup")}</label>
             </div>
             <p class="field-hint">{t("clipboardTextRestoreHint")}</p>
-            <p class="field-hint">{t("clipboardRetryHint")}</p>
+            {#if showAdvancedSettings}
+              <p class="field-hint">{t("clipboardRestoreDelayHint")}</p>
+              <p class="field-hint">{t("clipboardRetryHint")}</p>
+            {/if}
             <p class="field-hint">{t("triggerConflictHint")}</p>
           </div>
+          {#if showAdvancedSettings}
           <div class="form-panel">
             <div class="section-heading"><h3>{t("floatingCaptionAndTray")}</h3><p>{t("interfaceDescription")}</p></div>
             <div class="form-grid">
@@ -2047,14 +2178,6 @@
               </label>
               <label><span>{t("scrollInterval")}</span><input type="number" bind:value={config.ui.scroll_interval_ms} /></label>
               <label><span>{t("startupTimeout")}</span><input type="number" bind:value={config.tray.startup_message_timeout_ms} /></label>
-              <label>
-                <span>{t("closeBehavior")}</span>
-                <select bind:value={config.tray.close_behavior}>
-                  <option value="close_to_tray">{t("closeBehaviorCloseToTray")}</option>
-                  <option value="direct_exit">{t("closeBehaviorDirectExit")}</option>
-                  <option value="ask_every_time">{t("closeBehaviorAskEveryTime")}</option>
-                </select>
-              </label>
             </div>
             <div class="caption-theme-panel">
               <div class="caption-theme-head">
@@ -2097,6 +2220,8 @@
             </div>
             <p class="field-hint">{t("closeBehaviorHint")}</p>
           </div>
+          {/if}
+          {#if showAdvancedSettings}
           <div class="form-panel update-panel">
             <div class="section-heading"><h3>{t("softwareUpdate")}</h3><p>{t("softwareUpdateDescription")}</p></div>
             <div class:available={updateStatus?.update_available} class="update-card">
@@ -2119,7 +2244,14 @@
             <div class="toggle-grid">
               <label class="check"><input type="checkbox" bind:checked={config.update.auto_check_on_startup} />{t("autoCheckUpdates")}</label>
             </div>
+            <label class:field-invalid={Boolean(fieldError("update.github_repo"))}>
+              <span>GitHub Release Repo</span>
+              <input bind:value={config.update.github_repo} />
+              {#if fieldError("update.github_repo")}<small class="field-error">{fieldError("update.github_repo")}</small>{/if}
+            </label>
           </div>
+          {/if}
+          {#if showAdvancedSettings}
           <div class="form-panel">
             <div class="section-heading"><h3>{t("diagnosticsAndLogs")}</h3><p>{t("diagnosticsDescription")}</p></div>
             <div class="update-card">
@@ -2137,6 +2269,7 @@
               </div>
             </div>
           </div>
+          {/if}
         </section>
         <section class="settings-group">
           <div class="settings-group-heading">
@@ -2178,31 +2311,33 @@
           <div id="settings-audio" class="form-panel">
             <div class="section-heading"><h3>{t("recordingParams")}</h3><p>{t("audioDescription")}</p></div>
             <div class="form-grid">
-              <label class:field-invalid={Boolean(fieldError("audio.sample_rate"))}>
-                <span>{t("sampleRate")}</span>
-                <input type="number" bind:value={config.audio.sample_rate} />
-                {#if fieldError("audio.sample_rate")}<small class="field-error">{fieldError("audio.sample_rate")}</small>{/if}
-              </label>
-              <label class:field-invalid={Boolean(fieldError("audio.channels"))}>
-                <span>{t("channels")}</span>
-                <input type="number" bind:value={config.audio.channels} />
-                {#if fieldError("audio.channels")}<small class="field-error">{fieldError("audio.channels")}</small>{/if}
-              </label>
-              <label class:field-invalid={Boolean(fieldError("audio.segment_ms"))}>
-                <span>{t("segmentMs")}</span>
-                <input type="number" bind:value={config.audio.segment_ms} />
-                {#if fieldError("audio.segment_ms")}<small class="field-error">{fieldError("audio.segment_ms")}</small>{/if}
-              </label>
-              <label class:field-invalid={Boolean(fieldError("audio.max_record_seconds"))}>
-                <span>{t("maxSeconds")}</span>
-                <input type="number" bind:value={config.audio.max_record_seconds} />
-                {#if fieldError("audio.max_record_seconds")}<small class="field-error">{fieldError("audio.max_record_seconds")}</small>{/if}
-              </label>
-              <label class:field-invalid={Boolean(fieldError("audio.stop_grace_ms"))}>
-                <span>{t("stopGraceMs")}</span>
-                <input type="number" bind:value={config.audio.stop_grace_ms} />
-                {#if fieldError("audio.stop_grace_ms")}<small class="field-error">{fieldError("audio.stop_grace_ms")}</small>{/if}
-              </label>
+              {#if showAdvancedSettings}
+                <label class:field-invalid={Boolean(fieldError("audio.sample_rate"))}>
+                  <span>{t("sampleRate")}</span>
+                  <input type="number" bind:value={config.audio.sample_rate} />
+                  {#if fieldError("audio.sample_rate")}<small class="field-error">{fieldError("audio.sample_rate")}</small>{/if}
+                </label>
+                <label class:field-invalid={Boolean(fieldError("audio.channels"))}>
+                  <span>{t("channels")}</span>
+                  <input type="number" bind:value={config.audio.channels} />
+                  {#if fieldError("audio.channels")}<small class="field-error">{fieldError("audio.channels")}</small>{/if}
+                </label>
+                <label class:field-invalid={Boolean(fieldError("audio.segment_ms"))}>
+                  <span>{t("segmentMs")}</span>
+                  <input type="number" bind:value={config.audio.segment_ms} />
+                  {#if fieldError("audio.segment_ms")}<small class="field-error">{fieldError("audio.segment_ms")}</small>{/if}
+                </label>
+                <label class:field-invalid={Boolean(fieldError("audio.max_record_seconds"))}>
+                  <span>{t("maxSeconds")}</span>
+                  <input type="number" bind:value={config.audio.max_record_seconds} />
+                  {#if fieldError("audio.max_record_seconds")}<small class="field-error">{fieldError("audio.max_record_seconds")}</small>{/if}
+                </label>
+                <label class:field-invalid={Boolean(fieldError("audio.stop_grace_ms"))}>
+                  <span>{t("stopGraceMs")}</span>
+                  <input type="number" bind:value={config.audio.stop_grace_ms} />
+                  {#if fieldError("audio.stop_grace_ms")}<small class="field-error">{fieldError("audio.stop_grace_ms")}</small>{/if}
+                </label>
+              {/if}
               <label>
                 <span>{t("inputDevice")}</span>
                 <select value={config.audio.input_device ?? ""} onchange={(event) => setInputDevice(event.currentTarget.value)}>
@@ -2216,14 +2351,21 @@
                 </select>
               </label>
             </div>
+            {#if showAdvancedSettings}
             <div class="toggle-grid">
               <label class="check"><input type="checkbox" bind:checked={config.audio.mute_system_volume_while_recording} onchange={(event) => maybeShowOptionEnabledNotice("mute_system_volume_while_recording", event.currentTarget.checked)} />{t("muteSystemAudio")}</label>
             </div>
             <p class="field-hint">{t("muteSystemAudioHint")}</p>
+            {/if}
           </div>
+          {#if showAdvancedSettings}
           <div class="form-panel">
             <div class="section-heading"><h3>{t("recognitionOptions")}</h3><p>{t("asrDescription")}</p></div>
-            <label><span>{t("websocketUrl")}</span><input bind:value={config.request.ws_url} /></label>
+            <label class:field-invalid={Boolean(fieldError("request.ws_url"))}>
+              <span>{t("websocketUrl")}</span>
+              <input bind:value={config.request.ws_url} />
+              {#if fieldError("request.ws_url")}<small class="field-error">{fieldError("request.ws_url")}</small>{/if}
+            </label>
             <div class="form-grid">
               <label><span>{t("model")}</span><input bind:value={config.request.model_name} /></label>
               <label class:field-invalid={Boolean(fieldError("request.final_result_timeout_seconds"))}>
@@ -2239,6 +2381,8 @@
               <label class="check"><input type="checkbox" bind:checked={config.request.enable_ddc} />{t("ddc")}</label>
             </div>
           </div>
+          {/if}
+          {#if showAdvancedSettings}
           <div id="settings-context" class="form-panel">
             <div class="section-heading with-actions">
               <div class="section-heading-copy"><h3>{t("context")}</h3><p>{t("contextDescription")}</p></div>
@@ -2253,7 +2397,9 @@
             </div>
             <p class="field-hint">{t("recentContextHint")}</p>
           </div>
+          {/if}
         </section>
+        {#if showAdvancedSettings}
         <section class="settings-group">
           <div class="settings-group-heading">
             <h3>{t("llmSettings")}</h3>
@@ -2274,14 +2420,31 @@
                 <input type="number" bind:value={config.llm_post_edit.timeout_seconds} />
                 {#if fieldError("llm_post_edit.timeout_seconds")}<small class="field-error">{fieldError("llm_post_edit.timeout_seconds")}</small>{/if}
               </label>
-              <label><span>Base URL</span><input bind:value={config.llm_post_edit.base_url} /></label>
-              <label><span>{t("model")}</span><input bind:value={config.llm_post_edit.model} /></label>
-              <label><span>API Key</span><input type="password" autocomplete="off" bind:value={config.llm_post_edit.api_key} /></label>
+              <label class:field-invalid={Boolean(fieldError("llm_post_edit.base_url"))}>
+                <span>Base URL</span>
+                <input bind:value={config.llm_post_edit.base_url} />
+                {#if fieldError("llm_post_edit.base_url")}<small class="field-error">{fieldError("llm_post_edit.base_url")}</small>{/if}
+              </label>
+              <label class:field-invalid={Boolean(fieldError("llm_post_edit.model"))}>
+                <span>{t("model")}</span>
+                <input bind:value={config.llm_post_edit.model} />
+                {#if fieldError("llm_post_edit.model")}<small class="field-error">{fieldError("llm_post_edit.model")}</small>{/if}
+              </label>
+              <label class:field-invalid={Boolean(fieldError("llm_post_edit.api_key"))}>
+                <span>API Key</span>
+                <input type="password" autocomplete="off" bind:value={config.llm_post_edit.api_key} />
+                {#if fieldError("llm_post_edit.api_key")}<small class="field-error">{fieldError("llm_post_edit.api_key")}</small>{/if}
+              </label>
             </div>
             <label><span>{t("systemPrompt")}</span><textarea bind:value={config.llm_post_edit.system_prompt}></textarea></label>
-            <label><span>{t("userPromptTemplate")}</span><textarea bind:value={config.llm_post_edit.user_prompt_template}></textarea></label>
+            <label class:field-invalid={Boolean(fieldError("llm_post_edit.user_prompt_template"))}>
+              <span>{t("userPromptTemplate")}</span>
+              <textarea bind:value={config.llm_post_edit.user_prompt_template}></textarea>
+              {#if fieldError("llm_post_edit.user_prompt_template")}<small class="field-error">{fieldError("llm_post_edit.user_prompt_template")}</small>{/if}
+            </label>
           </div>
         </section>
+        {/if}
       </section>
     {:else if selectedSection === "History"}
       <section class="history-page">
@@ -2432,7 +2595,7 @@
     height: 100vh;
     padding: 0;
     overflow: hidden;
-    background: var(--overlay-bg, #176ee6);
+    background: transparent;
   }
   .overlay-caption {
     display: flex;
@@ -2445,7 +2608,7 @@
     padding: 8px 14px;
     overflow: hidden;
     color: var(--overlay-text, #ffffff);
-    background: var(--overlay-bg, #176ee6);
+    background: rgba(var(--overlay-bg-rgb, 23, 110, 230), var(--overlay-opacity, 0.9));
     border: 0;
     border-radius: 0;
     box-shadow: none;
@@ -2780,15 +2943,6 @@
   nav button:hover {
     color: var(--primary);
     background: var(--primary-light);
-  }
-  nav button.locked {
-    color: var(--text-muted);
-    cursor: not-allowed;
-    opacity: 0.64;
-  }
-  nav button.locked:hover {
-    color: var(--text-secondary);
-    background: #f8fbff;
   }
   nav button.active {
     color: #ffffff;
@@ -3477,6 +3631,39 @@
     display: grid;
     gap: 18px;
     max-width: 1040px;
+  }
+  .settings-mode-panel {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 14px 16px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: #f8fbff;
+  }
+  .settings-mode-panel h3 {
+    margin: 0;
+    color: var(--text-main);
+    font-size: 16px;
+    font-weight: 800;
+  }
+  .settings-mode-panel p {
+    margin: 4px 0 0;
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.4;
+  }
+  .settings-mode-panel button {
+    flex: 0 0 auto;
+    min-height: 34px;
+    padding: 0 12px;
+    border: 1px solid #b8d4f4;
+    border-radius: 8px;
+    background: #ffffff;
+    color: #1f66b1;
+    font-weight: 800;
+    cursor: pointer;
   }
   .settings-group {
     display: grid;

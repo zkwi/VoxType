@@ -21,6 +21,11 @@ pub struct OverlayText {
     pub text: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct OverlayConfig {
+    pub ui: UiConfig,
+}
+
 pub fn create_overlay_window(app: &AppHandle) -> Result<(), String> {
     if app.get_webview_window(OVERLAY_LABEL).is_some() {
         return Ok(());
@@ -32,7 +37,7 @@ pub fn create_overlay_window(app: &AppHandle) -> Result<(), String> {
         .decorations(false)
         .always_on_top(true)
         .skip_taskbar(true)
-        .transparent(false)
+        .transparent(true)
         .visible(false)
         .build()
         .map_err(|err| format!("创建悬浮字幕窗失败: {}", err))?;
@@ -62,6 +67,7 @@ pub fn show_for_recording(app: &AppHandle, ui: &UiConfig) {
         let y = monitor_y + (monitor_height - ui.height as f64 - ui.margin_bottom as f64).max(0.0);
         let _ = window.set_position(LogicalPosition::new(x, y));
     }
+    update_config(app, ui);
     update_text(app, DEFAULT_TEXT);
     if let Err(err) = window.show() {
         crate::app_log::warn(format!("显示悬浮字幕窗失败: {}", err));
@@ -94,6 +100,14 @@ pub fn update_text(app: &AppHandle, text: impl Into<String>) {
     let payload = OverlayText { text: text.into() };
     set_current_text(payload.text.clone());
     let _ = app.emit_to(OVERLAY_LABEL, "overlay-text", payload);
+}
+
+pub fn update_config(app: &AppHandle, ui: &UiConfig) {
+    let _ = app.emit_to(
+        OVERLAY_LABEL,
+        "overlay-config",
+        OverlayConfig { ui: ui.clone() },
+    );
 }
 
 pub fn hide(app: &AppHandle) {

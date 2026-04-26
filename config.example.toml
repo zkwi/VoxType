@@ -66,6 +66,10 @@ paste_method = "ctrl_v"
 # 自动粘贴后恢复原剪贴板；会尽量恢复纯文本、HTML/RTF 等常见富文本和可复制内存格式
 # 图片、位图句柄或部分私有格式可能无法恢复，并会保留识别文本并提示
 restore_clipboard_after_paste = true
+# 发送粘贴快捷键后，等待目标应用读取剪贴板再恢复原剪贴板
+clipboard_restore_delay_ms = 800
+# 原剪贴板快照大小上限；超过上限的格式会跳过，避免大剪贴板卡顿
+clipboard_snapshot_max_bytes = 8388608
 # 剪贴板被其他程序短暂占用时，重试打开、写入并校验文本剪贴板
 # 只提高剪贴板写入稳定性，不保证目标应用一定粘贴成功
 clipboard_open_retry_count = 5

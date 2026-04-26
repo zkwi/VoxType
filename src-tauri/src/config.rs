@@ -128,6 +128,10 @@ pub struct TypingConfig {
     pub paste_method: String,
     #[serde(default = "default_true")]
     pub restore_clipboard_after_paste: bool,
+    #[serde(default = "default_clipboard_restore_delay_ms")]
+    pub clipboard_restore_delay_ms: u64,
+    #[serde(default = "default_clipboard_snapshot_max_bytes")]
+    pub clipboard_snapshot_max_bytes: u64,
     #[serde(default = "default_clipboard_open_retry_count")]
     pub clipboard_open_retry_count: u32,
     #[serde(default = "default_clipboard_open_retry_interval_ms")]
@@ -311,6 +315,8 @@ impl Default for TypingConfig {
             paste_delay_ms: default_paste_delay_ms(),
             paste_method: default_paste_method(),
             restore_clipboard_after_paste: true,
+            clipboard_restore_delay_ms: default_clipboard_restore_delay_ms(),
+            clipboard_snapshot_max_bytes: default_clipboard_snapshot_max_bytes(),
             clipboard_open_retry_count: default_clipboard_open_retry_count(),
             clipboard_open_retry_interval_ms: default_clipboard_open_retry_interval_ms(),
         }
@@ -554,6 +560,57 @@ pub fn validate_config(config: &AppConfig) -> Result<(), Vec<ConfigValidationErr
         5_000,
         "粘贴延迟需在 0 到 5000 毫秒之间。",
     );
+    validate_u64_range(
+        &mut errors,
+        "typing.clipboard_restore_delay_ms",
+        config.typing.clipboard_restore_delay_ms,
+        0,
+        10_000,
+        "剪贴板恢复延迟需在 0 到 10000 毫秒之间。",
+    );
+    validate_u64_range(
+        &mut errors,
+        "typing.clipboard_snapshot_max_bytes",
+        config.typing.clipboard_snapshot_max_bytes,
+        0,
+        256 * 1024 * 1024,
+        "剪贴板快照大小上限需在 0 到 268435456 字节之间。",
+    );
+    validate_allowed_value(
+        &mut errors,
+        "typing.paste_method",
+        &config.typing.paste_method,
+        &["ctrl_v", "shift_insert", "clipboard_only"],
+        "粘贴方式只能是 ctrl_v、shift_insert 或 clipboard_only。",
+    );
+    validate_allowed_value(
+        &mut errors,
+        "tray.close_behavior",
+        &config.tray.close_behavior,
+        &["close_to_tray", "direct_exit", "ask_every_time"],
+        "关闭行为只能是 close_to_tray、direct_exit 或 ask_every_time。",
+    );
+    validate_url_scheme(
+        &mut errors,
+        "request.ws_url",
+        &config.request.ws_url,
+        &["ws://", "wss://"],
+        "ASR WebSocket 地址必须以 ws:// 或 wss:// 开头。",
+    );
+    if !config.llm_post_edit.base_url.trim().is_empty() {
+        validate_url_scheme(
+            &mut errors,
+            "llm_post_edit.base_url",
+            &config.llm_post_edit.base_url,
+            &["http://", "https://"],
+            "大模型 Base URL 必须以 http:// 或 https:// 开头。",
+        );
+    }
+    validate_github_repo(
+        &mut errors,
+        "update.github_repo",
+        &config.update.github_repo,
+    );
     validate_f64_range(
         &mut errors,
         "request.final_result_timeout_seconds",
@@ -606,6 +663,36 @@ pub fn validate_config(config: &AppConfig) -> Result<(), Vec<ConfigValidationErr
         300.0,
         "大模型超时时间需在 1 到 300 秒之间。",
     );
+    if config.llm_post_edit.enabled {
+        if config.llm_post_edit.api_key.trim().is_empty() {
+            push_validation_error(
+                &mut errors,
+                "llm_post_edit.api_key",
+                "启用大模型润色时必须填写 API Key。",
+            );
+        }
+        if config.llm_post_edit.base_url.trim().is_empty() {
+            push_validation_error(
+                &mut errors,
+                "llm_post_edit.base_url",
+                "启用大模型润色时必须填写 Base URL。",
+            );
+        }
+        if config.llm_post_edit.model.trim().is_empty() {
+            push_validation_error(
+                &mut errors,
+                "llm_post_edit.model",
+                "启用大模型润色时必须填写模型名。",
+            );
+        }
+        if !config.llm_post_edit.user_prompt_template.contains("{text}") {
+            push_validation_error(
+                &mut errors,
+                "llm_post_edit.user_prompt_template",
+                "User Prompt 模板必须包含 {text}。",
+            );
+        }
+    }
 
     if errors.is_empty() {
         Ok(())
@@ -720,6 +807,50 @@ fn validate_hex_color(
     if !valid {
         push_validation_error(errors, field, message);
     }
+}
+
+fn validate_allowed_value(
+    errors: &mut Vec<ConfigValidationError>,
+    field: &str,
+    value: &str,
+    allowed: &[&str],
+    message: &str,
+) {
+    if !allowed.contains(&value.trim()) {
+        push_validation_error(errors, field, message);
+    }
+}
+
+fn validate_url_scheme(
+    errors: &mut Vec<ConfigValidationError>,
+    field: &str,
+    value: &str,
+    allowed_prefixes: &[&str],
+    message: &str,
+) {
+    let value = value.trim().to_ascii_lowercase();
+    if value.is_empty()
+        || !allowed_prefixes
+            .iter()
+            .any(|prefix| value.starts_with(prefix))
+    {
+        push_validation_error(errors, field, message);
+    }
+}
+
+fn validate_github_repo(errors: &mut Vec<ConfigValidationError>, field: &str, value: &str) {
+    let parts = value.trim().split('/').collect::<Vec<_>>();
+    let valid = parts.len() == 2
+        && parts
+            .iter()
+            .all(|part| !part.is_empty() && part.chars().all(is_github_repo_char));
+    if !valid {
+        push_validation_error(errors, field, "GitHub 仓库必须使用 owner/repo 格式。");
+    }
+}
+
+fn is_github_repo_char(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' || ch == '.'
 }
 
 fn push_validation_error(errors: &mut Vec<ConfigValidationError>, field: &str, message: &str) {
@@ -886,6 +1017,12 @@ fn default_clipboard_open_retry_count() -> u32 {
 fn default_clipboard_open_retry_interval_ms() -> u64 {
     50
 }
+fn default_clipboard_restore_delay_ms() -> u64 {
+    800
+}
+fn default_clipboard_snapshot_max_bytes() -> u64 {
+    8 * 1024 * 1024
+}
 fn default_update_github_repo() -> String {
     "zkwi/VoxType".to_string()
 }
@@ -948,6 +1085,8 @@ mod tests {
         assert!(config.typing.restore_clipboard_after_paste);
         assert_eq!(config.typing.clipboard_open_retry_count, 5);
         assert_eq!(config.typing.clipboard_open_retry_interval_ms, 50);
+        assert_eq!(config.typing.clipboard_restore_delay_ms, 800);
+        assert_eq!(config.typing.clipboard_snapshot_max_bytes, 8 * 1024 * 1024);
     }
 
     #[test]
@@ -961,6 +1100,10 @@ mod tests {
         config.ui.background_color = "blue".to_string();
         config.ui.text_color = "#fff".to_string();
         config.llm_post_edit.timeout_seconds = f64::NAN;
+        config.typing.paste_method = "unknown".to_string();
+        config.tray.close_behavior = "minimize".to_string();
+        config.request.ws_url = "http://example.com/asr".to_string();
+        config.update.github_repo = "broken".to_string();
 
         let errors = validate_config(&config).expect_err("invalid config should fail");
         let fields = errors
@@ -976,6 +1119,31 @@ mod tests {
         assert!(fields.contains(&"ui.background_color"));
         assert!(fields.contains(&"ui.text_color"));
         assert!(fields.contains(&"llm_post_edit.timeout_seconds"));
+        assert!(fields.contains(&"typing.paste_method"));
+        assert!(fields.contains(&"tray.close_behavior"));
+        assert!(fields.contains(&"request.ws_url"));
+        assert!(fields.contains(&"update.github_repo"));
+    }
+
+    #[test]
+    fn validates_llm_required_fields_when_enabled() {
+        let mut config = AppConfig::default();
+        config.llm_post_edit.enabled = true;
+        config.llm_post_edit.api_key = String::new();
+        config.llm_post_edit.base_url = "ftp://example.com".to_string();
+        config.llm_post_edit.model = " ".to_string();
+        config.llm_post_edit.user_prompt_template = "polish this".to_string();
+
+        let errors = validate_config(&config).expect_err("invalid llm config should fail");
+        let fields = errors
+            .iter()
+            .map(|error| error.field.as_str())
+            .collect::<Vec<_>>();
+
+        assert!(fields.contains(&"llm_post_edit.api_key"));
+        assert!(fields.contains(&"llm_post_edit.base_url"));
+        assert!(fields.contains(&"llm_post_edit.model"));
+        assert!(fields.contains(&"llm_post_edit.user_prompt_template"));
     }
 
     #[test]
