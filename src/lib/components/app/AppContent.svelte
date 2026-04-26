@@ -1,0 +1,412 @@
+<script lang="ts">
+  import ApiConfigSection from "$lib/components/pages/ApiConfigSection.svelte";
+  import HotwordsSection from "$lib/components/pages/HotwordsSection.svelte";
+  import HomeSection from "$lib/components/pages/HomeSection.svelte";
+  import HistorySection, {
+    type HistoryDayRow,
+    type HistorySummaryCard,
+  } from "$lib/components/pages/HistorySection.svelte";
+  import OptionsSection from "$lib/components/pages/OptionsSection.svelte";
+  import type { SetupStatusItem, SetupStatusWarning } from "$lib/components/overview/SetupStatusCard.svelte";
+  import type { CopyKey, UserErrorDetail } from "$lib/i18n";
+  import type {
+    AppConfig,
+    AudioDeviceInfo,
+    Section,
+    SelectableHotwordCandidate,
+    SoftConfigNoticeKey,
+    StatsSnapshot,
+    UpdateStatus,
+  } from "$lib/types/app";
+
+  type Translate = (key: CopyKey, values?: Record<string, string>) => string;
+
+  type Props = {
+    selectedSection: Section;
+    config: AppConfig;
+    stats: StatsSnapshot;
+    autoHotwordCandidates: SelectableHotwordCandidate[];
+    llmApiConfigVisible: boolean;
+    t: Translate;
+    uiCompact: boolean;
+    recording: boolean;
+    saving: boolean;
+    settingsDirty: boolean;
+    toolbarMessage: string;
+    inputStatus: "idle" | "listening" | "error";
+    inputStatusLabel: string;
+    inputStatusDesc: string;
+    requiresAsrAuth: boolean;
+    setupRequiredMessage: () => string;
+    activeErrorDetail: UserErrorDetail | null;
+    sessionBusy: boolean;
+    snapshotHotkey: string;
+    chineseTypingCharsPerMinute: number;
+    configExists: boolean;
+    setupChecking: boolean;
+    setupStatusReady: boolean;
+    setupStatusItems: SetupStatusItem[];
+    setupWarnings: SetupStatusWarning[];
+    setupWarningCount: number;
+    testingAsr: boolean;
+    testingLlm: boolean;
+    hotkeyCaptureState: "idle" | "recording";
+    hotkeyValidationMessage: string;
+    overlayColorPresets: Array<{ label: CopyKey; background: string; text: string }>;
+    overlayOpacityPresets: readonly number[];
+    audioDevices: AudioDeviceInfo[];
+    updateStatus: UpdateStatus | null;
+    checkingUpdate: boolean;
+    installingUpdate: boolean;
+    openingLog: boolean;
+    copyingDiagnosticReport: boolean;
+    clearingRecentContext: boolean;
+    generatingAutoHotwords: boolean;
+    clearingAutoHotwordHistory: boolean;
+    autoHotwordError: string;
+    showAutoHotwordDetails: boolean;
+    hasLlmApiConfig: boolean;
+    hotwordCount: number;
+    acceptedAutoHotwordCount: number;
+    selectedAutoHotwordCount: number;
+    autoHotwordStatusText: string;
+    llmApiStatusText: string;
+    advancedHotwordsOpen: boolean;
+    advancedApiConfigOpen: boolean;
+    advancedOptionsOpen: boolean;
+    fieldError: (field: string) => string;
+    candidateConfidenceLabel: (confidence: number) => string;
+    formatHotkey: (value: string) => string;
+    formatNumber: (value: number) => string;
+    formatHours: (seconds: number) => string;
+    formatSavedHours: (hours: number) => string;
+    weeklySavedHours: () => number;
+    usageTipText: () => string;
+    triggerLabel: (enabled: boolean) => string;
+    setupActionText: (action: string) => string;
+    overlayBackgroundRgb: () => string;
+    overlayOpacity: () => number;
+    overlayTextColor: () => string;
+    overlayBackgroundColor: () => string;
+    overlayPresetActive: (background: string, text: string) => boolean;
+    overlayOpacityPresetActive: (value: number) => boolean;
+    overlayOpacityLabel: (value: number) => string;
+    updatePanelTitle: () => string;
+    updatePanelDescription: () => string;
+    updateMetaText: () => string;
+    historySummaryCards: () => HistorySummaryCard[];
+    recentSevenDayDisplayRows: () => HistoryDayRow[];
+    onOpenSettings: () => void;
+    onOpenSetupGuide: () => void;
+    onToggleRecording: () => void;
+    onSelectSection: (section: Section) => void;
+    onToggleTrigger: (key: keyof AppConfig["triggers"]) => void;
+    onReload: () => void;
+    onToggleAdvanced: (section: "Hotwords" | "ApiConfig" | "Options") => void;
+    onUpdateHotwords: (value: string) => void;
+    onTidyHotwords: () => void;
+    onClearHotwords: () => void;
+    onUpdatePromptContext: (value: string) => void;
+    onClearRecentContext: () => void;
+    onOptionEnabledNotice: (key: SoftConfigNoticeKey, enabled: boolean) => void;
+    onRestoreDefaultPrompt: () => void;
+    onPreviewFinalPrompt: () => void;
+    onOpenLlmApiSettings: () => void;
+    onGenerateAutoHotwords: () => void;
+    onClearAutoHotwordHistory: () => void;
+    onRefreshAutoHotwordStatus: () => void;
+    onUpdateAcceptedAutoHotwords: (value: string) => void;
+    onTidyAcceptedAutoHotwords: () => void;
+    onClearAcceptedAutoHotwords: () => void;
+    onApplySelectedAutoHotwords: () => void;
+    onScrollToSettingsPanel: (id: string) => void;
+    onRefreshSetupStatus: () => void;
+    onSetupAction: (action: string) => void;
+    onTestAsrConfig: () => void;
+    onTestLlmConfig: () => void;
+    onHotkeyKeydown: (event: KeyboardEvent) => void;
+    onBeginHotkeyCapture: () => void;
+    onApplyOverlayPreset: (background: string, text: string) => void;
+    onApplyOverlayOpacity: (value: number) => void;
+    onSetInputDevice: (value: string | number | null) => void;
+    onCheckUpdate: (manual?: boolean) => void;
+    onDownloadLatestUpdate: () => void;
+    onOpenLog: () => void;
+    onCopyDiagnosticReport: () => void;
+  };
+
+  let {
+    selectedSection,
+    config = $bindable<AppConfig>(),
+    stats,
+    autoHotwordCandidates = $bindable<SelectableHotwordCandidate[]>(),
+    llmApiConfigVisible = $bindable(false),
+    t,
+    uiCompact,
+    recording,
+    saving,
+    settingsDirty,
+    toolbarMessage,
+    inputStatus,
+    inputStatusLabel,
+    inputStatusDesc,
+    requiresAsrAuth,
+    setupRequiredMessage,
+    activeErrorDetail,
+    sessionBusy,
+    snapshotHotkey,
+    chineseTypingCharsPerMinute,
+    configExists,
+    setupChecking,
+    setupStatusReady,
+    setupStatusItems,
+    setupWarnings,
+    setupWarningCount,
+    testingAsr,
+    testingLlm,
+    hotkeyCaptureState,
+    hotkeyValidationMessage,
+    overlayColorPresets,
+    overlayOpacityPresets,
+    audioDevices,
+    updateStatus,
+    checkingUpdate,
+    installingUpdate,
+    openingLog,
+    copyingDiagnosticReport,
+    clearingRecentContext,
+    generatingAutoHotwords,
+    clearingAutoHotwordHistory,
+    autoHotwordError,
+    showAutoHotwordDetails,
+    hasLlmApiConfig,
+    hotwordCount,
+    acceptedAutoHotwordCount,
+    selectedAutoHotwordCount,
+    autoHotwordStatusText,
+    llmApiStatusText,
+    advancedHotwordsOpen,
+    advancedApiConfigOpen,
+    advancedOptionsOpen,
+    fieldError,
+    candidateConfidenceLabel,
+    formatHotkey,
+    formatNumber,
+    formatHours,
+    formatSavedHours,
+    weeklySavedHours,
+    usageTipText,
+    triggerLabel,
+    setupActionText,
+    overlayBackgroundRgb,
+    overlayOpacity,
+    overlayTextColor,
+    overlayBackgroundColor,
+    overlayPresetActive,
+    overlayOpacityPresetActive,
+    overlayOpacityLabel,
+    updatePanelTitle,
+    updatePanelDescription,
+    updateMetaText,
+    historySummaryCards,
+    recentSevenDayDisplayRows,
+    onOpenSettings,
+    onOpenSetupGuide,
+    onToggleRecording,
+    onSelectSection,
+    onToggleTrigger,
+    onReload,
+    onToggleAdvanced,
+    onUpdateHotwords,
+    onTidyHotwords,
+    onClearHotwords,
+    onUpdatePromptContext,
+    onClearRecentContext,
+    onOptionEnabledNotice,
+    onRestoreDefaultPrompt,
+    onPreviewFinalPrompt,
+    onOpenLlmApiSettings,
+    onGenerateAutoHotwords,
+    onClearAutoHotwordHistory,
+    onRefreshAutoHotwordStatus,
+    onUpdateAcceptedAutoHotwords,
+    onTidyAcceptedAutoHotwords,
+    onClearAcceptedAutoHotwords,
+    onApplySelectedAutoHotwords,
+    onScrollToSettingsPanel,
+    onRefreshSetupStatus,
+    onSetupAction,
+    onTestAsrConfig,
+    onTestLlmConfig,
+    onHotkeyKeydown,
+    onBeginHotkeyCapture,
+    onApplyOverlayPreset,
+    onApplyOverlayOpacity,
+    onSetInputDevice,
+    onCheckUpdate,
+    onDownloadLatestUpdate,
+    onOpenLog,
+    onCopyDiagnosticReport,
+  }: Props = $props();
+</script>
+
+{#if selectedSection === "Home"}
+  <HomeSection
+    {config}
+    {stats}
+    {t}
+    {uiCompact}
+    {recording}
+    {saving}
+    {inputStatus}
+    {inputStatusLabel}
+    {inputStatusDesc}
+    {requiresAsrAuth}
+    setupRequiredMessage={setupRequiredMessage()}
+    {activeErrorDetail}
+    {sessionBusy}
+    {snapshotHotkey}
+    {chineseTypingCharsPerMinute}
+    {formatHotkey}
+    {formatNumber}
+    {formatHours}
+    {formatSavedHours}
+    {weeklySavedHours}
+    {usageTipText}
+    {triggerLabel}
+    onOpenSettings={onOpenSettings}
+    onOpenSetupGuide={onOpenSetupGuide}
+    onToggleRecording={onToggleRecording}
+    onSelectSection={onSelectSection}
+    onToggleTrigger={onToggleTrigger}
+  />
+{:else if selectedSection === "Hotwords"}
+  <HotwordsSection
+    bind:config
+    bind:autoHotwordCandidates
+    {t}
+    {saving}
+    {settingsDirty}
+    {toolbarMessage}
+    advancedOpen={advancedHotwordsOpen}
+    {clearingRecentContext}
+    {generatingAutoHotwords}
+    {clearingAutoHotwordHistory}
+    {autoHotwordError}
+    {showAutoHotwordDetails}
+    {hasLlmApiConfig}
+    {hotwordCount}
+    {acceptedAutoHotwordCount}
+    {selectedAutoHotwordCount}
+    {autoHotwordStatusText}
+    {fieldError}
+    {candidateConfidenceLabel}
+    onReload={onReload}
+    onToggleAdvanced={() => onToggleAdvanced("Hotwords")}
+    onUpdateHotwords={onUpdateHotwords}
+    onTidyHotwords={onTidyHotwords}
+    onClearHotwords={onClearHotwords}
+    onUpdatePromptContext={onUpdatePromptContext}
+    onClearRecentContext={onClearRecentContext}
+    onOptionEnabledNotice={onOptionEnabledNotice}
+    onRestoreDefaultPrompt={onRestoreDefaultPrompt}
+    onPreviewFinalPrompt={onPreviewFinalPrompt}
+    onOpenLlmApiSettings={onOpenLlmApiSettings}
+    onGenerateAutoHotwords={onGenerateAutoHotwords}
+    onClearAutoHotwordHistory={onClearAutoHotwordHistory}
+    onRefreshAutoHotwordStatus={onRefreshAutoHotwordStatus}
+    onUpdateAcceptedAutoHotwords={onUpdateAcceptedAutoHotwords}
+    onTidyAcceptedAutoHotwords={onTidyAcceptedAutoHotwords}
+    onClearAcceptedAutoHotwords={onClearAcceptedAutoHotwords}
+    onApplySelectedAutoHotwords={onApplySelectedAutoHotwords}
+  />
+{:else if selectedSection === "ApiConfig"}
+  <ApiConfigSection
+    bind:config
+    bind:llmApiConfigVisible
+    {t}
+    {saving}
+    {settingsDirty}
+    {toolbarMessage}
+    advancedOpen={advancedApiConfigOpen}
+    {configExists}
+    {setupChecking}
+    {setupStatusReady}
+    {setupStatusItems}
+    {setupWarnings}
+    {setupWarningCount}
+    {snapshotHotkey}
+    {requiresAsrAuth}
+    {testingAsr}
+    {testingLlm}
+    {hasLlmApiConfig}
+    {llmApiStatusText}
+    {fieldError}
+    {setupRequiredMessage}
+    {setupActionText}
+    {formatHotkey}
+    onReload={onReload}
+    onToggleAdvanced={() => onToggleAdvanced("ApiConfig")}
+    onScrollToSettingsPanel={onScrollToSettingsPanel}
+    onOpenSetupGuide={onOpenSetupGuide}
+    onRefreshSetupStatus={onRefreshSetupStatus}
+    onSetupAction={onSetupAction}
+    onTestAsrConfig={onTestAsrConfig}
+    onTestLlmConfig={onTestLlmConfig}
+  />
+{:else if selectedSection === "Options"}
+  <OptionsSection
+    bind:config
+    {t}
+    {saving}
+    {settingsDirty}
+    {toolbarMessage}
+    advancedOpen={advancedOptionsOpen}
+    {hotkeyCaptureState}
+    {hotkeyValidationMessage}
+    {overlayColorPresets}
+    {overlayOpacityPresets}
+    {audioDevices}
+    {updateStatus}
+    {checkingUpdate}
+    {installingUpdate}
+    {openingLog}
+    {copyingDiagnosticReport}
+    {fieldError}
+    {formatHotkey}
+    {overlayBackgroundRgb}
+    {overlayOpacity}
+    {overlayTextColor}
+    {overlayBackgroundColor}
+    {overlayPresetActive}
+    {overlayOpacityPresetActive}
+    {overlayOpacityLabel}
+    {updatePanelTitle}
+    {updatePanelDescription}
+    {updateMetaText}
+    onReload={onReload}
+    onToggleAdvanced={() => onToggleAdvanced("Options")}
+    onHotkeyKeydown={onHotkeyKeydown}
+    onBeginHotkeyCapture={onBeginHotkeyCapture}
+    onOptionEnabledNotice={onOptionEnabledNotice}
+    onApplyOverlayPreset={onApplyOverlayPreset}
+    onApplyOverlayOpacity={onApplyOverlayOpacity}
+    onSetInputDevice={onSetInputDevice}
+    onCheckUpdate={onCheckUpdate}
+    onDownloadLatestUpdate={onDownloadLatestUpdate}
+    onOpenLog={onOpenLog}
+    onCopyDiagnosticReport={onCopyDiagnosticReport}
+  />
+{:else if selectedSection === "History"}
+  <HistorySection
+    summaryCards={historySummaryCards()}
+    dayRows={recentSevenDayDisplayRows()}
+    byDayTitle={t("byDay")}
+    byDayDescription={t("lastSevenDays")}
+    dateColumnLabel={t("dateColumn")}
+    inputCharsLabel={t("dailyInputChars")}
+    voiceDurationLabel={t("voiceDuration")}
+    averageSpeedLabel={t("averageInputSpeed")}
+    savedTimeLabel={t("dailySavedTime")}
+  />
+{/if}

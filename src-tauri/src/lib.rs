@@ -31,7 +31,7 @@ struct AppSnapshot {
     current_version: String,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 struct SetupStatus {
     ready: bool,
     missing_auth: bool,
@@ -42,7 +42,7 @@ struct SetupStatus {
     warnings: Vec<SetupWarning>,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 struct SetupWarning {
     code: String,
     level: String,
@@ -86,12 +86,16 @@ fn get_app_snapshot() -> Result<AppSnapshot, String> {
 #[tauri::command]
 fn get_setup_status() -> Result<SetupStatus, String> {
     let loaded = config::load_config()?;
-    let data = loaded.data;
-    let missing_auth =
-        data.auth.app_key.trim().is_empty() || data.auth.access_key.trim().is_empty();
     let has_audio_device = audio::list_input_devices()
         .map(|devices| !devices.is_empty())
         .unwrap_or(false);
+
+    Ok(build_setup_status(loaded.data, has_audio_device))
+}
+
+fn build_setup_status(data: AppConfig, has_audio_device: bool) -> SetupStatus {
+    let missing_auth =
+        data.auth.app_key.trim().is_empty() || data.auth.access_key.trim().is_empty();
     let mut warnings = Vec::new();
 
     if missing_auth {
@@ -124,7 +128,7 @@ fn get_setup_status() -> Result<SetupStatus, String> {
             action: "hotkey".to_string(),
         });
     }
-    Ok(SetupStatus {
+    SetupStatus {
         ready: !missing_auth && has_audio_device && any_trigger_enabled,
         missing_auth,
         has_audio_device,
@@ -132,7 +136,7 @@ fn get_setup_status() -> Result<SetupStatus, String> {
         paste_method: data.typing.paste_method,
         privacy_recent_context_enabled: data.context.enable_recent_context,
         warnings,
-    })
+    }
 }
 
 #[tauri::command]
@@ -738,8 +742,8 @@ fn redact_user_path(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        autostart_update_needed, hotkey_registration_test_needed, hotkey_runtime_update_needed,
-        AppConfig,
+        autostart_update_needed, build_setup_status, hotkey_registration_test_needed,
+        hotkey_runtime_update_needed, AppConfig,
     };
 
     #[test]
@@ -797,5 +801,55 @@ mod tests {
         next.startup.launch_on_startup = !previous.startup.launch_on_startup;
 
         assert!(autostart_update_needed(Some(&previous), &next));
+    }
+
+    #[test]
+    fn setup_status_blocks_missing_auth_audio_and_triggers() {
+        let mut config = AppConfig::default();
+        config.auth.app_key.clear();
+        config.auth.access_key.clear();
+        config.triggers.hotkey_enabled = false;
+        config.triggers.middle_mouse_enabled = false;
+        config.triggers.right_alt_enabled = false;
+
+        let status = build_setup_status(config, false);
+        let codes: Vec<&str> = status
+            .warnings
+            .iter()
+            .map(|warning| warning.code.as_str())
+            .collect();
+
+        assert!(!status.ready);
+        assert!(status.missing_auth);
+        assert!(!status.has_audio_device);
+        assert_eq!(status.warnings.len(), 3);
+        assert!(codes.contains(&"ASR_AUTH_MISSING"));
+        assert!(codes.contains(&"MIC_DEVICE_NOT_FOUND"));
+        assert!(codes.contains(&"TRIGGER_DISABLED"));
+        assert!(status
+            .warnings
+            .iter()
+            .all(|warning| warning.level == "blocking"));
+    }
+
+    #[test]
+    fn setup_status_is_ready_when_auth_audio_and_trigger_are_available() {
+        let mut config = AppConfig::default();
+        config.auth.app_key = "app-key".to_string();
+        config.auth.access_key = "access-key".to_string();
+        config.triggers.hotkey_enabled = true;
+        config.triggers.middle_mouse_enabled = false;
+        config.triggers.right_alt_enabled = false;
+        config.context.enable_recent_context = true;
+
+        let status = build_setup_status(config, true);
+
+        assert!(status.ready);
+        assert!(!status.missing_auth);
+        assert!(status.has_audio_device);
+        assert_eq!(status.hotkey, "ctrl+q");
+        assert_eq!(status.paste_method, "ctrl_v");
+        assert!(status.privacy_recent_context_enabled);
+        assert!(status.warnings.is_empty());
     }
 }

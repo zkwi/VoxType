@@ -1,0 +1,829 @@
+<script lang="ts">
+  import AdvancedPanel from "$lib/components/common/AdvancedPanel.svelte";
+  import SettingsToolbar from "$lib/components/settings/SettingsToolbar.svelte";
+  import type {
+    AppConfig,
+    AudioDeviceInfo,
+    HotkeyCaptureState,
+    SoftConfigNoticeKey,
+    UpdateStatus,
+  } from "$lib/types/app";
+  import type { CopyKey } from "$lib/i18n";
+  import { ClipboardCopy, Download, FileText, Keyboard, ShieldCheck } from "lucide-svelte";
+
+  type Translate = (key: CopyKey, values?: Record<string, string>) => string;
+  type OverlayColorPreset = { label: CopyKey; background: string; text: string };
+
+  type Props = {
+    config: AppConfig;
+    t: Translate;
+    saving: boolean;
+    settingsDirty: boolean;
+    toolbarMessage: string;
+    advancedOpen: boolean;
+    hotkeyCaptureState: HotkeyCaptureState;
+    hotkeyValidationMessage: string;
+    overlayColorPresets: OverlayColorPreset[];
+    overlayOpacityPresets: readonly number[];
+    audioDevices: AudioDeviceInfo[];
+    updateStatus: UpdateStatus | null;
+    checkingUpdate: boolean;
+    installingUpdate: boolean;
+    openingLog: boolean;
+    copyingDiagnosticReport: boolean;
+    fieldError: (field: string) => string;
+    formatHotkey: (value: string) => string;
+    overlayBackgroundRgb: () => string;
+    overlayOpacity: () => number;
+    overlayTextColor: () => string;
+    overlayBackgroundColor: () => string;
+    overlayPresetActive: (background: string, text: string) => boolean;
+    overlayOpacityPresetActive: (opacity: number) => boolean;
+    overlayOpacityLabel: (opacity: number) => string;
+    updatePanelTitle: () => string;
+    updatePanelDescription: () => string;
+    updateMetaText: () => string;
+    onReload: () => void;
+    onToggleAdvanced: () => void;
+    onHotkeyKeydown: (event: KeyboardEvent) => void;
+    onBeginHotkeyCapture: () => void;
+    onOptionEnabledNotice: (key: SoftConfigNoticeKey, enabled: boolean) => void;
+    onApplyOverlayPreset: (background: string, text: string) => void;
+    onApplyOverlayOpacity: (opacity: number) => void;
+    onSetInputDevice: (value: string) => void;
+    onCheckUpdate: (manual: boolean) => void;
+    onDownloadLatestUpdate: () => void;
+    onOpenLog: () => void;
+    onCopyDiagnosticReport: () => void;
+  };
+
+  let {
+    config = $bindable<AppConfig>(),
+    t,
+    saving,
+    settingsDirty,
+    toolbarMessage,
+    advancedOpen,
+    hotkeyCaptureState,
+    hotkeyValidationMessage,
+    overlayColorPresets,
+    overlayOpacityPresets,
+    audioDevices,
+    updateStatus,
+    checkingUpdate,
+    installingUpdate,
+    openingLog,
+    copyingDiagnosticReport,
+    fieldError,
+    formatHotkey,
+    overlayBackgroundRgb,
+    overlayOpacity,
+    overlayTextColor,
+    overlayBackgroundColor,
+    overlayPresetActive,
+    overlayOpacityPresetActive,
+    overlayOpacityLabel,
+    updatePanelTitle,
+    updatePanelDescription,
+    updateMetaText,
+    onReload,
+    onToggleAdvanced,
+    onHotkeyKeydown,
+    onBeginHotkeyCapture,
+    onOptionEnabledNotice,
+    onApplyOverlayPreset,
+    onApplyOverlayOpacity,
+    onSetInputDevice,
+    onCheckUpdate,
+    onDownloadLatestUpdate,
+    onOpenLog,
+    onCopyDiagnosticReport,
+  }: Props = $props();
+</script>
+
+<section class="settings-stack">
+  <SettingsToolbar
+    title={t("settingsActionTitle")}
+    hint={t("settingsActionHint")}
+    statusMessage={toolbarMessage}
+    reloadLabel={t("reload")}
+    {saving}
+    dirty={settingsDirty}
+    onReload={onReload}
+  />
+  <AdvancedPanel
+    title={advancedOpen ? t("advancedSettings") : t("basicSettings")}
+    description={advancedOpen ? t("advancedSettingsHint") : t("optionsBasicHint")}
+    open={advancedOpen}
+    showLabel={t("showAdvancedSettings")}
+    hideLabel={t("hideAdvancedSettings")}
+    onToggle={onToggleAdvanced}
+  />
+  <section class="settings-group">
+    <div class="settings-group-heading">
+      <h3>{t("optionsPageTitle")}</h3>
+      <p>{t("optionsPageDescription")}</p>
+    </div>
+    <div id="settings-output" class="form-panel">
+      <div class="section-heading"><h3>{t("startAndOutput")}</h3><p>{t("typingDescription")}</p></div>
+      <div class="form-grid">
+        <label class:field-invalid={Boolean(fieldError("hotkey") || hotkeyValidationMessage)}>
+          <span>{t("hotkey")}</span>
+          <button
+            type="button"
+            class:recording={hotkeyCaptureState === "recording"}
+            class="hotkey-recorder"
+            onkeydown={onHotkeyKeydown}
+            onclick={onBeginHotkeyCapture}
+          >
+            <Keyboard size={16} />
+            <strong>{hotkeyCaptureState === "recording" ? t("hotkeyRecording") : formatHotkey(config.hotkey) || t("hotkeyUnset")}</strong>
+          </button>
+          <small class="field-hint">{hotkeyValidationMessage || fieldError("hotkey") || t("hotkeyRecordHint")}</small>
+        </label>
+        <label class:field-invalid={Boolean(fieldError("typing.paste_method"))}>
+          <span>{t("pasteMethod")}</span>
+          <select bind:value={config.typing.paste_method}><option value="ctrl_v">Ctrl + V</option><option value="shift_insert">Shift + Insert</option><option value="clipboard_only">{t("clipboardOnly")}</option></select>
+          {#if fieldError("typing.paste_method")}<small class="field-error">{fieldError("typing.paste_method")}</small>{/if}
+        </label>
+        <label class:field-invalid={Boolean(fieldError("tray.close_behavior"))}>
+          <span>{t("closeBehavior")}</span>
+          <select bind:value={config.tray.close_behavior}>
+            <option value="close_to_tray">{t("closeBehaviorCloseToTray")}</option>
+            <option value="direct_exit">{t("closeBehaviorDirectExit")}</option>
+            <option value="ask_every_time">{t("closeBehaviorAskEveryTime")}</option>
+          </select>
+          {#if fieldError("tray.close_behavior")}<small class="field-error">{fieldError("tray.close_behavior")}</small>{/if}
+        </label>
+        {#if advancedOpen}
+          <label class:field-invalid={Boolean(fieldError("typing.paste_delay_ms"))}>
+            <span>{t("pasteDelayMs")}</span>
+            <input type="number" bind:value={config.typing.paste_delay_ms} />
+            {#if fieldError("typing.paste_delay_ms")}<small class="field-error">{fieldError("typing.paste_delay_ms")}</small>{/if}
+          </label>
+          <label class:field-invalid={Boolean(fieldError("typing.clipboard_restore_delay_ms"))}>
+            <span>{t("clipboardRestoreDelay")}</span>
+            <input type="number" bind:value={config.typing.clipboard_restore_delay_ms} />
+            {#if fieldError("typing.clipboard_restore_delay_ms")}<small class="field-error">{fieldError("typing.clipboard_restore_delay_ms")}</small>{/if}
+          </label>
+          <label class:field-invalid={Boolean(fieldError("typing.clipboard_snapshot_max_bytes"))}>
+            <span>{t("clipboardSnapshotMaxBytes")}</span>
+            <input type="number" bind:value={config.typing.clipboard_snapshot_max_bytes} />
+            {#if fieldError("typing.clipboard_snapshot_max_bytes")}<small class="field-error">{fieldError("typing.clipboard_snapshot_max_bytes")}</small>{/if}
+          </label>
+          <label><span>{t("clipboardRetryCount")}</span><input type="number" bind:value={config.typing.clipboard_open_retry_count} /></label>
+          <label><span>{t("clipboardRetryInterval")}</span><input type="number" bind:value={config.typing.clipboard_open_retry_interval_ms} /></label>
+        {/if}
+      </div>
+      <div class="toggle-grid">
+        <label class="check"><input type="checkbox" bind:checked={config.triggers.hotkey_enabled} />{t("mainHotkey")}</label>
+        <label class="check"><input type="checkbox" bind:checked={config.triggers.middle_mouse_enabled} onchange={(event) => onOptionEnabledNotice("middle_mouse_enabled", event.currentTarget.checked)} /><span class="check-copy"><span>{t("middleMouse")}</span><small>{t("tagConflictRisk")}</small></span></label>
+        <label class="check"><input type="checkbox" bind:checked={config.triggers.right_alt_enabled} onchange={(event) => onOptionEnabledNotice("right_alt_enabled", event.currentTarget.checked)} /><span class="check-copy"><span>{t("rightAlt")}</span><small>{t("tagConflictRisk")}</small></span></label>
+        {#if advancedOpen}
+          <label class="check"><input type="checkbox" bind:checked={config.typing.restore_clipboard_after_paste} />{t("restoreClipboardAfterPaste")}</label>
+        {/if}
+        <label class="check"><input type="checkbox" bind:checked={config.startup.launch_on_startup} />{t("launchOnStartup")}</label>
+      </div>
+      <p class="field-hint">{t("clipboardTextRestoreHint")}</p>
+      {#if advancedOpen}
+        <p class="field-hint">{t("clipboardRestoreDelayHint")}</p>
+        <p class="field-hint">{t("clipboardRetryHint")}</p>
+      {/if}
+      <p class="field-hint">{t("triggerConflictHint")}</p>
+    </div>
+    <div id="settings-overlay" class="form-panel">
+      <div class="section-heading"><h3>{t("floatingCaptionAppearance")}</h3><p>{t("floatingCaptionAppearanceDescription")}</p></div>
+      <div class="caption-theme-panel">
+        <div class="caption-theme-head">
+          <div>
+            <strong>{t("captionColors")}</strong>
+            <span>{t("captionColorsDescription")}</span>
+          </div>
+          <div class="caption-preview" style={`--preview-bg-rgb: ${overlayBackgroundRgb()}; --preview-opacity: ${overlayOpacity()}; --preview-text: ${overlayTextColor()};`}>
+            {t("captionPreviewText")}
+          </div>
+        </div>
+        <div class="preset-row">
+          {#each overlayColorPresets as preset}
+            <button
+              type="button"
+              class:active={overlayPresetActive(preset.background, preset.text)}
+              aria-pressed={overlayPresetActive(preset.background, preset.text)}
+              onclick={() => onApplyOverlayPreset(preset.background, preset.text)}
+            >
+              <span class="preset-swatch" style={`--preset-bg: ${preset.background}; --preset-text: ${preset.text};`}>Aa</span>
+              <span>{t(preset.label)}</span>
+            </button>
+          {/each}
+        </div>
+        <div class="caption-opacity-row" class:field-invalid={Boolean(fieldError("ui.opacity"))}>
+          <div>
+            <strong>{t("captionOpacity")}</strong>
+            <span>{t("captionOpacityDescription")}</span>
+          </div>
+          <div class="preset-row opacity-preset-row">
+            {#each overlayOpacityPresets as opacity}
+              <button
+                type="button"
+                class:active={overlayOpacityPresetActive(opacity)}
+                aria-pressed={overlayOpacityPresetActive(opacity)}
+                onclick={() => onApplyOverlayOpacity(opacity)}
+              >
+                {overlayOpacityLabel(opacity)}
+              </button>
+            {/each}
+          </div>
+          {#if fieldError("ui.opacity")}<small class="field-error">{fieldError("ui.opacity")}</small>{/if}
+        </div>
+        {#if advancedOpen}
+          <div class="form-grid color-grid">
+            <label class="color-field" class:field-invalid={Boolean(fieldError("ui.background_color"))}>
+              <span>{t("captionBackgroundColor")}</span>
+              <input type="color" value={overlayBackgroundColor()} oninput={(event) => (config.ui.background_color = event.currentTarget.value)} />
+              {#if fieldError("ui.background_color")}<small class="field-error">{fieldError("ui.background_color")}</small>{/if}
+            </label>
+            <label class="color-field" class:field-invalid={Boolean(fieldError("ui.text_color"))}>
+              <span>{t("captionTextColor")}</span>
+              <input type="color" value={overlayTextColor()} oninput={(event) => (config.ui.text_color = event.currentTarget.value)} />
+              {#if fieldError("ui.text_color")}<small class="field-error">{fieldError("ui.text_color")}</small>{/if}
+            </label>
+          </div>
+        {/if}
+      </div>
+      {#if advancedOpen}
+        <div class="form-grid">
+          <label class:field-invalid={Boolean(fieldError("ui.width"))}>
+            <span>{t("width")}</span>
+            <input type="number" bind:value={config.ui.width} />
+            {#if fieldError("ui.width")}<small class="field-error">{fieldError("ui.width")}</small>{/if}
+          </label>
+          <label class:field-invalid={Boolean(fieldError("ui.height"))}>
+            <span>{t("height")}</span>
+            <input type="number" bind:value={config.ui.height} />
+            {#if fieldError("ui.height")}<small class="field-error">{fieldError("ui.height")}</small>{/if}
+          </label>
+          <label><span>{t("marginBottom")}</span><input type="number" bind:value={config.ui.margin_bottom} /></label>
+          <label><span>{t("scrollInterval")}</span><input type="number" bind:value={config.ui.scroll_interval_ms} /></label>
+          <label><span>{t("startupTimeout")}</span><input type="number" bind:value={config.tray.startup_message_timeout_ms} /></label>
+        </div>
+        <div class="toggle-grid">
+          <label class="check"><input type="checkbox" bind:checked={config.tray.show_startup_message} />{t("showStartupMessage")}</label>
+        </div>
+        <p class="field-hint">{t("closeBehaviorHint")}</p>
+      {/if}
+    </div>
+    <div id="settings-audio" class="form-panel">
+      <div class="section-heading"><h3>{t("recordingParams")}</h3><p>{t("audioDescription")}</p></div>
+      <div class="form-grid">
+        <label>
+          <span>{t("inputDevice")}</span>
+          <select value={config.audio.input_device ?? ""} onchange={(event) => onSetInputDevice(event.currentTarget.value)}>
+            <option value="">{t("defaultInputDevice")}</option>
+            {#if audioDevices.length === 0}
+              <option value="" disabled>{t("noAudioDevices")}</option>
+            {/if}
+            {#each audioDevices as device}
+              <option value={device.index}>{device.index}: {device.name}</option>
+            {/each}
+          </select>
+        </label>
+        {#if advancedOpen}
+          <label class:field-invalid={Boolean(fieldError("audio.sample_rate"))}>
+            <span>{t("sampleRate")}</span>
+            <input type="number" bind:value={config.audio.sample_rate} />
+            {#if fieldError("audio.sample_rate")}<small class="field-error">{fieldError("audio.sample_rate")}</small>{/if}
+          </label>
+          <label class:field-invalid={Boolean(fieldError("audio.channels"))}>
+            <span>{t("channels")}</span>
+            <input type="number" bind:value={config.audio.channels} />
+            {#if fieldError("audio.channels")}<small class="field-error">{fieldError("audio.channels")}</small>{/if}
+          </label>
+          <label class:field-invalid={Boolean(fieldError("audio.segment_ms"))}>
+            <span>{t("segmentMs")}</span>
+            <input type="number" bind:value={config.audio.segment_ms} />
+            {#if fieldError("audio.segment_ms")}<small class="field-error">{fieldError("audio.segment_ms")}</small>{/if}
+          </label>
+          <label class:field-invalid={Boolean(fieldError("audio.max_record_seconds"))}>
+            <span>{t("maxSeconds")}</span>
+            <input type="number" bind:value={config.audio.max_record_seconds} />
+            {#if fieldError("audio.max_record_seconds")}<small class="field-error">{fieldError("audio.max_record_seconds")}</small>{/if}
+          </label>
+          <label class:field-invalid={Boolean(fieldError("audio.stop_grace_ms"))}>
+            <span>{t("stopGraceMs")}</span>
+            <input type="number" bind:value={config.audio.stop_grace_ms} />
+            {#if fieldError("audio.stop_grace_ms")}<small class="field-error">{fieldError("audio.stop_grace_ms")}</small>{/if}
+          </label>
+        {/if}
+      </div>
+      {#if advancedOpen}
+        <div class="toggle-grid">
+          <label class="check"><input type="checkbox" bind:checked={config.audio.mute_system_volume_while_recording} onchange={(event) => onOptionEnabledNotice("mute_system_volume_while_recording", event.currentTarget.checked)} /><span class="check-copy"><span>{t("muteSystemAudio")}</span><small>{t("tagAdvanced")}</small></span></label>
+        </div>
+        <p class="field-hint">{t("muteSystemAudioHint")}</p>
+      {/if}
+    </div>
+    {#if advancedOpen}
+      <div id="settings-update" class="form-panel update-panel">
+        <div class="section-heading"><h3>{t("softwareUpdate")}</h3><p>{t("softwareUpdateDescription")}</p></div>
+        <div class:available={updateStatus?.update_available} class="update-card">
+          <div>
+            <strong>{updatePanelTitle()}</strong>
+            <p>{updatePanelDescription()}</p>
+            <small>{updateMetaText()}</small>
+          </div>
+          <div class="update-actions">
+            <button type="button" onclick={() => onCheckUpdate(true)} disabled={checkingUpdate}>
+              <ShieldCheck size={16} />{checkingUpdate ? t("checkingUpdates") : t("checkUpdates")}
+            </button>
+            {#if updateStatus?.update_available && updateStatus.asset_name}
+              <button type="button" class="primary" onclick={onDownloadLatestUpdate} disabled={installingUpdate}>
+                <Download size={16} />{installingUpdate ? t("downloadingInstall") : t("downloadInstall")}
+              </button>
+            {/if}
+          </div>
+        </div>
+        <div class="toggle-grid">
+          <label class="check"><input type="checkbox" bind:checked={config.update.auto_check_on_startup} />{t("autoCheckUpdates")}</label>
+        </div>
+        <label class:field-invalid={Boolean(fieldError("update.github_repo"))}>
+          <span>GitHub Release Repo</span>
+          <input bind:value={config.update.github_repo} />
+          {#if fieldError("update.github_repo")}<small class="field-error">{fieldError("update.github_repo")}</small>{/if}
+        </label>
+      </div>
+      <div id="settings-diagnostics" class="form-panel">
+        <div class="section-heading"><h3>{t("diagnosticsAndLogs")}</h3><p>{t("diagnosticsDescription")}</p></div>
+        <div class="update-card">
+          <div>
+            <strong>{t("logStatusTitle")}</strong>
+            <p>{t("logStatusDescription")}</p>
+          </div>
+          <div class="update-actions">
+            <button type="button" onclick={onOpenLog} disabled={openingLog}>
+              <FileText size={16} />{openingLog ? t("openingLog") : t("openLog")}
+            </button>
+            <button type="button" onclick={onCopyDiagnosticReport} disabled={copyingDiagnosticReport}>
+              <ClipboardCopy size={16} />{copyingDiagnosticReport ? t("copyingReport") : t("copyDiagnosticReport")}
+            </button>
+          </div>
+        </div>
+      </div>
+    {/if}
+  </section>
+</section>
+
+<style>
+  .settings-stack {
+    display: grid;
+    gap: 18px;
+    max-width: 1040px;
+  }
+
+  .settings-group {
+    display: grid;
+    gap: 12px;
+  }
+
+  .settings-group-heading {
+    display: grid;
+    gap: 4px;
+    padding: 0 2px;
+  }
+
+  .settings-group-heading h3,
+  .section-heading h3 {
+    margin: 0;
+    color: var(--text-main);
+    font-weight: 800;
+  }
+
+  .settings-group-heading h3 {
+    font-size: 20px;
+  }
+
+  .settings-group-heading p,
+  .section-heading p {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 13px;
+  }
+
+  .form-panel {
+    display: grid;
+    gap: 14px;
+    min-width: 0;
+    padding: 18px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+  }
+
+  .form-panel[id^="settings-"] {
+    scroll-margin-top: 86px;
+  }
+
+  .form-panel label {
+    display: grid;
+    align-content: start;
+    gap: 8px;
+    color: var(--text-secondary);
+    font-size: 14px;
+  }
+
+  .section-heading {
+    display: grid;
+    gap: 4px;
+  }
+
+  .section-heading h3 {
+    margin-bottom: 6px;
+    font-size: 16px;
+  }
+
+  .form-grid,
+  .toggle-grid {
+    display: grid;
+    align-items: start;
+    gap: 16px 14px;
+  }
+
+  .form-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .toggle-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .color-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .check {
+    display: flex !important;
+    align-items: center;
+    gap: 10px;
+    min-height: 38px;
+    min-width: 0;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+  }
+
+  .check input {
+    flex: 0 0 auto;
+    width: 18px;
+    min-height: 18px;
+    accent-color: var(--primary);
+  }
+
+  .check-copy {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .check-copy span {
+    color: var(--text-main);
+    font-size: 14px;
+    font-weight: 700;
+  }
+
+  .check-copy small {
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1.25;
+  }
+
+  input,
+  select {
+    width: 100%;
+    min-height: 38px;
+    padding: 0 12px;
+    color: var(--text-main);
+    background: #ffffff;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+  }
+
+  select,
+  input {
+    min-width: 0;
+    text-overflow: ellipsis;
+  }
+
+  input:focus,
+  select:focus,
+  button:focus-visible {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(47, 128, 237, 0.14);
+  }
+
+  .field-hint {
+    margin: 8px 0 0;
+    color: var(--text-muted);
+    font-size: 12px;
+    line-height: 1.45;
+  }
+
+  .field-invalid input,
+  .field-invalid select {
+    border-color: var(--danger);
+    background: #fff7f7;
+  }
+
+  .field-error {
+    color: var(--danger);
+    font-size: 12px;
+    line-height: 1.35;
+  }
+
+  .hotkey-recorder {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 9px;
+    width: 100%;
+    min-height: 38px;
+    padding: 0 12px;
+    color: var(--text-main);
+    background: #ffffff;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    text-align: left;
+  }
+
+  .hotkey-recorder strong {
+    min-width: 0;
+    overflow: hidden;
+    color: inherit;
+    font-size: 14px;
+    font-weight: 800;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .hotkey-recorder :global(svg) {
+    flex: 0 0 auto;
+    color: var(--primary);
+  }
+
+  .hotkey-recorder.recording {
+    border-color: var(--primary);
+    background: var(--primary-light);
+    box-shadow: 0 0 0 3px rgba(47, 128, 237, 0.14);
+  }
+
+  .field-invalid .hotkey-recorder {
+    border-color: var(--danger);
+    background: #fff7f7;
+  }
+
+  .caption-theme-panel {
+    display: grid;
+    gap: 12px;
+    padding: 14px;
+    background: #f8fbff;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+  }
+
+  .caption-theme-head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .caption-theme-head > div:first-child {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  .caption-theme-head strong,
+  .caption-opacity-row strong {
+    color: var(--text-main);
+    font-size: 14px;
+    font-weight: 800;
+  }
+
+  .caption-theme-head span,
+  .caption-opacity-row span {
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.45;
+  }
+
+  .caption-preview {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 168px;
+    min-height: 36px;
+    padding: 0 14px;
+    overflow: hidden;
+    color: var(--preview-text);
+    background: rgba(var(--preview-bg-rgb), var(--preview-opacity));
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 700;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .preset-row {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .preset-row button {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    min-height: 42px;
+    padding: 6px 10px;
+    color: var(--text-main);
+    background: #ffffff;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 700;
+  }
+
+  .preset-row button.active {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px rgba(47, 128, 237, 0.12);
+  }
+
+  .preset-row button > span:last-child {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .preset-swatch {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 26px;
+    color: var(--preset-text);
+    background: var(--preset-bg);
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 800;
+  }
+
+  .caption-opacity-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(220px, 0.8fr);
+    align-items: center;
+    gap: 12px;
+  }
+
+  .caption-opacity-row > div:first-child {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  .opacity-preset-row {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .opacity-preset-row button {
+    justify-content: center;
+    padding: 6px 8px;
+  }
+
+  .color-field input[type="color"] {
+    height: 38px;
+    padding: 4px;
+    cursor: pointer;
+  }
+
+  .update-actions button:disabled {
+    cursor: wait;
+    opacity: 0.66;
+  }
+
+  .update-card {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 14px;
+    background: #f8fbff;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+  }
+
+  .update-card > div:first-child {
+    min-width: 0;
+  }
+
+  .update-card.available {
+    background: #fff7ed;
+    border-color: #fed7aa;
+  }
+
+  .update-card strong {
+    display: block;
+    margin-bottom: 4px;
+    color: var(--text-main);
+    font-size: 15px;
+    font-weight: 800;
+  }
+
+  .update-card p {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+  }
+
+  .update-card small {
+    display: block;
+    margin-top: 6px;
+    color: var(--text-muted);
+    font-size: 12px;
+  }
+
+  .update-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: flex-end;
+    min-width: 0;
+  }
+
+  .update-actions button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 36px;
+    min-width: 118px;
+    padding: 0 12px;
+    color: var(--text-main);
+    background: #ffffff;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+
+  .update-actions .primary {
+    color: #ffffff;
+    background: var(--primary);
+    border-color: var(--primary);
+  }
+
+  @media (max-width: 920px) {
+    .update-card {
+      grid-template-columns: 1fr;
+      align-items: stretch;
+    }
+
+    .update-actions {
+      justify-content: stretch;
+    }
+
+    .update-actions button {
+      flex: 1 1 150px;
+    }
+
+    .form-grid,
+    .toggle-grid,
+    .preset-row {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .caption-theme-head {
+      grid-template-columns: 1fr;
+      align-items: stretch;
+    }
+
+    .caption-preview {
+      width: 100%;
+      min-width: 0;
+    }
+  }
+
+  @media (max-width: 720px) {
+    .form-grid,
+    .toggle-grid,
+    .preset-row,
+    .color-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
