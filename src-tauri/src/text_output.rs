@@ -25,9 +25,29 @@ const CF_DSPBITMAP: u32 = 0x0082;
 const CF_DSPMETAFILEPICT: u32 = 0x0083;
 const CF_DSPENHMETAFILE: u32 = 0x008E;
 const KEY_INTERVAL: Duration = Duration::from_millis(10);
+pub const WARNING_CLIPBOARD_PARTIAL_RESTORE: &str = "CLIPBOARD_PARTIAL_RESTORE";
+pub const WARNING_CLIPBOARD_NON_RESTORABLE: &str = "CLIPBOARD_NON_RESTORABLE";
+pub const WARNING_CLIPBOARD_RESTORE_FAILED: &str = "CLIPBOARD_RESTORE_FAILED";
 
 pub struct OutputResult {
     pub warning: Option<String>,
+    pub warning_code: Option<String>,
+}
+
+impl OutputResult {
+    fn ok() -> Self {
+        Self {
+            warning: None,
+            warning_code: None,
+        }
+    }
+
+    fn warning(message: impl Into<String>, code: &'static str) -> Self {
+        Self {
+            warning: Some(message.into()),
+            warning_code: Some(code.to_string()),
+        }
+    }
 }
 
 enum ClipboardBackup {
@@ -60,7 +80,7 @@ enum ClipboardFormatSnapshotAction {
 /// 如果自动粘贴失败或原剪贴板无法完整恢复，用户仍应知道文本已经复制，可手动粘贴。
 pub fn output_text(text: &str, typing: &TypingConfig) -> Result<OutputResult, String> {
     if text.trim().is_empty() {
-        return Ok(OutputResult { warning: None });
+        return Ok(OutputResult::ok());
     }
     app_log::info(format!(
         "准备输出文本: chars={}, method={}, restore_clipboard={}, clipboard_restore_delay_ms={}, clipboard_snapshot_max_bytes={}",
@@ -95,7 +115,7 @@ pub fn output_text(text: &str, typing: &TypingConfig) -> Result<OutputResult, St
     write_clipboard_text_with_retry(text, typing)?;
     if typing.paste_method == "clipboard_only" {
         app_log::info("文本已写入剪贴板: method=clipboard_only");
-        return Ok(OutputResult { warning: None });
+        return Ok(OutputResult::ok());
     }
     thread::sleep(Duration::from_millis(typing.paste_delay_ms));
     match typing.paste_method.as_str() {
@@ -123,18 +143,20 @@ pub fn output_text(text: &str, typing: &TypingConfig) -> Result<OutputResult, St
                         "原剪贴板内容较大或包含特殊格式，已恢复可备份部分，部分格式未备份。"
                             .to_string();
                     app_log::warn(&warning);
-                    Ok(OutputResult {
-                        warning: Some(warning),
-                    })
+                    Ok(OutputResult::warning(
+                        warning,
+                        WARNING_CLIPBOARD_PARTIAL_RESTORE,
+                    ))
                 } else {
-                    Ok(OutputResult { warning: None })
+                    Ok(OutputResult::ok())
                 }
             }
             Err(err) => {
                 app_log::warn(format!("恢复原剪贴板失败: {}", err));
-                Ok(OutputResult {
-                    warning: Some("已发送粘贴快捷键，但恢复原剪贴板失败。".to_string()),
-                })
+                Ok(OutputResult::warning(
+                    "已发送粘贴快捷键，但恢复原剪贴板失败。",
+                    WARNING_CLIPBOARD_RESTORE_FAILED,
+                ))
             }
         }
     } else if matches!(original_clipboard, ClipboardBackup::NonRestorable) {
@@ -142,12 +164,17 @@ pub fn output_text(text: &str, typing: &TypingConfig) -> Result<OutputResult, St
             "已发送粘贴快捷键；原剪贴板内容较大或包含暂不支持恢复的格式，当前剪贴板保留识别文本。"
                 .to_string();
         app_log::warn(&warning);
-        Ok(OutputResult {
-            warning: Some(warning),
-        })
+        Ok(OutputResult::warning(
+            warning,
+            WARNING_CLIPBOARD_NON_RESTORABLE,
+        ))
     } else {
-        Ok(OutputResult { warning: None })
+        Ok(OutputResult::ok())
     }
+}
+
+pub fn is_quiet_output_warning_code(code: Option<&str>) -> bool {
+    matches!(code, Some(WARNING_CLIPBOARD_PARTIAL_RESTORE))
 }
 
 /// 仅复制文本到剪贴板，不发送任何粘贴快捷键。
@@ -475,7 +502,9 @@ fn send_key_event(key: VIRTUAL_KEY, key_up: bool, extended: bool) {
 mod tests {
     use super::{
         clipboard_format_snapshot_action, clipboard_restore_delay,
-        is_known_non_memory_clipboard_format, ClipboardFormatSnapshotAction,
+        is_known_non_memory_clipboard_format, is_quiet_output_warning_code,
+        ClipboardFormatSnapshotAction, WARNING_CLIPBOARD_NON_RESTORABLE,
+        WARNING_CLIPBOARD_PARTIAL_RESTORE,
     };
     use crate::config::TypingConfig;
     use std::time::Duration;
@@ -523,5 +552,16 @@ mod tests {
         assert!(!is_known_non_memory_clipboard_format(13));
         assert!(!is_known_non_memory_clipboard_format(15));
         assert!(!is_known_non_memory_clipboard_format(49350));
+    }
+
+    #[test]
+    fn only_partial_restore_warning_is_quiet() {
+        assert!(is_quiet_output_warning_code(Some(
+            WARNING_CLIPBOARD_PARTIAL_RESTORE
+        )));
+        assert!(!is_quiet_output_warning_code(Some(
+            WARNING_CLIPBOARD_NON_RESTORABLE
+        )));
+        assert!(!is_quiet_output_warning_code(None));
     }
 }

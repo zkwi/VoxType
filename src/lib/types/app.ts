@@ -124,6 +124,7 @@ export type AsrFinalText = {
   error: string | null;
   error_code: string | null;
   warning: string | null;
+  warning_code: string | null;
 };
 
 export type AudioLevel = { level: number };

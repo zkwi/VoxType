@@ -367,8 +367,13 @@
           }
           return;
         }
-        if (event.payload.warning) showActionNotice(event.payload.warning, "warning");
-        statusMessage = event.payload.warning ? event.payload.warning : t("sessionSucceeded");
+        const visibleWarning = event.payload.warning && !isQuietAsrWarningCode(event.payload.warning_code)
+          ? event.payload.warning
+          : null;
+        if (visibleWarning) {
+          showActionNotice(visibleWarning, "warning");
+        }
+        statusMessage = visibleWarning ?? t("sessionSucceeded");
         if (sessionPhase === "succeeded") scheduleSucceededIdleHint();
       });
       const unlistenOverlay = listen<OverlayText>("overlay-text", (event) => {
@@ -1177,6 +1182,10 @@
       actionNotice = "";
       actionNoticeTimer = undefined;
     }, baseDuration + extraDuration);
+  }
+
+  function isQuietAsrWarningCode(code: string | null | undefined) {
+    return code === "CLIPBOARD_PARTIAL_RESTORE";
   }
   function optionEnabledNotice(key: SoftConfigNoticeKey, enabled: boolean) {
     if (!enabled) return "";

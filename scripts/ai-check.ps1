@@ -6,25 +6,33 @@ if (-not (Test-Path "package.json")) {
   Write-Error "Please run this script from the repository root."
 }
 
-Write-Host "`n[1/6] Frontend type check"
-npm run check
+function Invoke-CheckedCommand {
+  param(
+    [string]$Name,
+    [scriptblock]$Command
+  )
 
-Write-Host "`n[2/6] Frontend build"
-npm run build
+  Write-Host "`n$Name"
+  $global:LASTEXITCODE = 0
+  & $Command
+  if ($LASTEXITCODE -ne 0) {
+    throw "$Name failed with exit code $LASTEXITCODE"
+  }
+}
 
-Write-Host "`n[3/6] Secret scan"
-npm run scan:secrets
+Invoke-CheckedCommand "[1/6] Frontend type check" { npm run check }
 
-Write-Host "`n[4/6] Rust fmt check"
+Invoke-CheckedCommand "[2/6] Frontend build" { npm run build }
+
+Invoke-CheckedCommand "[3/6] Secret scan" { npm run scan:secrets }
+
 Push-Location ".\src-tauri"
 try {
-  cargo fmt --check
+  Invoke-CheckedCommand "[4/6] Rust fmt check" { cargo fmt --check }
 
-  Write-Host "`n[5/6] Rust check"
-  cargo check
+  Invoke-CheckedCommand "[5/6] Rust check" { cargo check }
 
-  Write-Host "`n[6/6] Rust tests"
-  cargo test
+  Invoke-CheckedCommand "[6/6] Rust tests" { cargo test }
 } finally {
   Pop-Location
 }

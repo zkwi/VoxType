@@ -20,6 +20,7 @@ pub struct AsrFinalText {
     pub error: Option<String>,
     pub error_code: Option<String>,
     pub warning: Option<String>,
+    pub warning_code: Option<String>,
 }
 
 const ATTENTION_OVERLAY_HOLD: Duration = Duration::from_millis(1_800);
@@ -98,7 +99,9 @@ pub fn spawn_asr_worker(
         match runtime_result {
             Ok(outcome) => {
                 let text = outcome.text;
+                let llm_warning = outcome.warning;
                 let mut output_warning = None;
+                let mut output_warning_code = None;
                 if !session.is_current_generation(generation) {
                     app_log::info(format!(
                         "忽略过期 ASR worker 输出: generation={}, chars={}",
@@ -141,7 +144,10 @@ pub fn spawn_asr_worker(
                         return;
                     }
                     output_warning = match text_output::output_text(&text, &typing) {
-                        Ok(result) => result.warning,
+                        Ok(result) => {
+                            output_warning_code = result.warning_code;
+                            result.warning
+                        }
                         Err(err) => {
                             let error_code = if err.contains("剪贴板") {
                                 "CLIPBOARD_WRITE_FAILED"
@@ -168,11 +174,17 @@ pub fn spawn_asr_worker(
                     ));
                 }
                 if let Some(warning) = output_warning.as_deref() {
-                    if session.is_current_generation(generation) {
+                    if session.is_current_generation(generation)
+                        && !text_output::is_quiet_output_warning_code(
+                            output_warning_code.as_deref(),
+                        )
+                    {
                         overlay::update_text(&app, warning);
                     }
                 }
-                let should_hold_overlay = output_warning.is_some();
+                let should_hold_overlay = output_warning.as_deref().is_some_and(|_| {
+                    !text_output::is_quiet_output_warning_code(output_warning_code.as_deref())
+                });
                 if session
                     .finish_generation(
                         generation,
@@ -191,7 +203,12 @@ pub fn spawn_asr_worker(
                         text,
                         error: None,
                         error_code: None,
-                        warning: outcome.warning.or(output_warning),
+                        warning_code: if llm_warning.is_none() {
+                            output_warning_code
+                        } else {
+                            None
+                        },
+                        warning: llm_warning.or(output_warning),
                     },
                 );
                 if should_hold_overlay {
@@ -573,6 +590,7 @@ fn handle_empty_transcript(app: &AppHandle, session: &SessionController, generat
             error: Some(overlay::EMPTY_TRANSCRIPT_TEXT.to_string()),
             error_code: Some("EMPTY_TRANSCRIPT".to_string()),
             warning: None,
+            warning_code: None,
         },
     );
     thread::sleep(ATTENTION_OVERLAY_HOLD);
@@ -604,6 +622,7 @@ fn emit_error(
             error: Some(error),
             error_code: Some(error_code.to_string()),
             warning: None,
+            warning_code: None,
         },
     );
     thread::sleep(ATTENTION_OVERLAY_HOLD);
