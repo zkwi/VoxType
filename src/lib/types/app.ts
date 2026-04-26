@@ -1,0 +1,233 @@
+export type Section = "Home" | "Hotwords" | "ApiConfig" | "Options" | "History";
+
+export type AppSnapshot = {
+  hotkey: string;
+  current_version: string;
+};
+
+export type UsageStats = {
+  session_count: number;
+  total_seconds: number;
+  total_chars: number;
+  total_minutes_int: number;
+  avg_chars_per_minute: number;
+};
+
+export type DailyUsageStats = {
+  day: string;
+  stats: UsageStats;
+};
+
+export type HistoryEvent = {
+  created_at: string;
+  duration_seconds: number;
+  text_chars: number;
+};
+
+export type StatsSnapshot = {
+  path: string;
+  recent_24h: UsageStats;
+  recent_7d: UsageStats;
+  by_day: DailyUsageStats[];
+  history: HistoryEvent[];
+};
+
+export type UpdateStatus = {
+  current_version: string;
+  latest_version: string;
+  update_available: boolean;
+  asset_name: string | null;
+  asset_size: number | null;
+  message: string;
+};
+
+export type InstallUpdateResult = {
+  version: string;
+  asset_name: string;
+  message: string;
+};
+
+export type ConnectionTestResult = { message: string };
+export type DiagnosticReport = { text: string };
+
+export type ConfigValidationError = {
+  field: string;
+  message: string;
+};
+
+export type ConfigSaveError = {
+  message: string;
+  errors?: ConfigValidationError[];
+};
+
+export type AutoHotwordStatus = {
+  enabled: boolean;
+  entry_count: number;
+  total_chars: number;
+  max_history_chars: number;
+};
+
+export type HotwordCandidate = {
+  word: string;
+  category: string;
+  reason: string;
+  confidence: number;
+  source_count: number;
+};
+
+export type SelectableHotwordCandidate = HotwordCandidate & { selected: boolean };
+
+export type HotwordGenerationResult = {
+  candidates: HotwordCandidate[];
+  used_chars: number;
+  warning: string | null;
+};
+
+export type PersistConfigOptions = {
+  enforceAuth?: boolean;
+  focusErrors?: boolean;
+};
+
+export type CloseToTrayRequest = {
+  first_time: boolean;
+  behavior: string;
+};
+
+export type HotkeyCaptureState = "idle" | "recording";
+
+export type LoadedConfig = {
+  path: string;
+  exists: boolean;
+  data: AppConfig;
+};
+
+export type SessionPhase =
+  | "idle"
+  | "starting"
+  | "recording"
+  | "stopping"
+  | "waiting_final_result"
+  | "post_editing"
+  | "pasting"
+  | "succeeded"
+  | "failed";
+
+export type SessionState = {
+  recording: boolean;
+  phase: SessionPhase;
+  message: string;
+  error_code: string | null;
+};
+
+export type AsrFinalText = {
+  text: string;
+  error: string | null;
+  error_code: string | null;
+  warning: string | null;
+};
+
+export type AudioLevel = { level: number };
+export type AudioDeviceInfo = { index: number; name: string; is_default: boolean };
+export type OverlayMode = "single" | "double";
+export type AsrConnectionStatus =
+  | "missing_auth"
+  | "configured_not_tested"
+  | "testing"
+  | "tested_ok"
+  | "tested_failed";
+
+export type TextContext = { text: string };
+
+export type AppConfig = {
+  hotkey: string;
+  auth: { app_key: string; access_key: string; resource_id: string };
+  audio: {
+    sample_rate: number;
+    channels: number;
+    segment_ms: number;
+    max_record_seconds: number;
+    stop_grace_ms: number;
+    mute_system_volume_while_recording: boolean;
+    input_device: number | null;
+  };
+  request: {
+    ws_url: string;
+    model_name: string;
+    enable_nonstream: boolean;
+    enable_itn: boolean;
+    enable_punc: boolean;
+    enable_ddc: boolean;
+    show_utterances: boolean;
+    result_type: string;
+    enable_accelerate_text: boolean | null;
+    accelerate_score: number | null;
+    end_window_size: number | null;
+    force_to_speech_time: number | null;
+    final_result_timeout_seconds: number;
+  };
+  context: {
+    enable_recent_context: boolean;
+    recent_context_rounds: number;
+    hotwords: string[];
+    prompt_context: TextContext[];
+    recent_context: TextContext[];
+  };
+  triggers: {
+    hotkey_enabled: boolean;
+    middle_mouse_enabled: boolean;
+    right_alt_enabled: boolean;
+  };
+  typing: {
+    paste_delay_ms: number;
+    paste_method: string;
+    restore_clipboard_after_paste: boolean;
+    clipboard_restore_delay_ms: number;
+    clipboard_snapshot_max_bytes: number;
+    clipboard_open_retry_count: number;
+    clipboard_open_retry_interval_ms: number;
+  };
+  startup: { launch_on_startup: boolean };
+  update: { auto_check_on_startup: boolean; github_repo: string };
+  auto_hotwords: {
+    enabled: boolean;
+    max_history_chars: number;
+    max_candidates: number;
+    ignored_hotwords: string[];
+  };
+  llm_post_edit: {
+    enabled: boolean;
+    min_chars: number;
+    base_url: string;
+    api_key: string;
+    model: string;
+    timeout_seconds: number;
+    enable_thinking: boolean;
+    system_prompt: string;
+    user_prompt_template: string;
+  };
+  ui: {
+    width: number;
+    height: number;
+    margin_bottom: number;
+    opacity: number;
+    scroll_interval_ms: number;
+    background_color: string;
+    text_color: string;
+  };
+  tray: {
+    show_startup_message: boolean;
+    startup_message_timeout_ms: number;
+    close_behavior: string;
+    close_to_tray_notice_shown: boolean;
+  };
+  debug: { print_transcript_to_console: boolean };
+};
+
+export type OverlayText = { text: string };
+export type OverlayConfig = { ui: AppConfig["ui"] };
+
+export type TriggerKey = keyof AppConfig["triggers"];
+export type SoftConfigNoticeKey =
+  | TriggerKey
+  | "mute_system_volume_while_recording"
+  | "enable_recent_context";

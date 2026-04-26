@@ -255,6 +255,23 @@ mod tests {
     }
 
     #[test]
+    fn empty_result_stays_empty_for_failure_flow() {
+        let empty_text_payload = json!({ "result": { "text": "   " } });
+        let empty_utterance_payload = json!({
+            "result": {
+                "utterances": [
+                    {"definite": true, "text": "   "},
+                    {"definite": false, "text": ""}
+                ]
+            }
+        });
+
+        assert_eq!(extract_display_text(Some(&empty_text_payload)), "");
+        assert_eq!(extract_display_text(Some(&empty_utterance_payload)), "");
+        assert!(extract_definite_segments(Some(&empty_utterance_payload)).is_empty());
+    }
+
+    #[test]
     fn trims_final_period() {
         assert_eq!(normalize_final_text("测试。"), "测试");
         assert_eq!(normalize_final_text("test."), "test");

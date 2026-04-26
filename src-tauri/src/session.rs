@@ -69,6 +69,10 @@ impl SessionController {
         state_from_inner(&inner)
     }
 
+    /// 启动一轮录音会话，并把后续 ASR worker 绑定到当前 generation。
+    ///
+    /// 已进入等待最终结果、润色或粘贴阶段时不会重新启动录音，调用方会拿到当前状态。
+    /// 这是全局热键、右 Alt、鼠标中键和托盘入口共用的保护边界。
     pub fn start(&self, app: Option<AppHandle>) -> Result<SessionState, String> {
         let current = self.current_state();
         if is_processing_phase(current.phase) {
@@ -272,6 +276,10 @@ impl SessionController {
         Ok(state)
     }
 
+    /// 停止当前录音会话。
+    ///
+    /// 若配置了尾音保留，会先进入 `Stopping`，短暂等待后再切到等待最终结果；
+    /// generation 必须保持不变，避免旧 ASR worker 覆盖新会话状态。
     pub fn stop(&self, app: Option<AppHandle>) -> Result<SessionState, String> {
         let loaded = config::load_config()?;
         let grace_ms = loaded.data.audio.stop_grace_ms;
@@ -671,5 +679,14 @@ mod tests {
         assert!(state.recording);
         assert_eq!(state.phase, SessionPhase::Recording);
         assert_eq!(state.error_code, None);
+    }
+
+    #[test]
+    fn processing_phases_block_new_start_attempts() {
+        assert!(super::is_processing_phase(SessionPhase::WaitingFinalResult));
+        assert!(super::is_processing_phase(SessionPhase::PostEditing));
+        assert!(super::is_processing_phase(SessionPhase::Pasting));
+        assert!(!super::is_processing_phase(SessionPhase::Idle));
+        assert!(!super::is_processing_phase(SessionPhase::Recording));
     }
 }

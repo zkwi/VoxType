@@ -54,6 +54,10 @@ enum ClipboardFormatSnapshotAction {
     StopSnapshot,
 }
 
+/// 将最终文本写入剪贴板，并按配置决定是否发送粘贴快捷键。
+///
+/// 该函数会短暂占用系统剪贴板。调用方必须保留最终文本的用户兜底提示：
+/// 如果自动粘贴失败或原剪贴板无法完整恢复，用户仍应知道文本已经复制，可手动粘贴。
 pub fn output_text(text: &str, typing: &TypingConfig) -> Result<OutputResult, String> {
     if text.trim().is_empty() {
         return Ok(OutputResult { warning: None });
@@ -146,6 +150,9 @@ pub fn output_text(text: &str, typing: &TypingConfig) -> Result<OutputResult, St
     }
 }
 
+/// 仅复制文本到剪贴板，不发送任何粘贴快捷键。
+///
+/// 用于自动粘贴失败后的兜底路径，避免在不确定目标窗口状态时继续模拟按键。
 pub fn copy_text_to_clipboard(text: &str) -> Result<(), String> {
     write_clipboard_text_with_retry(text, &TypingConfig::default())
 }

@@ -534,6 +534,10 @@ pub fn recent_context_count() -> usize {
     load_recent_context_entries(&path, Vec::new(), usize::MAX).len()
 }
 
+/// 校验用户配置文件中会影响主链路的字段。
+///
+/// 保存配置前必须先调用该函数。这里拦截非法枚举、URL、音频参数和 LLM 必填项，
+/// 避免错误值写入 `config.toml` 后在录音、粘贴或连接测试时才失败。
 pub fn validate_config(config: &AppConfig) -> Result<(), Vec<ConfigValidationError>> {
     let mut errors = Vec::new();
 
@@ -1226,6 +1230,18 @@ mod tests {
         assert!(fields.contains(&"update.github_repo"));
         assert!(fields.contains(&"auto_hotwords.max_history_chars"));
         assert!(fields.contains(&"auto_hotwords.max_candidates"));
+    }
+
+    #[test]
+    fn rejects_invalid_sample_rate_with_field_error() {
+        let mut config = AppConfig::default();
+        config.audio.sample_rate = 7_999;
+
+        let errors = validate_config(&config).expect_err("invalid sample rate should fail");
+
+        assert!(errors
+            .iter()
+            .any(|error| error.field == "audio.sample_rate"));
     }
 
     #[test]

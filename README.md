@@ -278,8 +278,13 @@ cargo test
 更多规则见：
 
 - `AGENTS.md`
+- `CHANGELOG.md`
 - `docs/code-style.md`
 - `docs/directory-structure.md`
+
+仓库包含一个最小 GitHub Actions CI：`.github/workflows/ci.yml`。CI 在 Windows runner 上执行前端类型检查、前端构建、密钥扫描、Rust 格式检查、clippy 和测试；本地仍以 `.\scripts\ai-check.ps1` 作为日常提交前入口。
+
+发布或合并前应同步更新 `CHANGELOG.md` 的 `[Unreleased]` 或对应版本段，记录用户可见变化、主链路保护和维护性调整。
 
 ## 界面与适配
 
