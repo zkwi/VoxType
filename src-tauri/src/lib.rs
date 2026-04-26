@@ -4,6 +4,8 @@ mod asr_ws;
 mod audio;
 mod autostart;
 mod config;
+mod config_validation;
+mod error;
 mod hotkey;
 mod hotword_generator;
 mod hotword_history;

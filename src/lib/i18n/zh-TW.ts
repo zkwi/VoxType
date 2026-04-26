@@ -341,7 +341,6 @@ export const zhTW = {
   "lastOutcomeHideText": "隱藏識別文字",
   "lastOutcomeTextTruncated": "內容較長，僅顯示前 500 字。",
   "lastOutcomeWarningLabel": "提示",
-  "lastOutcomeErrorTitle": "最近一次輸入失敗",
   "errorActionRetry": "重試",
   "errorActionConfigure": "去配置",
   "errorActionOpenOptions": "打開選項",

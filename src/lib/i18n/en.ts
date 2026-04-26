@@ -341,7 +341,6 @@ export const en = {
   "lastOutcomeHideText": "Hide recognized text",
   "lastOutcomeTextTruncated": "The text is long. Showing the first 500 characters only.",
   "lastOutcomeWarningLabel": "Note",
-  "lastOutcomeErrorTitle": "Last input failed",
   "errorActionRetry": "Retry",
   "errorActionConfigure": "Configure",
   "errorActionOpenOptions": "Open Options",

@@ -135,14 +135,6 @@ export type LastSessionOutcome =
       warningCode: string | null;
       createdAt: number;
     }
-  | {
-      kind: "error";
-      errorCode: string | null;
-      title: string;
-      cause: string;
-      action: string;
-      createdAt: number;
-    }
   | null;
 
 export type UserErrorAction =

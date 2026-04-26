@@ -48,8 +48,20 @@ import {
   hotwordCount as countManualHotwords,
   normalizeHotwords,
 } from "$lib/utils/hotwords";
+import {
+  formatFrontendError,
+  frontendMode as getFrontendMode,
+  hasTauriApi,
+  logFrontendError,
+  logFrontendEvent,
+} from "$lib/utils/frontendDiagnostics";
 import { formatHotkey, hotkeyFromKeyboardEvent, validateHotkeyText } from "$lib/utils/hotkeys";
 import { overlayOpacityLabel } from "$lib/utils/overlayAppearance";
+import {
+  isBlockingSessionPhase,
+  isQuietAsrWarningCode,
+  sessionPhaseMessageKey,
+} from "$lib/utils/sessionState";
 import { userFacingInvokeFailure } from "$lib/utils/userFacingErrors";
 import {
   formatHours,
@@ -108,14 +120,6 @@ import type {
   UsageStats,
   UserErrorAction,
 } from "$lib/types/app";
-
-const blockingSessionPhases: SessionPhase[] = [
-  "starting",
-  "stopping",
-  "waiting_final_result",
-  "post_editing",
-  "pasting",
-];
 
 export function createVoxTypeController() {
 
@@ -252,7 +256,6 @@ export function createVoxTypeController() {
       const unlistenAsr = listen<AsrFinalText>("asr-final-text", (event) => {
         if (event.payload.error) {
           sessionErrorCode = event.payload.error_code;
-          rememberErrorOutcome(event.payload.error_code, event.payload.error);
           statusMessage = userErrorMessage(event.payload.error_code, event.payload.error);
           showActionNotice(statusMessage, "error");
           if (shouldOpenSettingsForError(event.payload.error, event.payload.error_code)) {
@@ -383,32 +386,7 @@ export function createVoxTypeController() {
     }
   }
   function frontendMode() {
-    if (isOverlay) return "overlay";
-    if (isToast) return "toast";
-    return "main";
-  }
-  function hasTauriApi() {
-    return browser && typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-  }
-  function logFrontendEvent(message: string) {
-    if (!hasTauriApi()) return;
-    void invoke("log_frontend_event", { message: truncateLogMessage(message) }).catch(() => undefined);
-  }
-  function logFrontendError(message: string) {
-    if (!hasTauriApi()) return;
-    void invoke("log_frontend_error", { message: truncateLogMessage(message) }).catch(() => undefined);
-  }
-  function truncateLogMessage(message: string) {
-    return message.length > 1200 ? `${message.slice(0, 1200)}...` : message;
-  }
-  function formatFrontendError(error: unknown) {
-    if (error instanceof Error) return error.stack || error.message;
-    if (typeof error === "string") return error;
-    try {
-      return JSON.stringify(error);
-    } catch {
-      return String(error);
-    }
+    return getFrontendMode(isOverlay, isToast);
   }
   function t(key: CopyKey, values: Record<string, string> = {}) {
     let value = copy[language][key];
@@ -452,7 +430,7 @@ export function createVoxTypeController() {
     if (result) applySessionState(result);
   }
   function isSessionBusy() {
-    return blockingSessionPhases.includes(sessionPhase);
+    return isBlockingSessionPhase(sessionPhase);
   }
 
   function rememberSetupStatus(status: SetupStatus) {
@@ -541,7 +519,6 @@ export function createVoxTypeController() {
     }
     if (!state.recording) audioLevel = 0;
     if (state.phase === "failed" && state.error_code) {
-      rememberErrorOutcome(state.error_code, state.message);
       statusMessage = userErrorMessage(state.error_code, state.message);
       if (shouldOpenSettingsForError(state.message, state.error_code)) {
         scrollToSettingsPanel(settingsPanelForError(state.message, state.error_code));
@@ -549,7 +526,6 @@ export function createVoxTypeController() {
       return;
     }
     if (isConfigError(state.message)) {
-      rememberErrorOutcome(state.error_code, state.message);
       statusMessage = userErrorMessage(state.error_code, state.message);
       scrollToSettingsPanel(settingsPanelForError(state.message, state.error_code));
       return;
@@ -568,39 +544,7 @@ export function createVoxTypeController() {
   }
   function sessionPhaseMessage(phase: SessionPhase) {
     const hotkey = formatHotkey(snapshot.hotkey);
-    switch (phase) {
-      case "starting":
-        return t("sessionStarting");
-      case "recording":
-        return t("sessionRecording", { hotkey });
-      case "stopping":
-        return t("sessionStopping");
-      case "waiting_final_result":
-        return t("sessionWaitingFinal");
-      case "post_editing":
-        return t("sessionPostEditing");
-      case "pasting":
-        return t("sessionPasting");
-      case "succeeded":
-        return t("sessionSucceeded");
-      case "failed":
-        return t("sessionFailed");
-      case "idle":
-      default:
-        return t("sessionIdleHint", { hotkey });
-    }
-  }
-
-  function rememberErrorOutcome(errorCode: string | null | undefined, fallback: string) {
-    const detail = userErrorDetail(errorCode, fallback);
-    lastSessionOutcome = {
-      kind: "error",
-      errorCode: errorCode ?? null,
-      title: detail.title,
-      cause: detail.cause,
-      action: detail.action,
-      createdAt: Date.now(),
-    };
+    return t(sessionPhaseMessageKey(phase), { hotkey });
   }
 
   async function persistConfig(options: PersistConfigOptions = {}) {
@@ -795,9 +739,6 @@ export function createVoxTypeController() {
     }, baseDuration + extraDuration);
   }
 
-  function isQuietAsrWarningCode(code: string | null | undefined) {
-    return code === "CLIPBOARD_PARTIAL_RESTORE";
-  }
   function optionEnabledNotice(key: SoftConfigNoticeKey, enabled: boolean) {
     if (!enabled) return "";
     if (key === "middle_mouse_enabled" || key === "right_alt_enabled") return t("extraTriggerEnabledNotice");

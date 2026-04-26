@@ -731,4 +731,23 @@ mod tests {
         assert_eq!(state.phase, SessionPhase::Stopping);
         assert!(controller.is_current_generation(5));
     }
+
+    #[test]
+    fn toggle_recording_phase_still_allows_stop() {
+        let controller = SessionController::default();
+        {
+            let mut inner = controller.inner.lock().unwrap();
+            inner.recording = true;
+            inner.phase = SessionPhase::Recording;
+            inner.message = "Recording started.".to_string();
+            inner.generation = 8;
+        }
+
+        let state = controller.toggle(None).unwrap();
+
+        assert!(matches!(
+            state.phase,
+            SessionPhase::Stopping | SessionPhase::WaitingFinalResult
+        ));
+    }
 }

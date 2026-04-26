@@ -340,7 +340,6 @@ export const zhCN = {
   "lastOutcomeHideText": "隐藏识别文本",
   "lastOutcomeTextTruncated": "内容较长，仅显示前 500 字。",
   "lastOutcomeWarningLabel": "提示",
-  "lastOutcomeErrorTitle": "最近一次输入失败",
   "errorActionRetry": "重试",
   "errorActionConfigure": "去配置",
   "errorActionOpenOptions": "打开选项",
