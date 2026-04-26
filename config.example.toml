@@ -52,6 +52,16 @@ recent_context_rounds = 5
 # 不要在模板或文档中填写个人热词；复制到本地 config.toml 后再按需填写
 hotwords = []
 
+[auto_hotwords]
+# 是否保存 VoxType 最终语音输入文本，用于手动生成热词候选；默认关闭
+enabled = false
+# 本地历史文本总量上限
+max_history_chars = 10000
+# 单次生成候选数量上限
+max_candidates = 30
+# 用户忽略过的候选词；复制到本地 config.toml 后再按需填写
+ignored_hotwords = []
+
 [triggers]
 # 启动方式开关；右 Alt 和鼠标中键可能和其他软件操作冲突，建议确认后再开启
 hotkey_enabled = true

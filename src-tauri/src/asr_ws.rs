@@ -1,6 +1,7 @@
 use crate::session::{SessionController, SessionPhase};
 use crate::{
-    app_log, asr, config, config::AppConfig, llm_post_edit, overlay, protocol, stats, text_output,
+    app_log, asr, config, config::AppConfig, hotword_history, llm_post_edit, overlay, protocol,
+    stats, text_output,
 };
 use futures_util::{SinkExt, StreamExt};
 use serde::Serialize;
@@ -116,6 +117,9 @@ pub fn spawn_asr_worker(
                     let duration = started_at.elapsed().as_secs_f64();
                     if let Err(err) = config::remember_recent_context(&text) {
                         app_log::warn(format!("写入 recent context 失败: {}", err));
+                    }
+                    if let Err(err) = hotword_history::append_transcript(&text) {
+                        app_log::warn(format!("写入自动热词历史失败: {}", err));
                     }
                     if let Err(err) = stats::append_event(&text, duration) {
                         app_log::warn(err);

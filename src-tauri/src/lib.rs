@@ -5,6 +5,8 @@ mod audio;
 mod autostart;
 mod config;
 mod hotkey;
+mod hotword_generator;
+mod hotword_history;
 mod llm_post_edit;
 mod main_window;
 mod overlay;
@@ -300,6 +302,18 @@ fn build_diagnostic_report(
     } else {
         "未启用".to_string()
     };
+    let auto_hotword_summary = hotword_history::status()
+        .map(|status| {
+            if status.enabled {
+                format!(
+                    "已启用，保存条数 {}，约 {} 字",
+                    status.entry_count, status.total_chars
+                )
+            } else {
+                "未启用".to_string()
+            }
+        })
+        .unwrap_or_else(|_| "状态读取失败".to_string());
     let text = format!(
         "VoxType 诊断报告\n\
 版本: {}\n\
@@ -309,10 +323,11 @@ fn build_diagnostic_report(
 ASR 已配置: {}\n\
 LLM 润色: {}\n\
 最近上下文: {}\n\
+自动热词候选: {}\n\
 触发方式: {}\n\
 最近会话状态: {:?}\n\
 最近错误码: {}\n\
-诊断报告内容: 不包含识别正文、热词、Prompt、最近上下文正文、密钥原文\n\
+诊断报告内容: 不包含识别正文、热词、Prompt、最近上下文正文、自动热词历史正文、候选词、密钥原文\n\
 日志脱敏范围: key/token/bearer/password/secret 类字段和本机用户路径\n",
         env!("CARGO_PKG_VERSION"),
         std::env::consts::OS,
@@ -331,6 +346,7 @@ LLM 润色: {}\n\
             "未启用"
         },
         recent_context_summary,
+        auto_hotword_summary,
         trigger_summary,
         state.phase,
         recent_error
@@ -401,6 +417,31 @@ fn clear_recent_context() -> Result<ConnectionTestResult, String> {
     Ok(ConnectionTestResult {
         message: "最近上下文已清除。".to_string(),
     })
+}
+
+#[tauri::command]
+fn get_auto_hotword_status() -> Result<hotword_history::AutoHotwordStatus, String> {
+    hotword_history::status()
+}
+
+#[tauri::command]
+fn clear_hotword_history() -> Result<ConnectionTestResult, String> {
+    hotword_history::clear_history()?;
+    let status = hotword_history::status().ok();
+    app_log::info(format!(
+        "用户清除自动热词采集文本: remaining_entries={}",
+        status.map(|item| item.entry_count).unwrap_or(0)
+    ));
+    Ok(ConnectionTestResult {
+        message: "自动热词采集文本已清空。".to_string(),
+    })
+}
+
+#[tauri::command]
+async fn generate_hotword_candidates(
+    config: config::AppConfig,
+) -> Result<hotword_generator::HotwordGenerationResult, String> {
+    hotword_generator::generate_candidates(config).await
 }
 
 #[tauri::command]
@@ -514,6 +555,9 @@ pub fn run() {
             log_frontend_event,
             get_usage_stats,
             clear_recent_context,
+            get_auto_hotword_status,
+            clear_hotword_history,
+            generate_hotword_candidates,
             check_for_update,
             download_and_install_update,
             get_overlay_text,

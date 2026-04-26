@@ -92,6 +92,26 @@
     message: string;
     errors?: ConfigValidationError[];
   };
+  type AutoHotwordStatus = {
+    enabled: boolean;
+    path: string;
+    entry_count: number;
+    total_chars: number;
+    max_history_chars: number;
+  };
+  type HotwordCandidate = {
+    word: string;
+    category: string;
+    reason: string;
+    confidence: number;
+    source_count: number;
+  };
+  type SelectableHotwordCandidate = HotwordCandidate & { selected: boolean };
+  type HotwordGenerationResult = {
+    candidates: HotwordCandidate[];
+    used_chars: number;
+    warning: string | null;
+  };
   type PersistConfigOptions = {
     enforceAuth?: boolean;
     focusErrors?: boolean;
@@ -204,6 +224,12 @@
     };
     startup: { launch_on_startup: boolean };
     update: { auto_check_on_startup: boolean; github_repo: string };
+    auto_hotwords: {
+      enabled: boolean;
+      max_history_chars: number;
+      max_candidates: number;
+      ignored_hotwords: string[];
+    };
     llm_post_edit: {
       enabled: boolean;
       min_chars: number;
@@ -306,6 +332,12 @@
     },
     startup: { launch_on_startup: false },
     update: { auto_check_on_startup: true, github_repo: "zkwi/VoxType" },
+    auto_hotwords: {
+      enabled: false,
+      max_history_chars: 10000,
+      max_candidates: 30,
+      ignored_hotwords: [],
+    },
     llm_post_edit: {
       enabled: false,
       min_chars: 40,
@@ -351,6 +383,7 @@
   const overlayLineHeight = 1.18;
   const chineseTypingCharsPerMinute = 50;
   const micBars = [0, 1, 2, 3, 4, 5];
+  const overlayMeterBars = [0, 1, 2, 3];
   const overlayColorPresets: { label: CopyKey; background: string; text: string }[] = [
     { label: "overlayPresetBlue", background: "#176ee6", text: "#ffffff" },
     { label: "overlayPresetDark", background: "#111827", text: "#f8fafc" },
@@ -453,6 +486,11 @@
   let testingLlm = $state(false);
   let copyingDiagnosticReport = $state(false);
   let clearingRecentContext = $state(false);
+  let autoHotwordStatus = $state<AutoHotwordStatus | null>(null);
+  let generatingAutoHotwords = $state(false);
+  let clearingAutoHotwordHistory = $state(false);
+  let autoHotwordCandidates = $state<SelectableHotwordCandidate[]>([]);
+  let autoHotwordError = $state("");
   let validationErrors = $state<Record<string, string>>({});
   let closePromptVisible = $state(false);
   let closePromptFirstTime = $state(false);
@@ -523,7 +561,10 @@
         applyOverlayConfig(event.payload.ui);
       });
       const unlistenStats = listen<StatsSnapshot>("usage-stats-updated", (event) => {
-        if (!isOverlay && !isToast) stats = event.payload;
+        if (!isOverlay && !isToast) {
+          stats = event.payload;
+          void refreshAutoHotwordStatus();
+        }
       });
       const unlistenAudioLevel = listen<AudioLevel>("audio-level", (event) => {
         audioLevel = clampAudioLevel(event.payload.level);
@@ -914,14 +955,15 @@
   async function loadAll() {
     logFrontendEvent(`loadAll started mode=${frontendMode()}`);
     if (!isOverlay && !isToast && !setupStatus) setupStatusLoading = true;
-    const [snapshotResult, configResult, statsResult, devicesResult, setupResult] = await Promise.all([
+    const [snapshotResult, configResult, statsResult, devicesResult, setupResult, autoHotwordResult] = await Promise.all([
       safeInvoke<AppSnapshot>("get_app_snapshot"),
       safeInvoke<LoadedConfig>("load_app_config"),
       safeInvoke<StatsSnapshot>("get_usage_stats"),
       safeInvoke<AudioDeviceInfo[]>("list_audio_input_devices"),
       safeInvoke<SetupStatus>("get_setup_status"),
+      safeInvoke<AutoHotwordStatus>("get_auto_hotword_status"),
     ]);
-    const loadedAny = Boolean(snapshotResult || configResult || statsResult || devicesResult || setupResult);
+    const loadedAny = Boolean(snapshotResult || configResult || statsResult || devicesResult || setupResult || autoHotwordResult);
     if (snapshotResult) snapshot = snapshotResult;
     if (configResult) {
       config = configResult.data;
@@ -938,6 +980,7 @@
     }
     if (statsResult) stats = statsResult;
     if (devicesResult) audioDevices = devicesResult;
+    if (autoHotwordResult) autoHotwordStatus = autoHotwordResult;
     if (!configResult && hasTauriApi() && !isOverlay && !isToast) configLoaded = true;
     if (setupResult) {
       applySetupStatus(setupResult);
@@ -949,7 +992,7 @@
       statusMessage = t("bridgeConnected");
     }
     logFrontendEvent(
-      `loadAll completed mode=${frontendMode()} snapshot=${Boolean(snapshotResult)} config_loaded=${Boolean(configResult)} config_exists=${configResult?.exists ?? false} stats_records=${statsResult?.history.length ?? 0} audio_devices=${devicesResult?.length ?? 0} setup_ready=${setupResult?.ready ?? false}`,
+      `loadAll completed mode=${frontendMode()} snapshot=${Boolean(snapshotResult)} config_loaded=${Boolean(configResult)} config_exists=${configResult?.exists ?? false} stats_records=${statsResult?.history.length ?? 0} audio_devices=${devicesResult?.length ?? 0} setup_ready=${setupResult?.ready ?? false} auto_hotword_entries=${autoHotwordResult?.entry_count ?? 0}`,
     );
     return loadedAny;
   }
@@ -1116,6 +1159,7 @@
       return "settings-llm-prompt";
     }
     if (field.startsWith("llm_post_edit.")) return "settings-llm-api";
+    if (field.startsWith("auto_hotwords.")) return "settings-auto-hotwords";
     if (field.startsWith("context.")) return "settings-context";
     if (field.startsWith("audio.")) return "settings-audio";
     if (field.startsWith("ui.")) return "settings-overlay";
@@ -1387,6 +1431,19 @@
     if (!recording) return "0.45";
     const level = meterLevel();
     return level >= 0.08 + index * 0.105 ? "1" : "0.38";
+  }
+  function overlayMeterBarHeight(index: number) {
+    const level = meterLevel();
+    const quietHeights = [5, 8, 10, 7];
+    const activeHeights = [8, 13, 17, 11];
+    const threshold = 0.1 + index * 0.16;
+    const target = recording && level >= threshold ? activeHeights[index] : quietHeights[index];
+    return `${target}px`;
+  }
+  function overlayMeterBarOpacity(index: number) {
+    if (!recording) return "0.42";
+    const level = meterLevel();
+    return level >= 0.1 + index * 0.16 ? "0.92" : "0.34";
   }
   function currentAudioDevice() {
     if (audioDevices.length === 0) return null;
@@ -1815,6 +1872,98 @@
     window.alert(`${t("systemPrompt")}\n${config.llm_post_edit.system_prompt || t("promptPreviewEmpty")}\n\n${t("userPromptTemplate")}\n${userPrompt}`);
   }
 
+  async function refreshAutoHotwordStatus() {
+    const result = await safeInvoke<AutoHotwordStatus>("get_auto_hotword_status", undefined, true);
+    if (result) autoHotwordStatus = result;
+  }
+
+  function autoHotwordStatusText() {
+    if (!autoHotwordStatus) return t("autoHotwordsStatusUnknown");
+    return t("autoHotwordsStatus", {
+      entries: String(autoHotwordStatus.entry_count),
+      chars: String(autoHotwordStatus.total_chars),
+      max: String(autoHotwordStatus.max_history_chars),
+    });
+  }
+
+  async function generateAutoHotwords() {
+    if (generatingAutoHotwords) return;
+    generatingAutoHotwords = true;
+    autoHotwordError = "";
+    try {
+      const result = await safeInvoke<HotwordGenerationResult>(
+        "generate_hotword_candidates",
+        { config: clonePlain(config) },
+        false,
+      );
+      if (!result) {
+        autoHotwordError = statusMessage;
+        return;
+      }
+      autoHotwordCandidates = result.candidates.map((item) => ({ ...item, selected: true }));
+      const message = t("autoHotwordsGenerated", { count: String(result.candidates.length) });
+      statusMessage = message;
+      showActionNotice(message, result.candidates.length > 0 ? "success" : "warning");
+      if (result.warning) showActionNotice(result.warning, "warning");
+    } finally {
+      generatingAutoHotwords = false;
+    }
+  }
+
+  async function clearAutoHotwordHistoryFromUi() {
+    if (clearingAutoHotwordHistory) return;
+    if (browser && !window.confirm(t("autoHotwordsClearConfirm"))) return;
+    clearingAutoHotwordHistory = true;
+    autoHotwordError = "";
+    try {
+      const result = await safeInvoke<ConnectionTestResult>("clear_hotword_history", undefined, false);
+      if (result) {
+        showActionNotice(result.message, "success");
+        autoHotwordCandidates = [];
+        await refreshAutoHotwordStatus();
+      } else {
+        autoHotwordError = statusMessage;
+      }
+    } finally {
+      clearingAutoHotwordHistory = false;
+    }
+  }
+
+  function selectedAutoHotwordCount() {
+    return autoHotwordCandidates.filter((item) => item.selected).length;
+  }
+
+  function applySelectedAutoHotwords() {
+    const selected = autoHotwordCandidates
+      .filter((item) => item.selected)
+      .map((item) => item.word.trim())
+      .filter(Boolean);
+    if (selected.length === 0) {
+      showActionNotice(t("autoHotwordsNoSelection"), "warning");
+      return;
+    }
+
+    const merged = [...config.context.hotwords];
+    const seen = new Set(merged.map((item) => item.trim().toLocaleLowerCase()).filter(Boolean));
+    let added = 0;
+    for (const word of selected) {
+      const key = word.toLocaleLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push(word);
+      added += 1;
+    }
+    config.context.hotwords = merged;
+    const message = t("autoHotwordsApplied", { count: String(added) });
+    statusMessage = message;
+    showActionNotice(message, added > 0 ? "success" : "warning");
+  }
+
+  function candidateConfidenceLabel(value: number) {
+    const safeValue = Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0;
+    return `${Math.round(safeValue * 100)}%`;
+  }
+
   function normalizedHexColor(value: string | undefined, fallback: string) {
     const trimmed = (value ?? "").trim();
     return /^#[0-9a-fA-F]{6}$/.test(trimmed) ? trimmed : fallback;
@@ -2069,7 +2218,11 @@
 {#if isOverlay}
   <main class="overlay-root" style={`--overlay-bg: ${overlayBackgroundColor()}; --overlay-bg-rgb: ${overlayBackgroundRgb()}; --overlay-opacity: ${overlayOpacity()}; --overlay-text: ${overlayTextColor()};`}>
     <div class="overlay-caption">
-      <span class="overlay-dot"></span>
+      <div class:active={recording} class="overlay-voice-meter" aria-hidden="true">
+        {#each overlayMeterBars as bar}
+          <i style:height={overlayMeterBarHeight(bar)} style:opacity={overlayMeterBarOpacity(bar)}></i>
+        {/each}
+      </div>
       <div
         class:single={overlayMode === "single"}
         class:double={overlayMode === "double"}
@@ -2364,6 +2517,66 @@
               <textarea bind:value={config.llm_post_edit.user_prompt_template}></textarea>
               {#if fieldError("llm_post_edit.user_prompt_template")}<small class="field-error">{fieldError("llm_post_edit.user_prompt_template")}</small>{/if}
             </label>
+          </div>
+          <div id="settings-auto-hotwords" class="form-panel auto-hotwords-panel">
+            <div class="section-heading with-actions">
+              <div class="section-heading-copy">
+                <h3>{t("autoHotwordsTitle")}</h3>
+                <p>{t("autoHotwordsDescription")}</p>
+              </div>
+              <div class="settings-inline-actions">
+                <button class="test-button" type="button" onclick={generateAutoHotwords} disabled={generatingAutoHotwords}>
+                  <Sparkles size={16} />{generatingAutoHotwords ? t("autoHotwordsGenerating") : t("autoHotwordsGenerate")}
+                </button>
+                <button class="test-button" type="button" onclick={clearAutoHotwordHistoryFromUi} disabled={clearingAutoHotwordHistory}>
+                  <Trash2 size={16} />{clearingAutoHotwordHistory ? t("autoHotwordsClearing") : t("autoHotwordsClearHistory")}
+                </button>
+              </div>
+            </div>
+            <div class="toggle-grid">
+              <label class="check"><input type="checkbox" bind:checked={config.auto_hotwords.enabled} />{t("autoHotwordsEnabled")}</label>
+            </div>
+            <p class="field-hint">{t("autoHotwordsPrivacyHint")}</p>
+            <div class="form-grid">
+              <label class:field-invalid={Boolean(fieldError("auto_hotwords.max_history_chars"))}>
+                <span>{t("autoHotwordsMaxHistoryChars")}</span>
+                <input type="number" min="1000" max="20000" bind:value={config.auto_hotwords.max_history_chars} />
+                {#if fieldError("auto_hotwords.max_history_chars")}<small class="field-error">{fieldError("auto_hotwords.max_history_chars")}</small>{/if}
+              </label>
+              <label class:field-invalid={Boolean(fieldError("auto_hotwords.max_candidates"))}>
+                <span>{t("autoHotwordsMaxCandidates")}</span>
+                <input type="number" min="5" max="100" bind:value={config.auto_hotwords.max_candidates} />
+                {#if fieldError("auto_hotwords.max_candidates")}<small class="field-error">{fieldError("auto_hotwords.max_candidates")}</small>{/if}
+              </label>
+            </div>
+            <div class="auto-hotword-status">
+              <Info size={16} />
+              <span>{autoHotwordStatusText()}</span>
+              <button class="link-button" type="button" onclick={refreshAutoHotwordStatus}>{t("refreshStatus")}</button>
+            </div>
+            {#if autoHotwordError}
+              <p class="field-error">{autoHotwordError}</p>
+            {/if}
+            {#if autoHotwordCandidates.length > 0}
+              <div class="auto-hotword-candidates">
+                <div class="candidate-list-head">
+                  <strong>{t("autoHotwordsCandidatesTitle", { count: String(autoHotwordCandidates.length) })}</strong>
+                  <button class="test-button" type="button" onclick={applySelectedAutoHotwords}>
+                    <Check size={16} />{t("autoHotwordsApplySelected", { count: String(selectedAutoHotwordCount()) })}
+                  </button>
+                </div>
+                {#each autoHotwordCandidates as candidate}
+                  <label class="candidate-row">
+                    <input type="checkbox" bind:checked={candidate.selected} />
+                    <span class="candidate-copy">
+                      <strong>{candidate.word}</strong>
+                      <small>{candidate.category || t("autoHotwordsUnknownCategory")} · {candidateConfidenceLabel(candidate.confidence)} · {t("autoHotwordsSourceCount", { count: String(candidate.source_count) })}</small>
+                      <span>{candidate.reason}</span>
+                    </span>
+                  </label>
+                {/each}
+              </div>
+            {/if}
           </div>
         </section>
       </section>
@@ -2944,14 +3157,14 @@
     background: transparent;
   }
   .overlay-caption {
+    position: relative;
     display: flex;
     align-items: center;
     justify-content: flex-start;
-    gap: 9px;
     width: 100%;
     height: 100%;
     min-width: 0;
-    padding: 8px 14px;
+    padding: 8px 16px;
     overflow: hidden;
     color: var(--overlay-text, #ffffff);
     background: rgba(var(--overlay-bg-rgb, 23, 110, 230), var(--overlay-opacity, 0.9));
@@ -2960,13 +3173,34 @@
     box-shadow: none;
     text-align: left;
   }
-  .overlay-dot {
-    flex: 0 0 auto;
-    width: 8px;
-    height: 8px;
+  .overlay-voice-meter {
+    position: absolute;
+    top: 50%;
+    left: 13px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    width: 28px;
+    height: 22px;
+    color: var(--overlay-text, #ffffff);
+    background: color-mix(in srgb, currentColor 11%, transparent);
+    border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
     border-radius: 999px;
-    background: #dff0ff;
-    box-shadow: 0 0 0 5px rgba(255, 255, 255, 0.18);
+    opacity: 0.72;
+    pointer-events: none;
+    transform: translateY(-50%);
+    transition: opacity 140ms ease, background 140ms ease, border-color 140ms ease;
+  }
+  .overlay-voice-meter.active {
+    opacity: 0.88;
+  }
+  .overlay-voice-meter i {
+    width: 2px;
+    min-height: 4px;
+    background: currentColor;
+    border-radius: 999px;
+    transition: height 120ms ease, opacity 120ms ease;
   }
   .overlay-caption-text {
     display: grid;
@@ -2975,8 +3209,10 @@
     min-width: 0;
     height: 100%;
     max-height: 100%;
+    padding: 0 36px;
     overflow: hidden;
     color: inherit;
+    box-sizing: border-box;
     font-weight: 400;
     line-height: 1.18;
     text-shadow: none;
@@ -4409,6 +4645,84 @@
   .update-actions button:disabled {
     cursor: wait;
     opacity: 0.66;
+  }
+  .auto-hotword-status {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px 12px;
+    color: var(--text-secondary);
+    background: #f8fbff;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 13px;
+    line-height: 1.4;
+  }
+  .auto-hotword-status :global(svg) {
+    flex: 0 0 auto;
+    color: var(--primary);
+  }
+  .auto-hotword-status span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .auto-hotword-candidates {
+    display: grid;
+    gap: 10px;
+  }
+  .candidate-list-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .candidate-list-head strong {
+    color: var(--text-main);
+    font-size: 14px;
+  }
+  .candidate-row {
+    display: grid !important;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: start;
+    gap: 10px;
+    padding: 12px;
+    background: #ffffff;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    cursor: pointer;
+  }
+  .candidate-row:hover {
+    border-color: rgba(47, 128, 237, 0.4);
+    background: #f8fbff;
+  }
+  .candidate-row input {
+    width: 16px;
+    height: 16px;
+    margin-top: 2px;
+  }
+  .candidate-copy {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+  }
+  .candidate-copy strong {
+    color: var(--text-main);
+    font-size: 14px;
+    overflow-wrap: anywhere;
+  }
+  .candidate-copy small {
+    color: var(--text-muted);
+    font-size: 12px;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+  }
+  .candidate-copy span {
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
   }
   .action-notice {
     position: fixed;

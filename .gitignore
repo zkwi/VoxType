@@ -8,6 +8,7 @@ env/
 .coverage
 .coverage.*
 htmlcov/
+.codex/
 
 build/
 dist/
@@ -19,6 +20,7 @@ src-tauri/gen/schemas/
 
 voice_input.log
 voice_input_stats.jsonl
+context/
 *.log
 logs/
 

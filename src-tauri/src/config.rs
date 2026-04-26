@@ -23,6 +23,8 @@ pub struct AppConfig {
     #[serde(default)]
     pub update: UpdateConfig,
     #[serde(default)]
+    pub auto_hotwords: AutoHotwordConfig,
+    #[serde(default)]
     pub llm_post_edit: LlmPostEditConfig,
     #[serde(default)]
     pub ui: UiConfig,
@@ -153,6 +155,18 @@ pub struct UpdateConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AutoHotwordConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_auto_hotword_max_history_chars")]
+    pub max_history_chars: usize,
+    #[serde(default = "default_auto_hotword_max_candidates")]
+    pub max_candidates: usize,
+    #[serde(default)]
+    pub ignored_hotwords: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LlmPostEditConfig {
     #[serde(default)]
     pub enabled: bool,
@@ -235,6 +249,7 @@ impl Default for AppConfig {
             typing: TypingConfig::default(),
             startup: StartupConfig::default(),
             update: UpdateConfig::default(),
+            auto_hotwords: AutoHotwordConfig::default(),
             llm_post_edit: LlmPostEditConfig::default(),
             ui: UiConfig::default(),
             tray: TrayConfig::default(),
@@ -328,6 +343,17 @@ impl Default for UpdateConfig {
         Self {
             auto_check_on_startup: true,
             github_repo: default_update_github_repo(),
+        }
+    }
+}
+
+impl Default for AutoHotwordConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            max_history_chars: default_auto_hotword_max_history_chars(),
+            max_candidates: default_auto_hotword_max_candidates(),
+            ignored_hotwords: Vec::new(),
         }
     }
 }
@@ -611,6 +637,22 @@ pub fn validate_config(config: &AppConfig) -> Result<(), Vec<ConfigValidationErr
         "update.github_repo",
         &config.update.github_repo,
     );
+    validate_usize_range(
+        &mut errors,
+        "auto_hotwords.max_history_chars",
+        config.auto_hotwords.max_history_chars,
+        1_000,
+        20_000,
+        "自动热词历史文本上限需在 1000 到 20000 字之间。",
+    );
+    validate_usize_range(
+        &mut errors,
+        "auto_hotwords.max_candidates",
+        config.auto_hotwords.max_candidates,
+        5,
+        100,
+        "自动热词候选数量需在 5 到 100 之间。",
+    );
     validate_f64_range(
         &mut errors,
         "request.final_result_timeout_seconds",
@@ -774,6 +816,19 @@ fn validate_u64_range(
     value: u64,
     min: u64,
     max: u64,
+    message: &str,
+) {
+    if value < min || value > max {
+        push_validation_error(errors, field, message);
+    }
+}
+
+fn validate_usize_range(
+    errors: &mut Vec<ConfigValidationError>,
+    field: &str,
+    value: usize,
+    min: usize,
+    max: usize,
     message: &str,
 ) {
     if value < min || value > max {
@@ -1026,6 +1081,12 @@ fn default_clipboard_snapshot_max_bytes() -> u64 {
 fn default_update_github_repo() -> String {
     "zkwi/VoxType".to_string()
 }
+fn default_auto_hotword_max_history_chars() -> usize {
+    10_000
+}
+fn default_auto_hotword_max_candidates() -> usize {
+    30
+}
 fn default_min_chars() -> usize {
     40
 }
@@ -1108,6 +1169,9 @@ mod tests {
         assert!(!config.triggers.right_alt_enabled);
         assert!(!config.audio.mute_system_volume_while_recording);
         assert!(!config.context.enable_recent_context);
+        assert!(!config.auto_hotwords.enabled);
+        assert_eq!(config.auto_hotwords.max_history_chars, 10_000);
+        assert_eq!(config.auto_hotwords.max_candidates, 30);
         assert!(!config.debug.print_transcript_to_console);
         assert!(config.typing.restore_clipboard_after_paste);
         assert_eq!(config.typing.clipboard_open_retry_count, 5);
@@ -1139,6 +1203,8 @@ mod tests {
         config.tray.close_behavior = "minimize".to_string();
         config.request.ws_url = "http://example.com/asr".to_string();
         config.update.github_repo = "broken".to_string();
+        config.auto_hotwords.max_history_chars = 999;
+        config.auto_hotwords.max_candidates = 101;
 
         let errors = validate_config(&config).expect_err("invalid config should fail");
         let fields = errors
@@ -1158,6 +1224,8 @@ mod tests {
         assert!(fields.contains(&"tray.close_behavior"));
         assert!(fields.contains(&"request.ws_url"));
         assert!(fields.contains(&"update.github_repo"));
+        assert!(fields.contains(&"auto_hotwords.max_history_chars"));
+        assert!(fields.contains(&"auto_hotwords.max_candidates"));
     }
 
     #[test]
