@@ -45,6 +45,7 @@ struct SetupStatus {
 #[derive(Serialize)]
 struct SetupWarning {
     code: String,
+    level: String,
     title: String,
     message: String,
     action: String,
@@ -96,6 +97,7 @@ fn get_setup_status() -> Result<SetupStatus, String> {
     if missing_auth {
         warnings.push(SetupWarning {
             code: "ASR_AUTH_MISSING".to_string(),
+            level: "blocking".to_string(),
             title: "ASR 密钥未填写".to_string(),
             message: "填写 App Key 和 Access Key 后才能开始语音识别。".to_string(),
             action: "asr_auth".to_string(),
@@ -104,6 +106,7 @@ fn get_setup_status() -> Result<SetupStatus, String> {
     if !has_audio_device {
         warnings.push(SetupWarning {
             code: "MIC_DEVICE_NOT_FOUND".to_string(),
+            level: "blocking".to_string(),
             title: "未检测到麦克风".to_string(),
             message: "请接入或启用麦克风，然后重新检查设备。".to_string(),
             action: "audio".to_string(),
@@ -115,6 +118,7 @@ fn get_setup_status() -> Result<SetupStatus, String> {
     if !any_trigger_enabled {
         warnings.push(SetupWarning {
             code: "TRIGGER_DISABLED".to_string(),
+            level: "blocking".to_string(),
             title: "触发方式未开启".to_string(),
             message: "请至少开启主快捷键、右 Alt 或鼠标中键中的一种。".to_string(),
             action: "hotkey".to_string(),

@@ -249,10 +249,16 @@ npm run scan:secrets
 日常改动后，在仓库根目录运行：
 
 ```powershell
+npm run ai:check
+```
+
+也可以直接运行：
+
+```powershell
 .\scripts\ai-check.ps1
 ```
 
-该脚本会依次执行：
+该检查会依次执行：
 
 ```text
 npm run check
@@ -282,7 +288,13 @@ cargo test
 - `docs/code-style.md`
 - `docs/directory-structure.md`
 
-仓库包含一个最小 GitHub Actions CI：`.github/workflows/ci.yml`。CI 在 Windows runner 上执行前端类型检查、前端构建、密钥扫描、Rust 格式检查、clippy 和测试；本地仍以 `.\scripts\ai-check.ps1` 作为日常提交前入口。
+仓库包含一个最小 GitHub Actions CI：`.github/workflows/ci.yml`。CI 在 Windows runner 上执行前端类型检查、前端构建、密钥扫描、Rust 格式检查、clippy 和测试；本地仍以 `npm run ai:check` 作为日常提交前入口。
+
+发布前可运行：
+
+```powershell
+npm run ai:release-check
+```
 
 发布或合并前应同步更新 `CHANGELOG.md` 的 `[Unreleased]` 或对应版本段，记录用户可见变化、主链路保护和维护性调整。
 

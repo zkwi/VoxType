@@ -78,6 +78,8 @@
     warnings: SetupStatusWarning[];
   };
 
+  type AdvancedSection = Extract<Section, "Hotwords" | "ApiConfig" | "Options">;
+
   const defaultLlmSystemPrompt = `你是语音输入助手。
 
 场景：用户通过语音输入文字，语音识别（ASR）将语音转为文本后交给你处理。
@@ -318,7 +320,12 @@
   let setupStatusLoading = $state(false);
   let hotkeyCaptureState = $state<HotkeyCaptureState>("idle");
   let hotkeyValidationMessage = $state("");
-  let showAdvancedSettings = $state(false);
+  let advancedVisible = $state<Record<AdvancedSection, boolean>>({
+    Hotwords: false,
+    ApiConfig: false,
+    Options: false,
+  });
+  let llmApiConfigVisible = $state(false);
   onMount(() => {
     const onError = (event: ErrorEvent) => {
       logFrontendError(`${event.message} (${event.filename}:${event.lineno}:${event.colno})`);
@@ -967,21 +974,49 @@
   function firstValidationField(errors: ConfigValidationError[]) {
     return errors.find((error) => error.field)?.field ?? "";
   }
+  function isAdvancedVisible(section: AdvancedSection) {
+    return advancedVisible[section];
+  }
+  function toggleAdvanced(section: AdvancedSection) {
+    advancedVisible = {
+      ...advancedVisible,
+      [section]: !advancedVisible[section],
+    };
+  }
+  function showAdvanced(section: AdvancedSection) {
+    advancedVisible = {
+      ...advancedVisible,
+      [section]: true,
+    };
+  }
   function focusFirstValidationError(errors: ConfigValidationError[]) {
     const field = firstValidationField(errors);
     if (!field) return;
-    if (fieldRequiresAdvancedSettings(field)) showAdvancedSettings = true;
+    if (fieldRequiresAdvancedSettings(field)) showAdvanced(fieldAdvancedSection(field));
+    if (field.startsWith("llm_post_edit.")) llmApiConfigVisible = true;
     scrollToSettingsPanel(settingsPanelForField(field));
+  }
+  function fieldAdvancedSection(field: string): AdvancedSection {
+    if (field.startsWith("context.") || field.startsWith("auto_hotwords.") || field === "llm_post_edit.system_prompt" || field === "llm_post_edit.user_prompt_template" || field === "llm_post_edit.min_chars") {
+      return "Hotwords";
+    }
+    if (field.startsWith("request.") || field.startsWith("llm_post_edit.")) return "ApiConfig";
+    return "Options";
   }
   function fieldRequiresAdvancedSettings(field: string) {
     return (
-      field.startsWith("audio.") && field !== "audio.input_device" ||
-      (field.startsWith("ui.") && !["ui.opacity", "ui.background_color", "ui.text_color"].includes(field)) ||
-      field === "update.github_repo" ||
+      (field.startsWith("audio.") && field !== "audio.input_device") ||
+      (field.startsWith("ui.") && field !== "ui.opacity") ||
+      field.startsWith("context.") && field !== "context.hotwords" ||
+      field.startsWith("auto_hotwords.") ||
+      (field.startsWith("request.") && field !== "request.final_result_timeout_seconds") ||
+      field.startsWith("update.") ||
+      field === "typing.paste_delay_ms" ||
       field === "typing.clipboard_restore_delay_ms" ||
       field === "typing.clipboard_snapshot_max_bytes" ||
       field === "typing.clipboard_open_retry_count" ||
       field === "typing.clipboard_open_retry_interval_ms" ||
+      field === "typing.restore_clipboard_after_paste" ||
       field === "llm_post_edit.enable_thinking"
     );
   }
@@ -993,6 +1028,7 @@
     }
     if (field.startsWith("llm_post_edit.")) return "settings-llm-api";
     if (field.startsWith("auto_hotwords.")) return "settings-auto-hotwords";
+    if (field.startsWith("context.") && field !== "context.hotwords") return "settings-prompt-context";
     if (field.startsWith("context.")) return "settings-context";
     if (field.startsWith("audio.")) return "settings-audio";
     if (field.startsWith("ui.")) return "settings-overlay";
@@ -1400,6 +1436,7 @@
   }
   function handleSetupAction(action: string) {
     if (action === "audio") void refreshSetupStatus();
+    if (action === "privacy") showAdvanced("Hotwords");
     const targetId =
       action === "asr_auth"
         ? "settings-auth"
@@ -1408,7 +1445,7 @@
           : action === "typing"
             ? "settings-output"
             : action === "privacy"
-              ? "settings-context"
+              ? "settings-prompt-context"
               : "settings-output";
     scrollToSettingsPanel(targetId);
   }
@@ -1953,6 +1990,26 @@
   function hasAuth(configValue = config) {
     return Boolean(configValue.auth.app_key.trim() && configValue.auth.access_key.trim());
   }
+  function hasLlmApiConfig(configValue = config) {
+    return Boolean(
+      configValue.llm_post_edit.base_url?.trim() &&
+        configValue.llm_post_edit.api_key?.trim() &&
+        configValue.llm_post_edit.model?.trim(),
+    );
+  }
+  function showAutoHotwordDetails() {
+    return (
+      config.auto_hotwords.enabled ||
+      Boolean(fieldError("auto_hotwords.max_history_chars") || fieldError("auto_hotwords.max_candidates"))
+    );
+  }
+  function openLlmApiSettings() {
+    llmApiConfigVisible = true;
+    scrollToSettingsPanel("settings-llm-api");
+  }
+  function llmApiStatusText() {
+    return hasLlmApiConfig() ? t("llmApiConfigured") : t("llmApiMissing");
+  }
   function requiresAsrAuth(configValue?: AppConfig, exists?: boolean) {
     if (configValue === undefined && exists === undefined && !configLoaded) {
       return setupStatus ? setupStatus.missing_auth : false;
@@ -1970,12 +2027,13 @@
   function scrollToSettingsPanel(targetId: string) {
     if (!browser) return;
     selectedSection = sectionForSettingsPanel(targetId);
+    if (targetId === "settings-llm-api") llmApiConfigVisible = true;
     window.setTimeout(() => {
       document.getElementById(targetId)?.scrollIntoView({ block: "start", behavior: "smooth" });
     }, 50);
   }
   function sectionForSettingsPanel(targetId: string): Section {
-    if (targetId === "settings-context" || targetId === "settings-prompt-context" || targetId === "settings-llm-prompt") {
+    if (targetId === "settings-context" || targetId === "settings-prompt-context" || targetId === "settings-llm-prompt" || targetId === "settings-auto-hotwords") {
       return "Hotwords";
     }
     if (targetId === "settings-auth" || targetId === "settings-request" || targetId === "settings-llm-api") {
@@ -2330,6 +2388,15 @@
           dirty={settingsDirty}
           onReload={reloadConfigFromUi}
         />
+        <section class="settings-mode-panel">
+          <div>
+            <h3>{isAdvancedVisible("Hotwords") ? t("advancedSettings") : t("basicSettings")}</h3>
+            <p>{isAdvancedVisible("Hotwords") ? t("advancedSettingsHint") : t("hotwordsBasicHint")}</p>
+          </div>
+          <button type="button" onclick={() => toggleAdvanced("Hotwords")}>
+            {isAdvancedVisible("Hotwords") ? t("hideAdvancedSettings") : t("showAdvancedSettings")}
+          </button>
+        </section>
         <section class="settings-group">
           <div class="settings-group-heading">
             <h3>{t("hotwordsPageTitle")}</h3>
@@ -2340,6 +2407,9 @@
               <div class="section-heading-copy">
                 <h3>{t("customHotwordsTitle")}</h3>
                 <p>{t("customHotwordsDescription")}</p>
+                <div class="setting-tags">
+                  <span class="setting-tag">{t("tagSentToService")}</span>
+                </div>
               </div>
               <div class="settings-inline-actions">
                 <button class="test-button" type="button" onclick={tidyHotwords}><Sparkles size={16} />{t("tidyHotwords")}</button>
@@ -2350,9 +2420,17 @@
             <label><span>{t("customHotwords")}</span><textarea value={config.context.hotwords.join("\n")} oninput={(event) => updateHotwords(event.currentTarget.value)}></textarea></label>
             <p class="field-hint">{t("hotwordsPrivacyHint")}</p>
           </div>
+          {#if isAdvancedVisible("Hotwords")}
           <div id="settings-prompt-context" class="form-panel">
             <div class="section-heading with-actions">
-              <div class="section-heading-copy"><h3>{t("sceneContext")}</h3><p>{t("sceneContextDescription")}</p></div>
+              <div class="section-heading-copy">
+                <h3>{t("sceneContext")}</h3>
+                <p>{t("sceneContextDescription")}</p>
+                <div class="setting-tags">
+                  <span class="setting-tag">{t("tagLocalOnly")}</span>
+                  <span class="setting-tag">{t("tagPrivacySensitive")}</span>
+                </div>
+              </div>
               <button class="test-button" onclick={clearRecentContextFromUi} disabled={clearingRecentContext}>
                 <Trash2 size={16} />{clearingRecentContext ? t("clearingRecentContext") : t("clearRecentContext")}
               </button>
@@ -2368,7 +2446,13 @@
           </div>
           <div id="settings-llm-prompt" class="form-panel">
             <div class="section-heading with-actions">
-              <div class="section-heading-copy"><h3>{t("llmPromptSettings")}</h3><p>{t("llmPromptDescription")}</p></div>
+              <div class="section-heading-copy">
+                <h3>{t("llmPromptSettings")}</h3>
+                <p>{t("llmPromptDescription")}</p>
+                <div class="setting-tags">
+                  <span class="setting-tag">{t("tagAdvanced")}</span>
+                </div>
+              </div>
               <div class="settings-inline-actions">
                 <button class="test-button" type="button" onclick={restoreDefaultLlmPrompt}><Sparkles size={16} />{t("restoreDefaultPrompt")}</button>
                 <button class="test-button" type="button" onclick={previewFinalPrompt}><FileText size={16} />{t("previewFinalPrompt")}</button>
@@ -2389,20 +2473,35 @@
               <div class="section-heading-copy">
                 <h3>{t("autoHotwordsTitle")}</h3>
                 <p>{t("autoHotwordsDescription")}</p>
+                <div class="setting-tags">
+                  <span class="setting-tag">{t("tagOptional")}</span>
+                  <span class="setting-tag">{t("tagLocalOnly")}</span>
+                  <span class="setting-tag">{t("tagSentToService")}</span>
+                </div>
               </div>
               <div class="settings-inline-actions">
-                <button class="test-button" type="button" onclick={generateAutoHotwords} disabled={generatingAutoHotwords}>
-                  <Sparkles size={16} />{generatingAutoHotwords ? t("autoHotwordsGenerating") : t("autoHotwordsGenerate")}
-                </button>
-                <button class="test-button" type="button" onclick={clearAutoHotwordHistoryFromUi} disabled={clearingAutoHotwordHistory}>
-                  <Trash2 size={16} />{clearingAutoHotwordHistory ? t("autoHotwordsClearing") : t("autoHotwordsClearHistory")}
-                </button>
+                {#if showAutoHotwordDetails()}
+                  <button class="test-button" type="button" onclick={generateAutoHotwords} disabled={generatingAutoHotwords || !hasLlmApiConfig() || !config.auto_hotwords.enabled}>
+                    <Sparkles size={16} />{generatingAutoHotwords ? t("autoHotwordsGenerating") : t("autoHotwordsGenerate")}
+                  </button>
+                  <button class="test-button" type="button" onclick={clearAutoHotwordHistoryFromUi} disabled={clearingAutoHotwordHistory}>
+                    <Trash2 size={16} />{clearingAutoHotwordHistory ? t("autoHotwordsClearing") : t("autoHotwordsClearHistory")}
+                  </button>
+                {/if}
               </div>
             </div>
             <div class="toggle-grid">
               <label class="check"><input type="checkbox" bind:checked={config.auto_hotwords.enabled} />{t("autoHotwordsEnabled")}</label>
             </div>
             <p class="field-hint">{t("autoHotwordsPrivacyHint")}</p>
+            {#if showAutoHotwordDetails() && !hasLlmApiConfig()}
+              <div class="inline-warning">
+                <AlertCircle size={16} />
+                <span>{t("autoHotwordsNeedsLlmApi")}</span>
+                <button class="link-button" type="button" onclick={openLlmApiSettings}>{t("goApiConfig")}</button>
+              </div>
+            {/if}
+            {#if showAutoHotwordDetails()}
             <div class="form-grid">
               <label class:field-invalid={Boolean(fieldError("auto_hotwords.max_history_chars"))}>
                 <span>{t("autoHotwordsMaxHistoryChars")}</span>
@@ -2460,7 +2559,9 @@
                 {/each}
               </div>
             {/if}
+            {/if}
           </div>
+          {/if}
         </section>
       </section>
     {:else if selectedSection === "ApiConfig"}
@@ -2500,6 +2601,7 @@
             readyTitle: t("setupHealthReadyTitle"),
             readyDescription: t("setupHealthReadyDescription", { hotkey: formatHotkey(snapshot.hotkey) }),
             refresh: t("refreshSetup"),
+            warningSummary: (count: number) => t("setupWarningSummary", { count: String(count) }),
             actionText: setupActionText,
           }}
           onAction={handleSetupAction}
@@ -2507,11 +2609,11 @@
         />
         <section class="settings-mode-panel">
           <div>
-            <h3>{showAdvancedSettings ? t("advancedSettings") : t("basicSettings")}</h3>
-            <p>{showAdvancedSettings ? t("advancedSettingsHint") : t("basicSettingsHint")}</p>
+            <h3>{isAdvancedVisible("ApiConfig") ? t("advancedSettings") : t("basicSettings")}</h3>
+            <p>{isAdvancedVisible("ApiConfig") ? t("advancedSettingsHint") : t("apiConfigBasicHint")}</p>
           </div>
-          <button type="button" onclick={() => (showAdvancedSettings = !showAdvancedSettings)}>
-            {showAdvancedSettings ? t("hideAdvancedSettings") : t("showAdvancedSettings")}
+          <button type="button" onclick={() => toggleAdvanced("ApiConfig")}>
+            {isAdvancedVisible("ApiConfig") ? t("hideAdvancedSettings") : t("showAdvancedSettings")}
           </button>
         </section>
         <section class="settings-group">
@@ -2523,6 +2625,11 @@
             <div class="section-heading with-actions">
               <div class="section-heading-copy">
                 <h3>{t("doubaoAuth")}</h3>
+                <p>{t("doubaoAuthRequiredHint")}</p>
+                <div class="setting-tags">
+                  <span class="setting-tag required">{t("tagRequired")}</span>
+                  <span class="setting-tag">{t("tagSentToService")}</span>
+                </div>
                 {#if requiresAsrAuth()}
                   <p class="setup-note">{setupRequiredMessage()}</p>
                   <button class="link-button" onclick={openSetupGuide}>{t("setupGuideCta")}</button>
@@ -2549,27 +2656,38 @@
             </div>
           </div>
           <div id="settings-request" class="form-panel">
-            <div class="section-heading"><h3>{t("recognitionOptions")}</h3><p>{t("asrDescription")}</p></div>
-            <label class:field-invalid={Boolean(fieldError("request.ws_url"))}>
-              <span>{t("websocketUrl")}</span>
-              <input bind:value={config.request.ws_url} />
-              {#if fieldError("request.ws_url")}<small class="field-error">{fieldError("request.ws_url")}</small>{/if}
-            </label>
+            <div class="section-heading">
+              <div class="section-heading-copy">
+                <h3>{t("recognitionOptions")}</h3>
+                <p>{t("asrDescription")}</p>
+                <div class="setting-tags">
+                  <span class="setting-tag">{t("tagAdvanced")}</span>
+                </div>
+              </div>
+            </div>
             <div class="form-grid">
-              <label><span>{t("model")}</span><input bind:value={config.request.model_name} /></label>
               <label class:field-invalid={Boolean(fieldError("request.final_result_timeout_seconds"))}>
                 <span>{t("finalTimeout")}</span>
                 <input type="number" bind:value={config.request.final_result_timeout_seconds} />
                 {#if fieldError("request.final_result_timeout_seconds")}<small class="field-error">{fieldError("request.final_result_timeout_seconds")}</small>{/if}
+                <small class="field-hint">{t("finalTimeoutHint")}</small>
               </label>
             </div>
-            {#if showAdvancedSettings}
-            <div class="toggle-grid">
-              <label class="check"><input type="checkbox" bind:checked={config.request.enable_nonstream} />{t("secondPass")}</label>
-              <label class="check"><input type="checkbox" bind:checked={config.request.enable_itn} />{t("itn")}</label>
-              <label class="check"><input type="checkbox" bind:checked={config.request.enable_punc} />{t("punctuation")}</label>
-              <label class="check"><input type="checkbox" bind:checked={config.request.enable_ddc} />{t("ddc")}</label>
-            </div>
+            {#if isAdvancedVisible("ApiConfig")}
+              <label class:field-invalid={Boolean(fieldError("request.ws_url"))}>
+                <span>{t("websocketUrl")}</span>
+                <input bind:value={config.request.ws_url} />
+                {#if fieldError("request.ws_url")}<small class="field-error">{fieldError("request.ws_url")}</small>{/if}
+              </label>
+              <div class="form-grid">
+                <label><span>{t("model")}</span><input bind:value={config.request.model_name} /></label>
+              </div>
+              <div class="toggle-grid">
+                <label class="check"><input type="checkbox" bind:checked={config.request.enable_nonstream} />{t("secondPass")}</label>
+                <label class="check"><input type="checkbox" bind:checked={config.request.enable_itn} />{t("itn")}</label>
+                <label class="check"><input type="checkbox" bind:checked={config.request.enable_punc} />{t("punctuation")}</label>
+                <label class="check"><input type="checkbox" bind:checked={config.request.enable_ddc} />{t("ddc")}</label>
+              </div>
             {/if}
           </div>
         </section>
@@ -2580,12 +2698,30 @@
           </div>
           <div id="settings-llm-api" class="form-panel">
             <div class="section-heading with-actions">
-              <div class="section-heading-copy"><h3>{t("llmPostEdit")}</h3><p>{t("llmDescription")}</p></div>
-              <button class="test-button" onclick={testLlmConfig} disabled={testingLlm}>
-                <ShieldCheck size={16} />{testingLlm ? t("testingConnection") : t("testConnection")}
+              <div class="section-heading-copy">
+                <h3>{t("llmApiOptionalTitle")}</h3>
+                <p>{t("llmApiOptionalDescription")}</p>
+                <div class="setting-tags">
+                  <span class="setting-tag">{t("tagOptional")}</span>
+                  <span class="setting-tag">{t("tagSentToService")}</span>
+                </div>
+              </div>
+              <button class="test-button" type="button" onclick={() => (llmApiConfigVisible = !llmApiConfigVisible)}>
+                {llmApiConfigVisible ? t("hideLlmConfig") : t("expandLlmConfig")}
               </button>
             </div>
-            <label class="check"><input type="checkbox" bind:checked={config.llm_post_edit.enabled} />{t("enablePolishing")}</label>
+            <div class="optional-config-summary">
+              <span>{llmApiStatusText()}</span>
+              <small>{t("llmApiOptionalUses")}</small>
+            </div>
+            <label class="check">
+              <input type="checkbox" bind:checked={config.llm_post_edit.enabled} />
+              <span class="check-copy">
+                <span>{t("enablePolishing")}</span>
+                {#if !hasLlmApiConfig()}<small>{t("llmApiRequiredForPolishing")}</small>{/if}
+              </span>
+            </label>
+            {#if llmApiConfigVisible || isAdvancedVisible("ApiConfig")}
             <div class="form-grid">
               <label class:field-invalid={Boolean(fieldError("llm_post_edit.base_url"))}>
                 <span>Base URL</span>
@@ -2608,10 +2744,14 @@
                 {#if fieldError("llm_post_edit.timeout_seconds")}<small class="field-error">{fieldError("llm_post_edit.timeout_seconds")}</small>{/if}
               </label>
             </div>
-            {#if showAdvancedSettings}
-            <div class="toggle-grid">
-              <label class="check"><input type="checkbox" bind:checked={config.llm_post_edit.enable_thinking} />{t("enableThinking")}</label>
-            </div>
+              <button class="test-button" onclick={testLlmConfig} disabled={testingLlm}>
+                <ShieldCheck size={16} />{testingLlm ? t("testingConnection") : t("testConnection")}
+              </button>
+            {/if}
+            {#if isAdvancedVisible("ApiConfig")}
+              <div class="toggle-grid">
+                <label class="check"><input type="checkbox" bind:checked={config.llm_post_edit.enable_thinking} />{t("enableThinking")}</label>
+              </div>
             {/if}
           </div>
         </section>
@@ -2629,11 +2769,11 @@
         />
         <section class="settings-mode-panel">
           <div>
-            <h3>{showAdvancedSettings ? t("advancedSettings") : t("basicSettings")}</h3>
-            <p>{showAdvancedSettings ? t("advancedSettingsHint") : t("basicSettingsHint")}</p>
+            <h3>{isAdvancedVisible("Options") ? t("advancedSettings") : t("basicSettings")}</h3>
+            <p>{isAdvancedVisible("Options") ? t("advancedSettingsHint") : t("optionsBasicHint")}</p>
           </div>
-          <button type="button" onclick={() => (showAdvancedSettings = !showAdvancedSettings)}>
-            {showAdvancedSettings ? t("hideAdvancedSettings") : t("showAdvancedSettings")}
+          <button type="button" onclick={() => toggleAdvanced("Options")}>
+            {isAdvancedVisible("Options") ? t("hideAdvancedSettings") : t("showAdvancedSettings")}
           </button>
         </section>
         <section class="settings-group">
@@ -2658,11 +2798,6 @@
                 </button>
                 <small class="field-hint">{hotkeyValidationMessage || fieldError("hotkey") || t("hotkeyRecordHint")}</small>
               </label>
-              <label class:field-invalid={Boolean(fieldError("typing.paste_delay_ms"))}>
-                <span>{t("pasteDelayMs")}</span>
-                <input type="number" bind:value={config.typing.paste_delay_ms} />
-                {#if fieldError("typing.paste_delay_ms")}<small class="field-error">{fieldError("typing.paste_delay_ms")}</small>{/if}
-              </label>
               <label class:field-invalid={Boolean(fieldError("typing.paste_method"))}>
                 <span>{t("pasteMethod")}</span>
                 <select bind:value={config.typing.paste_method}><option value="ctrl_v">Ctrl + V</option><option value="shift_insert">Shift + Insert</option><option value="clipboard_only">{t("clipboardOnly")}</option></select>
@@ -2677,7 +2812,12 @@
                 </select>
                 {#if fieldError("tray.close_behavior")}<small class="field-error">{fieldError("tray.close_behavior")}</small>{/if}
               </label>
-              {#if showAdvancedSettings}
+              {#if isAdvancedVisible("Options")}
+                <label class:field-invalid={Boolean(fieldError("typing.paste_delay_ms"))}>
+                  <span>{t("pasteDelayMs")}</span>
+                  <input type="number" bind:value={config.typing.paste_delay_ms} />
+                  {#if fieldError("typing.paste_delay_ms")}<small class="field-error">{fieldError("typing.paste_delay_ms")}</small>{/if}
+                </label>
                 <label class:field-invalid={Boolean(fieldError("typing.clipboard_restore_delay_ms"))}>
                   <span>{t("clipboardRestoreDelay")}</span>
                   <input type="number" bind:value={config.typing.clipboard_restore_delay_ms} />
@@ -2694,15 +2834,15 @@
             </div>
             <div class="toggle-grid">
               <label class="check"><input type="checkbox" bind:checked={config.triggers.hotkey_enabled} />{t("mainHotkey")}</label>
-              <label class="check"><input type="checkbox" bind:checked={config.triggers.middle_mouse_enabled} onchange={(event) => maybeShowOptionEnabledNotice("middle_mouse_enabled", event.currentTarget.checked)} />{t("middleMouse")}</label>
-              <label class="check"><input type="checkbox" bind:checked={config.triggers.right_alt_enabled} onchange={(event) => maybeShowOptionEnabledNotice("right_alt_enabled", event.currentTarget.checked)} />{t("rightAlt")}</label>
-              {#if showAdvancedSettings}
+              <label class="check"><input type="checkbox" bind:checked={config.triggers.middle_mouse_enabled} onchange={(event) => maybeShowOptionEnabledNotice("middle_mouse_enabled", event.currentTarget.checked)} /><span class="check-copy"><span>{t("middleMouse")}</span><small>{t("tagConflictRisk")}</small></span></label>
+              <label class="check"><input type="checkbox" bind:checked={config.triggers.right_alt_enabled} onchange={(event) => maybeShowOptionEnabledNotice("right_alt_enabled", event.currentTarget.checked)} /><span class="check-copy"><span>{t("rightAlt")}</span><small>{t("tagConflictRisk")}</small></span></label>
+              {#if isAdvancedVisible("Options")}
                 <label class="check"><input type="checkbox" bind:checked={config.typing.restore_clipboard_after_paste} />{t("restoreClipboardAfterPaste")}</label>
               {/if}
               <label class="check"><input type="checkbox" bind:checked={config.startup.launch_on_startup} />{t("launchOnStartup")}</label>
             </div>
             <p class="field-hint">{t("clipboardTextRestoreHint")}</p>
-            {#if showAdvancedSettings}
+            {#if isAdvancedVisible("Options")}
               <p class="field-hint">{t("clipboardRestoreDelayHint")}</p>
               <p class="field-hint">{t("clipboardRetryHint")}</p>
             {/if}
@@ -2752,20 +2892,22 @@
                 </div>
                 {#if fieldError("ui.opacity")}<small class="field-error">{fieldError("ui.opacity")}</small>{/if}
               </div>
-              <div class="form-grid color-grid">
-                <label class="color-field" class:field-invalid={Boolean(fieldError("ui.background_color"))}>
-                  <span>{t("captionBackgroundColor")}</span>
-                  <input type="color" value={overlayBackgroundColor()} oninput={(event) => (config.ui.background_color = event.currentTarget.value)} />
-                  {#if fieldError("ui.background_color")}<small class="field-error">{fieldError("ui.background_color")}</small>{/if}
-                </label>
-                <label class="color-field" class:field-invalid={Boolean(fieldError("ui.text_color"))}>
-                  <span>{t("captionTextColor")}</span>
-                  <input type="color" value={overlayTextColor()} oninput={(event) => (config.ui.text_color = event.currentTarget.value)} />
-                  {#if fieldError("ui.text_color")}<small class="field-error">{fieldError("ui.text_color")}</small>{/if}
-                </label>
-              </div>
+              {#if isAdvancedVisible("Options")}
+                <div class="form-grid color-grid">
+                  <label class="color-field" class:field-invalid={Boolean(fieldError("ui.background_color"))}>
+                    <span>{t("captionBackgroundColor")}</span>
+                    <input type="color" value={overlayBackgroundColor()} oninput={(event) => (config.ui.background_color = event.currentTarget.value)} />
+                    {#if fieldError("ui.background_color")}<small class="field-error">{fieldError("ui.background_color")}</small>{/if}
+                  </label>
+                  <label class="color-field" class:field-invalid={Boolean(fieldError("ui.text_color"))}>
+                    <span>{t("captionTextColor")}</span>
+                    <input type="color" value={overlayTextColor()} oninput={(event) => (config.ui.text_color = event.currentTarget.value)} />
+                    {#if fieldError("ui.text_color")}<small class="field-error">{fieldError("ui.text_color")}</small>{/if}
+                  </label>
+                </div>
+              {/if}
             </div>
-            {#if showAdvancedSettings}
+            {#if isAdvancedVisible("Options")}
               <div class="form-grid">
                 <label class:field-invalid={Boolean(fieldError("ui.width"))}>
                   <span>{t("width")}</span>
@@ -2802,7 +2944,7 @@
                   {/each}
                 </select>
               </label>
-              {#if showAdvancedSettings}
+              {#if isAdvancedVisible("Options")}
                 <label class:field-invalid={Boolean(fieldError("audio.sample_rate"))}>
                   <span>{t("sampleRate")}</span>
                   <input type="number" bind:value={config.audio.sample_rate} />
@@ -2830,13 +2972,14 @@
                 </label>
               {/if}
             </div>
-            {#if showAdvancedSettings}
+            {#if isAdvancedVisible("Options")}
             <div class="toggle-grid">
-              <label class="check"><input type="checkbox" bind:checked={config.audio.mute_system_volume_while_recording} onchange={(event) => maybeShowOptionEnabledNotice("mute_system_volume_while_recording", event.currentTarget.checked)} />{t("muteSystemAudio")}</label>
+              <label class="check"><input type="checkbox" bind:checked={config.audio.mute_system_volume_while_recording} onchange={(event) => maybeShowOptionEnabledNotice("mute_system_volume_while_recording", event.currentTarget.checked)} /><span class="check-copy"><span>{t("muteSystemAudio")}</span><small>{t("tagAdvanced")}</small></span></label>
             </div>
             <p class="field-hint">{t("muteSystemAudioHint")}</p>
             {/if}
           </div>
+          {#if isAdvancedVisible("Options")}
           <div id="settings-update" class="form-panel update-panel">
             <div class="section-heading"><h3>{t("softwareUpdate")}</h3><p>{t("softwareUpdateDescription")}</p></div>
             <div class:available={updateStatus?.update_available} class="update-card">
@@ -2859,15 +3002,12 @@
             <div class="toggle-grid">
               <label class="check"><input type="checkbox" bind:checked={config.update.auto_check_on_startup} />{t("autoCheckUpdates")}</label>
             </div>
-            {#if showAdvancedSettings}
-              <label class:field-invalid={Boolean(fieldError("update.github_repo"))}>
-                <span>GitHub Release Repo</span>
-                <input bind:value={config.update.github_repo} />
-                {#if fieldError("update.github_repo")}<small class="field-error">{fieldError("update.github_repo")}</small>{/if}
-              </label>
-            {/if}
+            <label class:field-invalid={Boolean(fieldError("update.github_repo"))}>
+              <span>GitHub Release Repo</span>
+              <input bind:value={config.update.github_repo} />
+              {#if fieldError("update.github_repo")}<small class="field-error">{fieldError("update.github_repo")}</small>{/if}
+            </label>
           </div>
-          {#if showAdvancedSettings}
           <div id="settings-diagnostics" class="form-panel">
             <div class="section-heading"><h3>{t("diagnosticsAndLogs")}</h3><p>{t("diagnosticsDescription")}</p></div>
             <div class="update-card">
@@ -4316,9 +4456,26 @@
     overflow-wrap: anywhere;
   }
   .check input {
+    flex: 0 0 auto;
     width: 18px;
     min-height: 18px;
     accent-color: var(--primary);
+  }
+  .check-copy {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+  }
+  .check-copy span {
+    color: var(--text-main);
+    font-size: 14px;
+    font-weight: 700;
+  }
+  .check-copy small {
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1.25;
   }
   .section-heading {
     display: grid;
@@ -4348,6 +4505,62 @@
   }
   .section-heading-copy {
     flex: 1 1 320px;
+  }
+  .setting-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+  }
+  .setting-tag {
+    display: inline-flex;
+    align-items: center;
+    min-height: 22px;
+    padding: 0 8px;
+    color: #50627a;
+    background: #f1f6fd;
+    border: 1px solid #dce8f6;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 800;
+    line-height: 1;
+    white-space: nowrap;
+  }
+  .setting-tag.required {
+    color: #1f66b1;
+    background: #eaf3ff;
+    border-color: #c7def8;
+  }
+  .optional-config-summary,
+  .inline-warning {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    padding: 10px 12px;
+    color: var(--text-secondary);
+    background: #f8fbff;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    font-size: 13px;
+    line-height: 1.45;
+  }
+  .optional-config-summary span {
+    color: var(--text-main);
+    font-weight: 800;
+  }
+  .optional-config-summary small {
+    color: var(--text-secondary);
+    overflow-wrap: anywhere;
+  }
+  .inline-warning {
+    color: #8a4b00;
+    background: #fffaf3;
+    border-color: #f4d7ad;
+  }
+  .inline-warning :global(svg) {
+    flex: 0 0 auto;
   }
   .section-heading.with-actions .link-button {
     margin-top: 8px;

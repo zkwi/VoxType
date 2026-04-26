@@ -1,43 +1,62 @@
-# Changelog
+# 更新日志
 
-All notable changes to VoxType are documented here.
+这里记录 VoxType 的重要变更。
 
-The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+格式参考 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)。
 
-## [Unreleased]
+## [未发布]
+
+## [0.1.24] - 2026-04-26
+
+### 新增
+
+- 新增页面级高级设置开关，热词、API 配置和选项页可分别展开高级内容。
+- 新增发布前本地检查入口 `npm run ai:release-check`，统一执行本地检查、clippy 和 Tauri debug 构建。
+
+### 变更
+
+- 热词页默认只展示手动热词，场景上下文、大模型 Prompt 和自动热词候选移入高级设置。
+- API 配置页突出豆包 ASR 必填认证，并将大模型 API 标记为可选配置。
+- 选项页默认只展示日常设置，剪贴板、录音、更新和诊断参数移入高级设置。
+- 首页健康检查支持 warning 等级，非阻断注意事项改为折叠展示。
+- CHANGELOG 改为简体中文维护。
+
+### 修复
+
+- 修正 API 配置页与选项页共用高级设置开关导致跨页互相影响的问题。
 
 ## [0.1.23] - 2026-04-26
 
-### Added
+### 新增
 
-- Added a separate accepted automatic hotword list so generated hotwords remain visually distinct from user-maintained custom hotwords.
+- 新增独立的“已接受自动热词”列表，让生成热词与用户维护的自定义热词在界面上保持区分。
 
-### Changed
+### 变更
 
-- ASR requests, LLM polishing prompts, prompt previews, and automatic hotword duplicate filtering now use a merged effective hotword list without merging the stored lists.
-- Improved the floating caption layout so the voice meter no longer overlaps multiline caption text and browser wrapping cannot create extra visual lines.
+- ASR 请求、LLM 润色提示词、提示词预览和自动热词去重过滤改为使用合并后的有效热词列表，但配置中仍保留分开的存储列表。
+- 优化悬浮字幕布局，音量指示不再遮挡多行字幕文本，浏览器换行也不会额外制造视觉错行。
 
 ## [0.1.22] - 2026-04-26
 
-### Added
+### 新增
 
-- Added a Windows GitHub Actions CI workflow for frontend checks, secret scanning, Rust formatting, clippy, and tests.
+- 新增 Windows GitHub Actions CI 流程，覆盖前端检查、密钥扫描、Rust 格式检查、clippy 和测试。
 
-### Changed
+### 变更
 
-- Moved shared frontend application types out of `src/routes/+page.svelte` into `src/lib/types/app.ts` as a first low-risk step toward page/component splitting.
-- Added focused Rust regression tests for empty ASR result handling, processing-phase session toggles, and invalid audio sample-rate validation.
-- Added doc comments to high-risk configuration, session, and clipboard output boundaries.
-- Added structured ASR warning codes so low-priority clipboard restore notices can be hidden without matching localized text.
+- 将共享前端应用类型从 `src/routes/+page.svelte` 移到 `src/lib/types/app.ts`，作为页面和组件拆分的第一步低风险整理。
+- 为 ASR 空结果处理、处理中阶段会话切换、非法音频采样率校验补充聚焦的 Rust 回归测试。
+- 为高风险的配置、会话和剪贴板输出边界补充文档注释。
+- 新增结构化 ASR warning code，让低优先级剪贴板恢复提示可以不依赖本地化文本匹配来隐藏。
 
-### Fixed
+### 修复
 
-- Hid the large "partial clipboard format backup" notice from the overlay and main-window toast while keeping the diagnostic warning in logs.
+- 默认隐藏较大的“部分剪贴板格式未备份”提示，不再显示到悬浮字幕和主窗口 toast，但仍保留日志中的诊断 warning。
 
 ## [0.1.21] - 2026-04-26
 
-### Changed
+### 变更
 
-- Automatic hotword status no longer exposes the local history file path to the frontend.
-- Automatic hotword generation failures no longer carry raw service response bodies through the error handling path.
-- Hotword history tests now clean up their temporary directories.
+- 自动热词状态不再向前端暴露本地历史文件路径。
+- 自动热词生成失败时，不再把服务原始响应正文透传到错误处理路径。
+- 热词历史测试现在会清理临时目录。

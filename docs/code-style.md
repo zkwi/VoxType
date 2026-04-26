@@ -164,7 +164,13 @@ ASR final result empty.
 日常提交前运行：
 
 ```powershell
-.\scripts\ai-check.ps1
+npm run ai:check
+```
+
+发布前可运行：
+
+```powershell
+npm run ai:release-check
 ```
 
 如果不能运行，提交说明中必须写明原因。

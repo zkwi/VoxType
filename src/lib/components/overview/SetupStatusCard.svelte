@@ -9,8 +9,11 @@
     action: string;
   };
 
+  export type SetupWarningLevel = "blocking" | "warning" | "info";
+
   export type SetupStatusWarning = {
     code: string;
+    level?: SetupWarningLevel;
     title: string;
     message: string;
     action: string;
@@ -25,6 +28,7 @@
     readyTitle: string;
     readyDescription: string;
     refresh: string;
+    warningSummary: (count: number) => string;
     actionText: (action: string) => string;
   };
 
@@ -39,6 +43,13 @@
   };
 
   let { ready, checking, items, warnings, texts, onAction, onRefresh }: Props = $props();
+
+  function warningLevel(warning: SetupStatusWarning): SetupWarningLevel {
+    return warning.level ?? "blocking";
+  }
+
+  let blockingWarnings = $derived(warnings.filter((warning) => warningLevel(warning) === "blocking"));
+  let softWarnings = $derived(warnings.filter((warning) => warningLevel(warning) === "warning"));
 </script>
 
 <section class:ready={ready && !checking} class:checking class="setup-status-card">
@@ -82,9 +93,9 @@
     {/each}
   </div>
 
-  {#if warnings.length > 0}
-    <div class="setup-warning-list">
-      {#each warnings as warning}
+  {#if blockingWarnings.length > 0}
+    <div class="setup-warning-list blocking">
+      {#each blockingWarnings as warning}
         <article>
           <div>
             <strong>{warning.title}</strong>
@@ -96,6 +107,28 @@
         </article>
       {/each}
     </div>
+  {/if}
+
+  {#if softWarnings.length > 0}
+    <details class="setup-warning-details">
+      <summary>
+        <AlertCircle size={15} />
+        <span>{texts.warningSummary(softWarnings.length)}</span>
+      </summary>
+      <div class="setup-warning-list soft">
+        {#each softWarnings as warning}
+          <article>
+            <div>
+              <strong>{warning.title}</strong>
+              <p>{warning.message}</p>
+            </div>
+            <button type="button" onclick={() => onAction(warning.action)}>
+              {texts.actionText(warning.action)}
+            </button>
+          </article>
+        {/each}
+      </div>
+    </details>
   {/if}
 
 </section>
@@ -176,6 +209,7 @@
 
   .setup-status-head button:focus-visible,
   .setup-warning-list button:focus-visible,
+  .setup-warning-details summary:focus-visible,
   .setup-check-item:focus-visible {
     outline: 2px solid rgba(47, 128, 237, 0.32);
     outline-offset: 2px;
@@ -257,6 +291,38 @@
     gap: 8px;
   }
 
+  .setup-warning-details {
+    overflow: hidden;
+    border: 1px solid #e1eaf6;
+    border-radius: 8px;
+    background: #ffffff;
+  }
+
+  .setup-warning-details summary {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 36px;
+    padding: 0 12px;
+    color: #5d6f87;
+    font-size: 12px;
+    font-weight: 800;
+    cursor: pointer;
+    list-style: none;
+  }
+
+  .setup-warning-details summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .setup-warning-details[open] summary {
+    border-bottom: 1px solid #e7eef8;
+  }
+
+  .setup-warning-details .setup-warning-list {
+    padding: 8px;
+  }
+
   .setup-warning-list article {
     display: flex;
     align-items: center;
@@ -268,6 +334,11 @@
     background: #fffaf3;
   }
 
+  .setup-warning-list.soft article {
+    border-color: #e1eaf6;
+    background: #fbfdff;
+  }
+
   .setup-warning-list article > div {
     min-width: 0;
   }
@@ -277,12 +348,20 @@
     font-size: 13px;
   }
 
+  .setup-warning-list.soft strong {
+    color: #3d4c61;
+  }
+
   .setup-warning-list p {
     margin: 3px 0 0;
     color: #715536;
     font-size: 12px;
     line-height: 1.45;
     overflow-wrap: anywhere;
+  }
+
+  .setup-warning-list.soft p {
+    color: #65758b;
   }
 
   .setup-warning-list button {

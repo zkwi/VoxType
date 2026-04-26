@@ -151,6 +151,7 @@ docs/
 ```text
 scripts/
 ├── ai-check.ps1
+├── ai-release-check.ps1
 ├── enable_git_hooks.ps1
 └── scan-secrets.mjs
 ```

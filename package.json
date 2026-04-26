@@ -1,6 +1,6 @@
 {
   "name": "voxtype-desktop",
-  "version": "0.1.23",
+  "version": "0.1.24",
   "description": "VoxType desktop speech input app built with Tauri, Rust, and Svelte",
   "type": "module",
   "scripts": {
@@ -10,6 +10,8 @@
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
     "scan:secrets": "node scripts/scan-secrets.mjs --git-visible",
+    "ai:check": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ai-check.ps1",
+    "ai:release-check": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ai-release-check.ps1",
     "tauri": "tauri"
   },
   "license": "MIT",

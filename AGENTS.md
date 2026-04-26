@@ -107,7 +107,7 @@ VoxType 是一个 Windows 桌面语音输入工具。核心链路是：
 
 1. 首页只展示正式用户信息，不展示调试信息。
 2. 首页健康检查中，只有真正阻断主流程的问题才使用明显警告。
-3. 最近上下文、右 Alt、鼠标中键、系统静音属于 warning，不阻断 ready。
+3. 最近上下文、右 Alt、鼠标中键、系统静音属于 warning，不阻断 ready，并应折叠为弱提醒。
 4. 设置页应优先展示基础设置，高级参数默认折叠。
 5. 悬浮字幕应克制，只显示实时字幕、耗时状态和错误。
 6. 错误提示必须说明：
@@ -122,7 +122,7 @@ VoxType 是一个 Windows 桌面语音输入工具。核心链路是：
 日常修改后，在仓库根目录运行：
 
 ```powershell
-.\scripts\ai-check.ps1
+npm run ai:check
 ```
 
 如果无法运行，必须说明原因。
@@ -142,10 +142,7 @@ cargo test
 发布前额外运行：
 
 ```powershell
-Set-Location .\src-tauri
-cargo clippy --all-targets -- -D warnings
-Set-Location ..
-npx tauri build
+npm run ai:release-check
 ```
 
 ---
