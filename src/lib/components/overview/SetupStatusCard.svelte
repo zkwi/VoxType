@@ -117,6 +117,7 @@
   }
 
   .setup-status-head > div {
+    flex: 1 1 320px;
     min-width: 0;
   }
 
@@ -160,6 +161,13 @@
     cursor: pointer;
   }
 
+  .setup-status-head button:focus-visible,
+  .setup-warning-list button:focus-visible,
+  .setup-check-item:focus-visible {
+    outline: 2px solid rgba(47, 128, 237, 0.32);
+    outline-offset: 2px;
+  }
+
   .setup-check-grid {
     display: grid;
     grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -178,6 +186,10 @@
     background: #ffffff;
     text-align: left;
     cursor: pointer;
+  }
+
+  .setup-check-item > span:nth-child(2) {
+    min-width: 0;
   }
 
   .setup-check-item.ok .setup-check-icon {
@@ -231,6 +243,10 @@
     background: #fffaf3;
   }
 
+  .setup-warning-list article > div {
+    min-width: 0;
+  }
+
   .setup-warning-list strong {
     color: #8a4b00;
     font-size: 13px;
@@ -241,11 +257,39 @@
     color: #715536;
     font-size: 12px;
     line-height: 1.45;
+    overflow-wrap: anywhere;
+  }
+
+  .setup-warning-list button {
+    max-width: 180px;
+    white-space: normal;
   }
 
   @media (max-width: 1180px) {
     .setup-check-grid {
       grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+
+  @media (max-width: 760px) {
+    .setup-check-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .setup-warning-list article {
+      display: grid;
+      align-items: stretch;
+    }
+
+    .setup-warning-list button {
+      width: 100%;
+      max-width: none;
+    }
+  }
+
+  @media (max-width: 520px) {
+    .setup-check-grid {
+      grid-template-columns: 1fr;
     }
   }
 </style>

@@ -3464,11 +3464,11 @@
     bottom: 20px;
     z-index: 20;
     display: inline-flex;
-    align-items: center;
-    max-width: min(340px, calc(100vw - 44px));
+    align-items: flex-start;
+    max-width: min(460px, calc(100vw - 44px));
     min-height: 40px;
     gap: 8px;
-    padding: 0 14px;
+    padding: 10px 14px;
     color: #0f5132;
     background: rgba(240, 253, 244, 0.98);
     border: 1px solid rgba(34, 197, 94, 0.26);
@@ -3479,9 +3479,9 @@
   }
   .action-notice span {
     min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+    white-space: normal;
   }
   .action-notice.info {
     color: #245b93;

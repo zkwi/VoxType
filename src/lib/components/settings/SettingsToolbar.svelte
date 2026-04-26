@@ -89,6 +89,7 @@
     justify-content: center;
     gap: 8px;
     min-width: 108px;
+    max-width: 100%;
     min-height: 36px;
     padding: 0 16px;
     color: var(--text-main, #111827);
@@ -96,12 +97,24 @@
     border: 1px solid var(--border, #dde6f3);
     border-radius: 12px;
     font-weight: 800;
+    cursor: pointer;
+    white-space: nowrap;
   }
 
   .toolbar-actions .primary {
     color: #ffffff;
     background: var(--primary, #2f80ed);
     border-color: var(--primary, #2f80ed);
+  }
+
+  .toolbar-actions button:disabled {
+    cursor: wait;
+    opacity: 0.66;
+  }
+
+  .toolbar-actions button:focus-visible {
+    outline: 2px solid rgba(47, 128, 237, 0.32);
+    outline-offset: 2px;
   }
 
   @media (max-width: 920px) {

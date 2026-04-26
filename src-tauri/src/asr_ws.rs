@@ -70,7 +70,7 @@ pub fn spawn_asr_worker(
                     warning: Some("EMPTY_TRANSCRIPT".to_string()),
                 });
             }
-            if config.llm_post_edit.enabled {
+            if llm_post_edit::should_polish(&config, &text) {
                 session.set_phase(
                     Some(&app),
                     SessionPhase::PostEditing,

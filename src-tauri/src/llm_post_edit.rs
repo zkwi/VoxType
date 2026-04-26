@@ -7,6 +7,15 @@ pub struct PolishOutcome {
     pub warning: Option<String>,
 }
 
+pub fn should_polish(config: &AppConfig, text: &str) -> bool {
+    let settings = &config.llm_post_edit;
+    settings.enabled
+        && text.trim().chars().count() >= settings.min_chars
+        && !settings.api_key.trim().is_empty()
+        && !settings.base_url.trim().is_empty()
+        && !settings.model.trim().is_empty()
+}
+
 pub async fn polish(config: &AppConfig, text: &str) -> PolishOutcome {
     let settings = &config.llm_post_edit;
     if !settings.enabled {
@@ -291,7 +300,10 @@ fn friendly_llm_test_error(error: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{chat_body, friendly_llm_error, friendly_llm_test_error, thinking_flag};
+    use super::{
+        chat_body, friendly_llm_error, friendly_llm_test_error, should_polish, thinking_flag,
+    };
+    use crate::config::AppConfig;
 
     #[test]
     fn explains_common_llm_failures() {
@@ -325,5 +337,25 @@ mod tests {
         );
         assert_eq!(thinking_flag("https://api.openai.com/v1", false), None);
         assert_eq!(thinking_flag("https://api.openai.com/v1", true), Some(true));
+    }
+
+    #[test]
+    fn should_polish_only_when_a_request_will_be_sent() {
+        let mut config = AppConfig::default();
+        config.llm_post_edit.enabled = true;
+        config.llm_post_edit.min_chars = 5;
+        config.llm_post_edit.base_url = "https://api.example.test/v1".to_string();
+        config.llm_post_edit.api_key = "test-key".to_string();
+        config.llm_post_edit.model = "test-model".to_string();
+
+        assert!(should_polish(&config, "hello"));
+        assert!(!should_polish(&config, "hi"));
+
+        config.llm_post_edit.enabled = false;
+        assert!(!should_polish(&config, "hello"));
+
+        config.llm_post_edit.enabled = true;
+        config.llm_post_edit.api_key.clear();
+        assert!(!should_polish(&config, "hello"));
     }
 }
