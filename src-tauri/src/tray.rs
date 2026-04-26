@@ -1,5 +1,5 @@
 use crate::session::SessionController;
-use crate::{app_log, config};
+use crate::{app_log, config, main_window};
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, TrayIconBuilder, TrayIconEvent};
 use tauri::{image::Image, AppHandle, Manager};
@@ -131,16 +131,5 @@ fn open_log_file_with_source(app: &AppHandle, source: &str) -> Result<(), String
 }
 
 fn show_main_window(app: &AppHandle) {
-    let Some(window) = app.get_webview_window("main") else {
-        return;
-    };
-    if let Err(err) = window.unminimize() {
-        app_log::warn(format!("恢复主窗口失败: {}", err));
-    }
-    if let Err(err) = window.show() {
-        app_log::warn(format!("显示主窗口失败: {}", err));
-    }
-    if let Err(err) = window.set_focus() {
-        app_log::warn(format!("聚焦主窗口失败: {}", err));
-    }
+    main_window::show_centered(app, "托盘菜单");
 }

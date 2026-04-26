@@ -1,5 +1,5 @@
-use crate::{app_log, config};
-use tauri::{AppHandle, Manager};
+use crate::{app_log, config, main_window};
+use tauri::AppHandle;
 use tauri_plugin_opener::OpenerExt;
 
 pub const SETUP_GUIDE_URL: &str = "https://github.com/zkwi/VoxType/wiki/Setup-Guide";
@@ -21,11 +21,7 @@ pub fn open_if_config_missing(app: &AppHandle) {
         return;
     }
 
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.unminimize();
-        let _ = window.show();
-        let _ = window.set_focus();
-    }
+    main_window::show_centered(app, "缺少配置文件");
     match open(app) {
         Ok(()) => app_log::info("未找到 config.toml，已打开配置指南。"),
         Err(err) => app_log::warn(err),

@@ -20,6 +20,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 
 use crate::app_log;
 use crate::config::{self, TriggerConfig};
+use crate::main_window;
 use crate::session::SessionController;
 
 const HOTKEY_ID: i32 = 1;
@@ -329,11 +330,7 @@ fn dispatch_toggle(app: AppHandle, source: &'static str) {
         let controller = app.state::<SessionController>().inner().clone();
         if let Err(err) = controller.toggle(Some(app.clone())) {
             if is_config_error(&err) {
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.unminimize();
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                }
+                main_window::show_centered(&app, "配置错误");
                 if err.contains("config.toml") {
                     crate::setup_guide::open_if_config_missing(&app);
                 }

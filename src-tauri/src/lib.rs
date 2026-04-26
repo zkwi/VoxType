@@ -6,6 +6,7 @@ mod autostart;
 mod config;
 mod hotkey;
 mod llm_post_edit;
+mod main_window;
 mod overlay;
 mod protocol;
 mod session;
@@ -483,11 +484,7 @@ pub fn run() {
     if let Err(err) = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             app_log::info("检测到重复启动，已唤起现有主窗口。");
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.unminimize();
-                let _ = window.show();
-                let _ = window.set_focus();
-            }
+            main_window::show_centered(app, "重复启动");
         }))
         .plugin(tauri_plugin_opener::init())
         .manage(SessionController::default())
@@ -523,6 +520,7 @@ pub fn run() {
                 "VoxType Tauri client started. version={}",
                 env!("CARGO_PKG_VERSION")
             ));
+            main_window::center_existing(app.handle(), "启动时");
             app_log::info("startup stage: create overlay begin");
             let _ = overlay::create_overlay_window(app.handle());
             app_log::info("startup stage: create overlay done");
