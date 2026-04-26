@@ -7,9 +7,10 @@ export const en = {
   "minimizeToTray": "Minimize to tray",
   "navOverview": "Home",
   "navHome": "Home",
-  "navHealthCheck": "Health check",
+  "navHotwords": "Hotwords",
+  "navApiConfig": "API config",
+  "navOptions": "Options",
   "voiceInputTitle": "Voice input",
-  "navSettings": "Settings",
   "navHistory": "Analytics",
   "topEyebrow": "VoxType",
   "recordingPreview": "Recording",
@@ -52,12 +53,12 @@ export const en = {
   "sessionFailed": "This dictation failed. Check the hint.",
   "setupRequired": "Setup required",
   "inputError": "Input issue",
-  "setupMissingFile": "No config file found. Fill credentials on the Settings page and save, or open the config file manually.",
-  "setupMissingAuth": "ASR credentials are missing. Fill App Key and Access Key on the Settings page, then save.",
+  "setupMissingFile": "No config file found. Fill credentials on the API config page and save, or open the config file manually.",
+  "setupMissingAuth": "ASR credentials are missing. Fill App Key and Access Key on the API config page, then save.",
   "authGateTitle": "Fill Doubao ASR keys first",
   "authGateDescription": "Recording, recognition, paste, and the remaining flow cannot work without the Doubao App Key and Access Key.",
   "authGateNotice": "Fill and save Doubao ASR keys before using voice input.",
-  "setupCta": "Open Settings",
+  "setupCta": "Open API config",
   "setupGuideCta": "Setup Guide",
   "setupHealthTitle": "Setup health",
   "setupHealthPendingTitle": "{count} steps left",
@@ -107,6 +108,35 @@ export const en = {
   "outputValue": "Clipboard + simulated paste",
   "trigger": "Trigger",
   "triggerValue": "Right Alt / middle mouse / tray",
+  "hotwordsPageTitle": "Hotwords and prompts",
+  "hotwordsPageDescription": "Manage ASR hotwords, scene context, and LLM polishing prompts.",
+  "asrHotwords": "ASR hotwords",
+  "hotwordsPrivacyHint": "Hotwords are sent with ASR requests. Do not enter passwords, IDs, phone numbers, or customer-sensitive data.",
+  "tidyHotwords": "Deduplicate",
+  "clearHotwords": "Clear hotwords",
+  "clearHotwordsConfirm": "Clear all hotwords?",
+  "hotwordsTidied": "Hotwords deduplicated.",
+  "hotwordsCleared": "Hotwords cleared.",
+  "hotwordCount": "{count} hotwords currently.",
+  "sceneContext": "Scene context",
+  "sceneContextDescription": "Hints for the current writing scene, such as product names, project background, and common wording.",
+  "recentContextRounds": "Recent context rounds",
+  "llmPromptSettings": "LLM prompts",
+  "llmPromptDescription": "Adjust only polishing style and rules here. Service URL, model, and keys are managed on API config.",
+  "restoreDefaultPrompt": "Restore default prompts",
+  "previewFinalPrompt": "Preview final prompt",
+  "defaultPromptRestored": "Default prompts restored.",
+  "promptPreviewSampleText": "This is a sample speech recognition text to polish.",
+  "promptPreviewEmpty": "(empty)",
+  "promptPreviewUserDictionary": "User dictionary:",
+  "promptPreviewContextTitle": "Scene and preference context (reference only, not text to rewrite):",
+  "apiConfigPageTitle": "API config and health check",
+  "apiConfigPageDescription": "Configure ASR and LLM services, then confirm the connections work.",
+  "llmApiSettings": "LLM API",
+  "llmApiSettingsDescription": "Configure Base URL, API Key, model, and timeout for the OpenAI-compatible endpoint.",
+  "enableThinking": "Enable thinking",
+  "optionsPageTitle": "Options",
+  "optionsPageDescription": "Configure local launch, output, recording, floating captions, tray behavior, updates, and diagnostics.",
   "softwareSettings": "App settings",
   "softwareSettingsDescription": "Launch methods, output behavior, floating captions, tray behavior, and updates.",
   "doubaoAsrSettings": "Doubao ASR settings",
@@ -291,12 +321,12 @@ export const enUserErrorDetails = {
   "CONFIG_MISSING": {
     "title": "Config file is missing",
     "cause": "This may be the first launch, or the config file was moved or deleted.",
-    "action": "Open Settings, fill Doubao ASR credentials, then save."
+    "action": "Open API config, fill Doubao ASR credentials, then save."
   },
   "ASR_AUTH_MISSING": {
     "title": "ASR credentials are not usable",
     "cause": "App Key, Access Key, or Resource ID is missing or lacks permission.",
-    "action": "Check Doubao credentials in Settings, save, then run Test."
+    "action": "Check Doubao credentials in API config, save, then run Test."
   },
   "ASR_NETWORK_FAILED": {
     "title": "Cannot reach recognition service",
@@ -306,7 +336,7 @@ export const enUserErrorDetails = {
   "ASR_FINAL_TIMEOUT": {
     "title": "Recognition result timed out",
     "cause": "The network is slow, or Doubao ASR did not return the final result in time.",
-    "action": "Retry later, or increase the final timeout in Settings."
+    "action": "Retry later, or increase the final timeout in API config."
   },
   "EMPTY_TRANSCRIPT": {
     "title": "No speech was recognized",
@@ -336,7 +366,7 @@ export const enUserErrorDetails = {
   "HOTKEY_REGISTER_FAILED": {
     "title": "Hotkey registration failed",
     "cause": "The shortcut may already be used by another app.",
-    "action": "Choose another shortcut in Settings, or close the app that owns it."
+    "action": "Choose another shortcut in Options, or close the app that owns it."
   },
   "SYSTEM_AUDIO_RESTORE_FAILED": {
     "title": "System audio restore failed",

@@ -7,9 +7,10 @@ export const zhTW = {
   "minimizeToTray": "最小化到系統匣",
   "navOverview": "首頁",
   "navHome": "首頁",
-  "navHealthCheck": "健康檢查",
+  "navHotwords": "熱詞",
+  "navApiConfig": "API配置",
+  "navOptions": "選項",
   "voiceInputTitle": "語音輸入",
-  "navSettings": "配置",
   "navHistory": "統計分析",
   "topEyebrow": "VoxType",
   "recordingPreview": "錄音中",
@@ -52,12 +53,12 @@ export const zhTW = {
   "sessionFailed": "本次語音輸入失敗，請查看提示。",
   "setupRequired": "需要先完成配置",
   "inputError": "輸入異常",
-  "setupMissingFile": "未找到配置檔案。請在配置頁填寫認證資訊並儲存，或打開配置檔案手動編輯。",
-  "setupMissingAuth": "ASR 認證資訊未填寫。請在配置頁填寫 App Key 和 Access Key 後儲存。",
+  "setupMissingFile": "未找到配置檔案。請在 API 配置頁填寫認證資訊並儲存，或打開配置檔案手動編輯。",
+  "setupMissingAuth": "ASR 認證資訊未填寫。請在 API 配置頁填寫 App Key 和 Access Key 後儲存。",
   "authGateTitle": "請先填寫豆包 ASR Key",
   "authGateDescription": "沒有豆包 App Key 和 Access Key 時，錄音、識別、貼上和後續流程都無法工作。",
   "authGateNotice": "請先填寫並儲存豆包 ASR Key，才能繼續使用語音輸入。",
-  "setupCta": "去配置",
+  "setupCta": "去 API配置",
   "setupGuideCta": "查看配置指南",
   "setupHealthTitle": "配置健康檢查",
   "setupHealthPendingTitle": "還差 {count} 步即可使用",
@@ -107,6 +108,35 @@ export const zhTW = {
   "outputValue": "剪貼簿 + 模擬貼上",
   "trigger": "觸發方式",
   "triggerValue": "右 Alt / 滑鼠中鍵 / 系統匣",
+  "hotwordsPageTitle": "熱詞與提示詞",
+  "hotwordsPageDescription": "管理 ASR 熱詞、場景上下文和大模型潤飾提示詞。",
+  "asrHotwords": "ASR 熱詞",
+  "hotwordsPrivacyHint": "熱詞會隨 ASR 請求傳送給識別服務，請不要填寫密碼、證件號、手機號或客戶敏感資訊。",
+  "tidyHotwords": "去重整理",
+  "clearHotwords": "清空熱詞",
+  "clearHotwordsConfirm": "確定要清空所有熱詞嗎？",
+  "hotwordsTidied": "熱詞已去重整理。",
+  "hotwordsCleared": "熱詞已清空。",
+  "hotwordCount": "目前 {count} 個熱詞。",
+  "sceneContext": "場景上下文",
+  "sceneContextDescription": "用於提示目前輸入場景，例如產品名、專案背景和常用表達。",
+  "recentContextRounds": "最近上下文輪數",
+  "llmPromptSettings": "大模型提示詞",
+  "llmPromptDescription": "只調整潤飾風格和規則，服務位址、模型和密鑰在 API 配置頁管理。",
+  "restoreDefaultPrompt": "恢復預設提示詞",
+  "previewFinalPrompt": "預覽最終 Prompt",
+  "defaultPromptRestored": "已恢復預設提示詞。",
+  "promptPreviewSampleText": "這是一段待潤飾的語音識別文字。",
+  "promptPreviewEmpty": "（空）",
+  "promptPreviewUserDictionary": "使用者詞典：",
+  "promptPreviewContextTitle": "場景與偏好上下文（僅供參考，不是待改寫文字）：",
+  "apiConfigPageTitle": "API 配置與健康檢查",
+  "apiConfigPageDescription": "配置 ASR 和大模型服務，並確認連線可用。",
+  "llmApiSettings": "大模型 API",
+  "llmApiSettingsDescription": "配置 OpenAI 相容介面的 Base URL、API Key、模型和逾時。",
+  "enableThinking": "啟用 thinking",
+  "optionsPageTitle": "選項",
+  "optionsPageDescription": "配置本地啟動、輸出、錄音、懸浮字幕、系統匣、更新和診斷。",
   "softwareSettings": "軟體相關設定",
   "softwareSettingsDescription": "啟動方式、輸入輸出、懸浮字幕、系統匣和軟體更新。",
   "doubaoAsrSettings": "豆包 ASR 相關設定",
@@ -291,12 +321,12 @@ export const zhTWUserErrorDetails = {
   "CONFIG_MISSING": {
     "title": "配置檔案未建立",
     "cause": "首次啟動或配置檔案被移動、刪除。",
-    "action": "打開配置頁填寫豆包 ASR 密鑰並保存。"
+    "action": "打開 API 配置頁填寫豆包 ASR 密鑰並保存。"
   },
   "ASR_AUTH_MISSING": {
     "title": "ASR 密鑰不可用",
     "cause": "App Key、Access Key、Resource ID 未填寫或權限不正確。",
-    "action": "在配置頁檢查豆包認證資訊，保存後點擊測試。"
+    "action": "在 API 配置頁檢查豆包認證資訊，保存後點擊測試。"
   },
   "ASR_NETWORK_FAILED": {
     "title": "無法連接識別服務",
@@ -306,7 +336,7 @@ export const zhTWUserErrorDetails = {
   "ASR_FINAL_TIMEOUT": {
     "title": "識別結果等待逾時",
     "cause": "網路較慢，或豆包 ASR 沒有及時返回最終結果。",
-    "action": "稍後重試，必要時在配置頁適當調大最終結果逾時。"
+    "action": "稍後重試，必要時在 API 配置頁適當調大最終結果逾時。"
   },
   "EMPTY_TRANSCRIPT": {
     "title": "沒有識別到文字",
@@ -336,7 +366,7 @@ export const zhTWUserErrorDetails = {
   "HOTKEY_REGISTER_FAILED": {
     "title": "快捷鍵註冊失敗",
     "cause": "快捷鍵可能已被其他程式占用。",
-    "action": "在配置頁換一個快捷鍵，或關閉占用該快捷鍵的軟體。"
+    "action": "在選項頁換一個快捷鍵，或關閉占用該快捷鍵的軟體。"
   },
   "SYSTEM_AUDIO_RESTORE_FAILED": {
     "title": "系統音量恢復失敗",

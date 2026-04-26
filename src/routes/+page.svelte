@@ -38,7 +38,7 @@
     X as XIcon,
   } from "lucide-svelte";
 
-  type Section = "Home" | "Health" | "Settings" | "History";
+  type Section = "Home" | "Hotwords" | "ApiConfig" | "Options" | "History";
   type AppSnapshot = {
     hotkey: string;
     current_version: string;
@@ -331,15 +331,17 @@
   ];
   const navItems: { id: Section; icon: typeof Gauge }[] = [
     { id: "Home", icon: Gauge },
-    { id: "Health", icon: ShieldCheck },
-    { id: "Settings", icon: Settings },
+    { id: "Hotwords", icon: Sparkles },
+    { id: "ApiConfig", icon: ShieldCheck },
+    { id: "Options", icon: Settings },
     { id: "History", icon: BarChart3 },
   ];
 
   const navLabelKeys: Record<Section, CopyKey> = {
     Home: "navHome",
-    Health: "navHealthCheck",
-    Settings: "navSettings",
+    Hotwords: "navHotwords",
+    ApiConfig: "navApiConfig",
+    Options: "navOptions",
     History: "navHistory",
   };
 
@@ -443,7 +445,9 @@
           sessionErrorCode = event.payload.error_code;
           statusMessage = userErrorMessage(event.payload.error_code, event.payload.error);
           showActionNotice(statusMessage, "error");
-          if (shouldOpenSettingsForError(event.payload.error, event.payload.error_code)) selectedSection = "Settings";
+          if (shouldOpenSettingsForError(event.payload.error, event.payload.error_code)) {
+            scrollToSettingsPanel(settingsPanelForError(event.payload.error, event.payload.error_code));
+          }
           return;
         }
         if (event.payload.warning) showActionNotice(event.payload.warning, "warning");
@@ -827,12 +831,14 @@
     if (!state.recording) audioLevel = 0;
     if (state.phase === "failed" && state.error_code) {
       statusMessage = userErrorMessage(state.error_code, state.message);
-      if (shouldOpenSettingsForError(state.message, state.error_code)) selectedSection = "Settings";
+      if (shouldOpenSettingsForError(state.message, state.error_code)) {
+        scrollToSettingsPanel(settingsPanelForError(state.message, state.error_code));
+      }
       return;
     }
     if (isConfigError(state.message)) {
       statusMessage = userErrorMessage(state.error_code, state.message);
-      selectedSection = "Settings";
+      scrollToSettingsPanel(settingsPanelForError(state.message, state.error_code));
       return;
     }
     statusMessage = state.phase === "failed" && state.message ? userErrorMessage(state.error_code, state.message) : sessionPhaseMessage(sessionPhase);
@@ -899,8 +905,9 @@
       return result;
     } catch (error) {
       const saveError = parseConfigSaveError(error);
-      validationErrors = validationErrorMap(saveError.errors ?? []);
-      if ((saveError.errors ?? []).length > 0) showAdvancedSettings = true;
+      const errors = saveError.errors ?? [];
+      validationErrors = validationErrorMap(errors);
+      focusFirstValidationError(errors);
       statusMessage = saveError.message || t("validationFailed");
       logFrontendError(`save config failed: ${formatFrontendError(error)}`);
       return null;
@@ -941,6 +948,41 @@
   }
   function fieldError(field: string) {
     return validationErrors[field] ?? "";
+  }
+  function firstValidationField(errors: ConfigValidationError[]) {
+    return errors.find((error) => error.field)?.field ?? "";
+  }
+  function focusFirstValidationError(errors: ConfigValidationError[]) {
+    const field = firstValidationField(errors);
+    if (!field) return;
+    if (fieldRequiresAdvancedSettings(field)) showAdvancedSettings = true;
+    scrollToSettingsPanel(settingsPanelForField(field));
+  }
+  function fieldRequiresAdvancedSettings(field: string) {
+    return (
+      field.startsWith("audio.") && field !== "audio.input_device" ||
+      field.startsWith("ui.") ||
+      field.startsWith("update.") ||
+      field === "typing.clipboard_restore_delay_ms" ||
+      field === "typing.clipboard_snapshot_max_bytes" ||
+      field === "typing.clipboard_open_retry_count" ||
+      field === "typing.clipboard_open_retry_interval_ms" ||
+      field === "llm_post_edit.enable_thinking"
+    );
+  }
+  function settingsPanelForField(field: string) {
+    if (field.startsWith("auth.")) return "settings-auth";
+    if (field.startsWith("request.")) return "settings-request";
+    if (field === "llm_post_edit.system_prompt" || field === "llm_post_edit.user_prompt_template" || field === "llm_post_edit.min_chars") {
+      return "settings-llm-prompt";
+    }
+    if (field.startsWith("llm_post_edit.")) return "settings-llm-api";
+    if (field.startsWith("context.")) return "settings-context";
+    if (field.startsWith("audio.")) return "settings-audio";
+    if (field.startsWith("ui.")) return "settings-overlay";
+    if (field.startsWith("update.")) return "settings-update";
+    if (field === "tray.show_startup_message" || field === "tray.startup_message_timeout_ms") return "settings-overlay";
+    return "settings-output";
   }
   function syncSetupStatusFromConfig(nextConfig: AppConfig) {
     const missingAuth = !nextConfig.auth.app_key.trim() || !nextConfig.auth.access_key.trim();
@@ -1320,7 +1362,6 @@
   }
   function handleSetupAction(action: string) {
     if (action === "audio") void refreshSetupStatus();
-    selectedSection = "Settings";
     const targetId =
       action === "asr_auth"
         ? "settings-auth"
@@ -1563,10 +1604,39 @@
   }
 
   function updateHotwords(value: string) {
-    config.context.hotwords = value
+    config.context.hotwords = normalizeHotwords(value);
+  }
+
+  function normalizeHotwords(value: string) {
+    return value
       .split("\n")
       .map((item) => item.trim())
       .filter(Boolean);
+  }
+
+  function hotwordCount() {
+    return config.context.hotwords.filter((item) => item.trim()).length;
+  }
+
+  function tidyHotwords() {
+    const seen = new Set<string>();
+    config.context.hotwords = config.context.hotwords
+      .map((item) => item.trim())
+      .filter((item) => {
+        if (!item) return false;
+        const key = item.toLocaleLowerCase();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    showActionNotice(t("hotwordsTidied"), "success");
+  }
+
+  function clearHotwords() {
+    if (!browser || window.confirm(t("clearHotwordsConfirm"))) {
+      config.context.hotwords = [];
+      showActionNotice(t("hotwordsCleared"), "success");
+    }
   }
 
   function updatePromptContext(value: string) {
@@ -1575,6 +1645,26 @@
       .map((text) => text.trim())
       .filter(Boolean)
       .map((text) => ({ text }));
+  }
+
+  function restoreDefaultLlmPrompt() {
+    config.llm_post_edit.system_prompt = fallbackConfig.llm_post_edit.system_prompt;
+    config.llm_post_edit.user_prompt_template = fallbackConfig.llm_post_edit.user_prompt_template;
+    showActionNotice(t("defaultPromptRestored"), "success");
+  }
+
+  function previewFinalPrompt() {
+    const sampleText = t("promptPreviewSampleText");
+    let userPrompt = config.llm_post_edit.user_prompt_template.replace("{text}", sampleText);
+    const hotwords = config.context.hotwords.map((item) => item.trim()).filter(Boolean);
+    if (hotwords.length > 0) {
+      userPrompt += `\n\n${t("promptPreviewUserDictionary")}\n${hotwords.join("\n")}`;
+    }
+    const promptContext = config.context.prompt_context.map((item) => item.text.trim()).filter(Boolean);
+    if (promptContext.length > 0) {
+      userPrompt += `\n\n${t("promptPreviewContextTitle")}\n${promptContext.map((item) => `- ${item}`).join("\n")}`;
+    }
+    window.alert(`${t("systemPrompt")}\n${config.llm_post_edit.system_prompt || t("promptPreviewEmpty")}\n\n${t("userPromptTemplate")}\n${userPrompt}`);
   }
 
   function normalizedHexColor(value: string | undefined, fallback: string) {
@@ -1697,12 +1787,21 @@
   }
   function scrollToSettingsPanel(targetId: string) {
     if (!browser) return;
+    selectedSection = sectionForSettingsPanel(targetId);
     window.setTimeout(() => {
       document.getElementById(targetId)?.scrollIntoView({ block: "start", behavior: "smooth" });
     }, 50);
   }
+  function sectionForSettingsPanel(targetId: string): Section {
+    if (targetId === "settings-context" || targetId === "settings-prompt-context" || targetId === "settings-llm-prompt") {
+      return "Hotwords";
+    }
+    if (targetId === "settings-auth" || targetId === "settings-request" || targetId === "settings-llm-api") {
+      return "ApiConfig";
+    }
+    return "Options";
+  }
   function focusAsrAuthSettings() {
-    selectedSection = "Settings";
     scrollToSettingsPanel("settings-auth");
   }
   function requireAsrAuthGate(showNotice = true) {
@@ -1714,7 +1813,7 @@
   }
   function selectSection(section: Section) {
     selectedSection = section;
-    if (section === "Settings" && requiresAsrAuth()) scrollToSettingsPanel("settings-auth");
+    if (section === "ApiConfig" && requiresAsrAuth()) scrollToSettingsPanel("settings-auth");
   }
   function configSetupMessage(loaded: LoadedConfig | null) {
     if (!loaded) return "";
@@ -1781,9 +1880,14 @@
       message.includes("Base URL")
     );
   }
+  function settingsPanelForError(message: string, code?: string | null) {
+    if (code === "MIC_DEVICE_NOT_FOUND" || message.includes("麦克风") || message.toLowerCase().includes("microphone")) {
+      return "settings-audio";
+    }
+    return "settings-auth";
+  }
   function openSettings() {
-    selectedSection = "Settings";
-    if (requiresAsrAuth()) scrollToSettingsPanel("settings-auth");
+    scrollToSettingsPanel("settings-auth");
   }
   async function openSetupGuide() {
     await safeInvoke<void>("open_setup_guide");
@@ -1882,7 +1986,7 @@
   </aside>
 
   <section
-    class:overview-content={selectedSection === "Home" || selectedSection === "Health"}
+    class:overview-content={selectedSection === "Home"}
     class:setup-required={!configExists || !hasAuth()}
     class="content"
   >
@@ -1936,7 +2040,7 @@
               <span><Globe2 size={17} />{t("mixedInput")}</span>
             </div>
           </div>
-          <button class="shortcut-help" onclick={() => selectSection("Settings")}>
+          <button class="shortcut-help" onclick={() => selectSection("Options")}>
             <Keyboard size={14} />
             <span>{formatHotkey(snapshot.hotkey)}</span>
           </button>
@@ -1948,7 +2052,7 @@
             <Keyboard size={20} />
             <h3>{t("desktopControl")}</h3>
           </div>
-          <button class="link-action" onclick={() => selectSection("Settings")}>
+          <button class="link-action" onclick={() => selectSection("Options")}>
             {t("shortcutSettings")} <ChevronRight size={16} />
           </button>
         </div>
@@ -2029,27 +2133,76 @@
         </div>
         <p class="usage-tip"><Sparkles size={15} />{usageTipText()}</p>
       </section>
-    {:else if selectedSection === "Health"}
-      <SetupStatusCard
-        ready={setupIsReady()}
-        checking={setupStatusLoading}
-        items={setupStatusItems()}
-        warnings={setupStatusLoading ? [] : setupStatus?.warnings ?? []}
-        texts={{
-          title: t("setupHealthTitle"),
-          pendingTitle: t("setupHealthPendingTitle", { count: String(setupWarningCount()) }),
-          pendingDescription: t("setupHealthPendingDescription"),
-          checkingTitle: t("setupHealthCheckingTitle"),
-          checkingDescription: t("setupHealthCheckingDescription"),
-          readyTitle: t("setupHealthReadyTitle"),
-          readyDescription: t("setupHealthReadyDescription", { hotkey: formatHotkey(snapshot.hotkey) }),
-          refresh: t("refreshSetup"),
-          actionText: setupActionText,
-        }}
-        onAction={handleSetupAction}
-        onRefresh={refreshSetupStatus}
-      />
-    {:else if selectedSection === "Settings"}
+    {:else if selectedSection === "Hotwords"}
+      <section class="settings-stack">
+        <SettingsToolbar
+          title={t("settingsActionTitle")}
+          hint={t("settingsActionHint")}
+          statusMessage={settingsToolbarMessage()}
+          saveLabel={t("saveConfig")}
+          savingLabel={t("saving")}
+          reloadLabel={t("reload")}
+          {saving}
+          dirty={settingsDirty}
+          onSave={saveConfig}
+          onReload={reloadConfigFromUi}
+        />
+        <section class="settings-group">
+          <div class="settings-group-heading">
+            <h3>{t("hotwordsPageTitle")}</h3>
+            <p>{t("hotwordsPageDescription")}</p>
+          </div>
+          <div id="settings-context" class="form-panel">
+            <div class="section-heading with-actions">
+              <div class="section-heading-copy">
+                <h3>{t("asrHotwords")}</h3>
+                <p>{t("hotwordsPrivacyHint")}</p>
+              </div>
+              <div class="settings-inline-actions">
+                <button class="test-button" type="button" onclick={tidyHotwords}><Sparkles size={16} />{t("tidyHotwords")}</button>
+                <button class="test-button" type="button" onclick={clearHotwords}><Trash2 size={16} />{t("clearHotwords")}</button>
+              </div>
+            </div>
+            <p class="field-hint">{t("hotwordCount", { count: String(hotwordCount()) })}</p>
+            <label><span>{t("hotwords")}</span><textarea value={config.context.hotwords.join("\n")} oninput={(event) => updateHotwords(event.currentTarget.value)}></textarea></label>
+          </div>
+          <div id="settings-prompt-context" class="form-panel">
+            <div class="section-heading with-actions">
+              <div class="section-heading-copy"><h3>{t("sceneContext")}</h3><p>{t("sceneContextDescription")}</p></div>
+              <button class="test-button" onclick={clearRecentContextFromUi} disabled={clearingRecentContext}>
+                <Trash2 size={16} />{clearingRecentContext ? t("clearingRecentContext") : t("clearRecentContext")}
+              </button>
+            </div>
+            <label><span>{t("promptContext")}</span><textarea value={config.context.prompt_context.map((item) => item.text).join("\n")} oninput={(event) => updatePromptContext(event.currentTarget.value)}></textarea></label>
+            <div class="form-grid">
+              <label><span>{t("recentContextRounds")}</span><input type="number" bind:value={config.context.recent_context_rounds} /></label>
+            </div>
+            <div class="toggle-grid">
+              <label class="check"><input type="checkbox" bind:checked={config.context.enable_recent_context} onchange={(event) => maybeShowOptionEnabledNotice("enable_recent_context", event.currentTarget.checked)} />{t("useRecentContext")}</label>
+            </div>
+            <p class="field-hint">{t("recentContextHint")}</p>
+          </div>
+          <div id="settings-llm-prompt" class="form-panel">
+            <div class="section-heading with-actions">
+              <div class="section-heading-copy"><h3>{t("llmPromptSettings")}</h3><p>{t("llmPromptDescription")}</p></div>
+              <div class="settings-inline-actions">
+                <button class="test-button" type="button" onclick={restoreDefaultLlmPrompt}><Sparkles size={16} />{t("restoreDefaultPrompt")}</button>
+                <button class="test-button" type="button" onclick={previewFinalPrompt}><FileText size={16} />{t("previewFinalPrompt")}</button>
+              </div>
+            </div>
+            <div class="form-grid">
+              <label><span>{t("minChars")}</span><input type="number" bind:value={config.llm_post_edit.min_chars} /></label>
+            </div>
+            <label><span>{t("systemPrompt")}</span><textarea bind:value={config.llm_post_edit.system_prompt}></textarea></label>
+            <label class:field-invalid={Boolean(fieldError("llm_post_edit.user_prompt_template"))}>
+              <span>{t("userPromptTemplate")}</span>
+              <textarea bind:value={config.llm_post_edit.user_prompt_template}></textarea>
+              {#if fieldError("llm_post_edit.user_prompt_template")}<small class="field-error">{fieldError("llm_post_edit.user_prompt_template")}</small>{/if}
+            </label>
+          </div>
+        </section>
+      </section>
+    {:else if selectedSection === "ApiConfig"}
       <section class="settings-stack">
         {#if requiresAsrAuth()}
           <section class="auth-gate-card" aria-live="polite">
@@ -2075,6 +2228,25 @@
           onSave={saveConfig}
           onReload={reloadConfigFromUi}
         />
+        <SetupStatusCard
+          ready={setupIsReady()}
+          checking={setupStatusLoading}
+          items={setupStatusItems()}
+          warnings={setupStatusLoading ? [] : setupStatus?.warnings ?? []}
+          texts={{
+            title: t("setupHealthTitle"),
+            pendingTitle: t("setupHealthPendingTitle", { count: String(setupWarningCount()) }),
+            pendingDescription: t("setupHealthPendingDescription"),
+            checkingTitle: t("setupHealthCheckingTitle"),
+            checkingDescription: t("setupHealthCheckingDescription"),
+            readyTitle: t("setupHealthReadyTitle"),
+            readyDescription: t("setupHealthReadyDescription", { hotkey: formatHotkey(snapshot.hotkey) }),
+            refresh: t("refreshSetup"),
+            actionText: setupActionText,
+          }}
+          onAction={handleSetupAction}
+          onRefresh={refreshSetupStatus}
+        />
         <section class="settings-mode-panel">
           <div>
             <h3>{showAdvancedSettings ? t("advancedSettings") : t("basicSettings")}</h3>
@@ -2086,8 +2258,136 @@
         </section>
         <section class="settings-group">
           <div class="settings-group-heading">
-            <h3>{t("softwareSettings")}</h3>
-            <p>{t("softwareSettingsDescription")}</p>
+            <h3>{t("apiConfigPageTitle")}</h3>
+            <p>{t("apiConfigPageDescription")}</p>
+          </div>
+          <div id="settings-auth" class="form-panel">
+            <div class="section-heading with-actions">
+              <div class="section-heading-copy">
+                <h3>{t("doubaoAuth")}</h3>
+                {#if !configExists || !hasAuth()}
+                  <p class="setup-note">{!configExists ? t("setupMissingFile") : t("setupMissingAuth")}</p>
+                  <button class="link-button" onclick={openSetupGuide}>{t("setupGuideCta")}</button>
+                {/if}
+              </div>
+              <div class="settings-inline-actions">
+                <button class="test-button primary" onclick={saveConfig} disabled={saving}>
+                  <Save size={16} />{saving ? t("saving") : t("saveConfig")}
+                </button>
+                <button class="test-button" onclick={testAsrConfig} disabled={testingAsr}>
+                  <ShieldCheck size={16} />{testingAsr ? t("testingConnection") : t("testConnection")}
+                </button>
+              </div>
+            </div>
+            <div class="form-grid">
+              <label><span>{t("resourceId")}</span><input bind:value={config.auth.resource_id} /></label>
+              <label class:field-invalid={Boolean(fieldError("auth.app_key"))}>
+                <span>{t("appKey")}</span>
+                <input autocomplete="off" bind:value={config.auth.app_key} />
+                {#if fieldError("auth.app_key")}<small class="field-error">{fieldError("auth.app_key")}</small>{/if}
+              </label>
+              <label class:field-invalid={Boolean(fieldError("auth.access_key"))}>
+                <span>{t("accessKey")}</span>
+                <input type="password" autocomplete="off" bind:value={config.auth.access_key} />
+                {#if fieldError("auth.access_key")}<small class="field-error">{fieldError("auth.access_key")}</small>{/if}
+              </label>
+            </div>
+          </div>
+          <div id="settings-request" class="form-panel">
+            <div class="section-heading"><h3>{t("recognitionOptions")}</h3><p>{t("asrDescription")}</p></div>
+            <label class:field-invalid={Boolean(fieldError("request.ws_url"))}>
+              <span>{t("websocketUrl")}</span>
+              <input bind:value={config.request.ws_url} />
+              {#if fieldError("request.ws_url")}<small class="field-error">{fieldError("request.ws_url")}</small>{/if}
+            </label>
+            <div class="form-grid">
+              <label><span>{t("model")}</span><input bind:value={config.request.model_name} /></label>
+              <label class:field-invalid={Boolean(fieldError("request.final_result_timeout_seconds"))}>
+                <span>{t("finalTimeout")}</span>
+                <input type="number" bind:value={config.request.final_result_timeout_seconds} />
+                {#if fieldError("request.final_result_timeout_seconds")}<small class="field-error">{fieldError("request.final_result_timeout_seconds")}</small>{/if}
+              </label>
+            </div>
+            {#if showAdvancedSettings}
+            <div class="toggle-grid">
+              <label class="check"><input type="checkbox" bind:checked={config.request.enable_nonstream} />{t("secondPass")}</label>
+              <label class="check"><input type="checkbox" bind:checked={config.request.enable_itn} />{t("itn")}</label>
+              <label class="check"><input type="checkbox" bind:checked={config.request.enable_punc} />{t("punctuation")}</label>
+              <label class="check"><input type="checkbox" bind:checked={config.request.enable_ddc} />{t("ddc")}</label>
+            </div>
+            {/if}
+          </div>
+        </section>
+        <section class="settings-group">
+          <div class="settings-group-heading">
+            <h3>{t("llmApiSettings")}</h3>
+            <p>{t("llmApiSettingsDescription")}</p>
+          </div>
+          <div id="settings-llm-api" class="form-panel">
+            <div class="section-heading with-actions">
+              <div class="section-heading-copy"><h3>{t("llmPostEdit")}</h3><p>{t("llmDescription")}</p></div>
+              <button class="test-button" onclick={testLlmConfig} disabled={testingLlm}>
+                <ShieldCheck size={16} />{testingLlm ? t("testingConnection") : t("testConnection")}
+              </button>
+            </div>
+            <label class="check"><input type="checkbox" bind:checked={config.llm_post_edit.enabled} />{t("enablePolishing")}</label>
+            <div class="form-grid">
+              <label class:field-invalid={Boolean(fieldError("llm_post_edit.base_url"))}>
+                <span>Base URL</span>
+                <input bind:value={config.llm_post_edit.base_url} />
+                {#if fieldError("llm_post_edit.base_url")}<small class="field-error">{fieldError("llm_post_edit.base_url")}</small>{/if}
+              </label>
+              <label class:field-invalid={Boolean(fieldError("llm_post_edit.api_key"))}>
+                <span>API Key</span>
+                <input type="password" autocomplete="off" bind:value={config.llm_post_edit.api_key} />
+                {#if fieldError("llm_post_edit.api_key")}<small class="field-error">{fieldError("llm_post_edit.api_key")}</small>{/if}
+              </label>
+              <label class:field-invalid={Boolean(fieldError("llm_post_edit.model"))}>
+                <span>{t("model")}</span>
+                <input bind:value={config.llm_post_edit.model} />
+                {#if fieldError("llm_post_edit.model")}<small class="field-error">{fieldError("llm_post_edit.model")}</small>{/if}
+              </label>
+              <label class:field-invalid={Boolean(fieldError("llm_post_edit.timeout_seconds"))}>
+                <span>{t("timeout")}</span>
+                <input type="number" bind:value={config.llm_post_edit.timeout_seconds} />
+                {#if fieldError("llm_post_edit.timeout_seconds")}<small class="field-error">{fieldError("llm_post_edit.timeout_seconds")}</small>{/if}
+              </label>
+            </div>
+            {#if showAdvancedSettings}
+            <div class="toggle-grid">
+              <label class="check"><input type="checkbox" bind:checked={config.llm_post_edit.enable_thinking} />{t("enableThinking")}</label>
+            </div>
+            {/if}
+          </div>
+        </section>
+      </section>
+    {:else if selectedSection === "Options"}
+      <section class="settings-stack">
+        <SettingsToolbar
+          title={t("settingsActionTitle")}
+          hint={t("settingsActionHint")}
+          statusMessage={settingsToolbarMessage()}
+          saveLabel={t("saveConfig")}
+          savingLabel={t("saving")}
+          reloadLabel={t("reload")}
+          {saving}
+          dirty={settingsDirty}
+          onSave={saveConfig}
+          onReload={reloadConfigFromUi}
+        />
+        <section class="settings-mode-panel">
+          <div>
+            <h3>{showAdvancedSettings ? t("advancedSettings") : t("basicSettings")}</h3>
+            <p>{showAdvancedSettings ? t("advancedSettingsHint") : t("basicSettingsHint")}</p>
+          </div>
+          <button type="button" onclick={() => (showAdvancedSettings = !showAdvancedSettings)}>
+            {showAdvancedSettings ? t("hideAdvancedSettings") : t("showAdvancedSettings")}
+          </button>
+        </section>
+        <section class="settings-group">
+          <div class="settings-group-heading">
+            <h3>{t("optionsPageTitle")}</h3>
+            <p>{t("optionsPageDescription")}</p>
           </div>
           <div id="settings-output" class="form-panel">
             <div class="section-heading"><h3>{t("startAndOutput")}</h3><p>{t("typingDescription")}</p></div>
@@ -2156,8 +2456,58 @@
             {/if}
             <p class="field-hint">{t("triggerConflictHint")}</p>
           </div>
+          <div id="settings-audio" class="form-panel">
+            <div class="section-heading"><h3>{t("recordingParams")}</h3><p>{t("audioDescription")}</p></div>
+            <div class="form-grid">
+              <label>
+                <span>{t("inputDevice")}</span>
+                <select value={config.audio.input_device ?? ""} onchange={(event) => setInputDevice(event.currentTarget.value)}>
+                  <option value="">{t("defaultInputDevice")}</option>
+                  {#if audioDevices.length === 0}
+                    <option value="" disabled>{t("noAudioDevices")}</option>
+                  {/if}
+                  {#each audioDevices as device}
+                    <option value={device.index}>{device.index}: {device.name}</option>
+                  {/each}
+                </select>
+              </label>
+              {#if showAdvancedSettings}
+                <label class:field-invalid={Boolean(fieldError("audio.sample_rate"))}>
+                  <span>{t("sampleRate")}</span>
+                  <input type="number" bind:value={config.audio.sample_rate} />
+                  {#if fieldError("audio.sample_rate")}<small class="field-error">{fieldError("audio.sample_rate")}</small>{/if}
+                </label>
+                <label class:field-invalid={Boolean(fieldError("audio.channels"))}>
+                  <span>{t("channels")}</span>
+                  <input type="number" bind:value={config.audio.channels} />
+                  {#if fieldError("audio.channels")}<small class="field-error">{fieldError("audio.channels")}</small>{/if}
+                </label>
+                <label class:field-invalid={Boolean(fieldError("audio.segment_ms"))}>
+                  <span>{t("segmentMs")}</span>
+                  <input type="number" bind:value={config.audio.segment_ms} />
+                  {#if fieldError("audio.segment_ms")}<small class="field-error">{fieldError("audio.segment_ms")}</small>{/if}
+                </label>
+                <label class:field-invalid={Boolean(fieldError("audio.max_record_seconds"))}>
+                  <span>{t("maxSeconds")}</span>
+                  <input type="number" bind:value={config.audio.max_record_seconds} />
+                  {#if fieldError("audio.max_record_seconds")}<small class="field-error">{fieldError("audio.max_record_seconds")}</small>{/if}
+                </label>
+                <label class:field-invalid={Boolean(fieldError("audio.stop_grace_ms"))}>
+                  <span>{t("stopGraceMs")}</span>
+                  <input type="number" bind:value={config.audio.stop_grace_ms} />
+                  {#if fieldError("audio.stop_grace_ms")}<small class="field-error">{fieldError("audio.stop_grace_ms")}</small>{/if}
+                </label>
+              {/if}
+            </div>
+            {#if showAdvancedSettings}
+            <div class="toggle-grid">
+              <label class="check"><input type="checkbox" bind:checked={config.audio.mute_system_volume_while_recording} onchange={(event) => maybeShowOptionEnabledNotice("mute_system_volume_while_recording", event.currentTarget.checked)} />{t("muteSystemAudio")}</label>
+            </div>
+            <p class="field-hint">{t("muteSystemAudioHint")}</p>
+            {/if}
+          </div>
           {#if showAdvancedSettings}
-          <div class="form-panel">
+          <div id="settings-overlay" class="form-panel">
             <div class="section-heading"><h3>{t("floatingCaptionAndTray")}</h3><p>{t("interfaceDescription")}</p></div>
             <div class="form-grid">
               <label class:field-invalid={Boolean(fieldError("ui.width"))}>
@@ -2222,7 +2572,7 @@
           </div>
           {/if}
           {#if showAdvancedSettings}
-          <div class="form-panel update-panel">
+          <div id="settings-update" class="form-panel update-panel">
             <div class="section-heading"><h3>{t("softwareUpdate")}</h3><p>{t("softwareUpdateDescription")}</p></div>
             <div class:available={updateStatus?.update_available} class="update-card">
               <div>
@@ -2252,7 +2602,7 @@
           </div>
           {/if}
           {#if showAdvancedSettings}
-          <div class="form-panel">
+          <div id="settings-diagnostics" class="form-panel">
             <div class="section-heading"><h3>{t("diagnosticsAndLogs")}</h3><p>{t("diagnosticsDescription")}</p></div>
             <div class="update-card">
               <div>
@@ -2271,180 +2621,6 @@
           </div>
           {/if}
         </section>
-        <section class="settings-group">
-          <div class="settings-group-heading">
-            <h3>{t("doubaoAsrSettings")}</h3>
-            <p>{t("doubaoAsrSettingsDescription")}</p>
-          </div>
-          <div id="settings-auth" class="form-panel">
-            <div class="section-heading with-actions">
-              <div class="section-heading-copy">
-                <h3>{t("doubaoAuth")}</h3>
-                {#if !configExists || !hasAuth()}
-                  <p class="setup-note">{!configExists ? t("setupMissingFile") : t("setupMissingAuth")}</p>
-                  <button class="link-button" onclick={openSetupGuide}>{t("setupGuideCta")}</button>
-                {/if}
-              </div>
-              <div class="settings-inline-actions">
-                <button class="test-button primary" onclick={saveConfig} disabled={saving}>
-                  <Save size={16} />{saving ? t("saving") : t("saveConfig")}
-                </button>
-                <button class="test-button" onclick={testAsrConfig} disabled={testingAsr}>
-                  <ShieldCheck size={16} />{testingAsr ? t("testingConnection") : t("testConnection")}
-                </button>
-              </div>
-            </div>
-            <div class="form-grid">
-              <label><span>{t("resourceId")}</span><input bind:value={config.auth.resource_id} /></label>
-              <label class:field-invalid={Boolean(fieldError("auth.app_key"))}>
-                <span>{t("appKey")}</span>
-                <input autocomplete="off" bind:value={config.auth.app_key} />
-                {#if fieldError("auth.app_key")}<small class="field-error">{fieldError("auth.app_key")}</small>{/if}
-              </label>
-              <label class:field-invalid={Boolean(fieldError("auth.access_key"))}>
-                <span>{t("accessKey")}</span>
-                <input type="password" autocomplete="off" bind:value={config.auth.access_key} />
-                {#if fieldError("auth.access_key")}<small class="field-error">{fieldError("auth.access_key")}</small>{/if}
-              </label>
-            </div>
-          </div>
-          <div id="settings-audio" class="form-panel">
-            <div class="section-heading"><h3>{t("recordingParams")}</h3><p>{t("audioDescription")}</p></div>
-            <div class="form-grid">
-              {#if showAdvancedSettings}
-                <label class:field-invalid={Boolean(fieldError("audio.sample_rate"))}>
-                  <span>{t("sampleRate")}</span>
-                  <input type="number" bind:value={config.audio.sample_rate} />
-                  {#if fieldError("audio.sample_rate")}<small class="field-error">{fieldError("audio.sample_rate")}</small>{/if}
-                </label>
-                <label class:field-invalid={Boolean(fieldError("audio.channels"))}>
-                  <span>{t("channels")}</span>
-                  <input type="number" bind:value={config.audio.channels} />
-                  {#if fieldError("audio.channels")}<small class="field-error">{fieldError("audio.channels")}</small>{/if}
-                </label>
-                <label class:field-invalid={Boolean(fieldError("audio.segment_ms"))}>
-                  <span>{t("segmentMs")}</span>
-                  <input type="number" bind:value={config.audio.segment_ms} />
-                  {#if fieldError("audio.segment_ms")}<small class="field-error">{fieldError("audio.segment_ms")}</small>{/if}
-                </label>
-                <label class:field-invalid={Boolean(fieldError("audio.max_record_seconds"))}>
-                  <span>{t("maxSeconds")}</span>
-                  <input type="number" bind:value={config.audio.max_record_seconds} />
-                  {#if fieldError("audio.max_record_seconds")}<small class="field-error">{fieldError("audio.max_record_seconds")}</small>{/if}
-                </label>
-                <label class:field-invalid={Boolean(fieldError("audio.stop_grace_ms"))}>
-                  <span>{t("stopGraceMs")}</span>
-                  <input type="number" bind:value={config.audio.stop_grace_ms} />
-                  {#if fieldError("audio.stop_grace_ms")}<small class="field-error">{fieldError("audio.stop_grace_ms")}</small>{/if}
-                </label>
-              {/if}
-              <label>
-                <span>{t("inputDevice")}</span>
-                <select value={config.audio.input_device ?? ""} onchange={(event) => setInputDevice(event.currentTarget.value)}>
-                  <option value="">{t("defaultInputDevice")}</option>
-                  {#if audioDevices.length === 0}
-                    <option value="" disabled>{t("noAudioDevices")}</option>
-                  {/if}
-                  {#each audioDevices as device}
-                    <option value={device.index}>{device.index}: {device.name}</option>
-                  {/each}
-                </select>
-              </label>
-            </div>
-            {#if showAdvancedSettings}
-            <div class="toggle-grid">
-              <label class="check"><input type="checkbox" bind:checked={config.audio.mute_system_volume_while_recording} onchange={(event) => maybeShowOptionEnabledNotice("mute_system_volume_while_recording", event.currentTarget.checked)} />{t("muteSystemAudio")}</label>
-            </div>
-            <p class="field-hint">{t("muteSystemAudioHint")}</p>
-            {/if}
-          </div>
-          {#if showAdvancedSettings}
-          <div class="form-panel">
-            <div class="section-heading"><h3>{t("recognitionOptions")}</h3><p>{t("asrDescription")}</p></div>
-            <label class:field-invalid={Boolean(fieldError("request.ws_url"))}>
-              <span>{t("websocketUrl")}</span>
-              <input bind:value={config.request.ws_url} />
-              {#if fieldError("request.ws_url")}<small class="field-error">{fieldError("request.ws_url")}</small>{/if}
-            </label>
-            <div class="form-grid">
-              <label><span>{t("model")}</span><input bind:value={config.request.model_name} /></label>
-              <label class:field-invalid={Boolean(fieldError("request.final_result_timeout_seconds"))}>
-                <span>{t("finalTimeout")}</span>
-                <input type="number" bind:value={config.request.final_result_timeout_seconds} />
-                {#if fieldError("request.final_result_timeout_seconds")}<small class="field-error">{fieldError("request.final_result_timeout_seconds")}</small>{/if}
-              </label>
-            </div>
-            <div class="toggle-grid">
-              <label class="check"><input type="checkbox" bind:checked={config.request.enable_nonstream} />{t("secondPass")}</label>
-              <label class="check"><input type="checkbox" bind:checked={config.request.enable_itn} />{t("itn")}</label>
-              <label class="check"><input type="checkbox" bind:checked={config.request.enable_punc} />{t("punctuation")}</label>
-              <label class="check"><input type="checkbox" bind:checked={config.request.enable_ddc} />{t("ddc")}</label>
-            </div>
-          </div>
-          {/if}
-          {#if showAdvancedSettings}
-          <div id="settings-context" class="form-panel">
-            <div class="section-heading with-actions">
-              <div class="section-heading-copy"><h3>{t("context")}</h3><p>{t("contextDescription")}</p></div>
-              <button class="test-button" onclick={clearRecentContextFromUi} disabled={clearingRecentContext}>
-                <Trash2 size={16} />{clearingRecentContext ? t("clearingRecentContext") : t("clearRecentContext")}
-              </button>
-            </div>
-            <label><span>{t("hotwords")}</span><textarea value={config.context.hotwords.join("\n")} oninput={(event) => updateHotwords(event.currentTarget.value)}></textarea></label>
-            <label><span>{t("promptContext")}</span><textarea value={config.context.prompt_context.map((item) => item.text).join("\n")} oninput={(event) => updatePromptContext(event.currentTarget.value)}></textarea></label>
-            <div class="toggle-grid">
-              <label class="check"><input type="checkbox" bind:checked={config.context.enable_recent_context} onchange={(event) => maybeShowOptionEnabledNotice("enable_recent_context", event.currentTarget.checked)} />{t("useRecentContext")}</label>
-            </div>
-            <p class="field-hint">{t("recentContextHint")}</p>
-          </div>
-          {/if}
-        </section>
-        {#if showAdvancedSettings}
-        <section class="settings-group">
-          <div class="settings-group-heading">
-            <h3>{t("llmSettings")}</h3>
-            <p>{t("llmSettingsDescription")}</p>
-          </div>
-          <div class="form-panel">
-            <div class="section-heading with-actions">
-              <div class="section-heading-copy"><h3>{t("llmPostEdit")}</h3><p>{t("llmDescription")}</p></div>
-              <button class="test-button" onclick={testLlmConfig} disabled={testingLlm}>
-                <ShieldCheck size={16} />{testingLlm ? t("testingConnection") : t("testConnection")}
-              </button>
-            </div>
-            <label class="check"><input type="checkbox" bind:checked={config.llm_post_edit.enabled} />{t("enablePolishing")}</label>
-            <div class="form-grid">
-              <label><span>{t("minChars")}</span><input type="number" bind:value={config.llm_post_edit.min_chars} /></label>
-              <label class:field-invalid={Boolean(fieldError("llm_post_edit.timeout_seconds"))}>
-                <span>{t("timeout")}</span>
-                <input type="number" bind:value={config.llm_post_edit.timeout_seconds} />
-                {#if fieldError("llm_post_edit.timeout_seconds")}<small class="field-error">{fieldError("llm_post_edit.timeout_seconds")}</small>{/if}
-              </label>
-              <label class:field-invalid={Boolean(fieldError("llm_post_edit.base_url"))}>
-                <span>Base URL</span>
-                <input bind:value={config.llm_post_edit.base_url} />
-                {#if fieldError("llm_post_edit.base_url")}<small class="field-error">{fieldError("llm_post_edit.base_url")}</small>{/if}
-              </label>
-              <label class:field-invalid={Boolean(fieldError("llm_post_edit.model"))}>
-                <span>{t("model")}</span>
-                <input bind:value={config.llm_post_edit.model} />
-                {#if fieldError("llm_post_edit.model")}<small class="field-error">{fieldError("llm_post_edit.model")}</small>{/if}
-              </label>
-              <label class:field-invalid={Boolean(fieldError("llm_post_edit.api_key"))}>
-                <span>API Key</span>
-                <input type="password" autocomplete="off" bind:value={config.llm_post_edit.api_key} />
-                {#if fieldError("llm_post_edit.api_key")}<small class="field-error">{fieldError("llm_post_edit.api_key")}</small>{/if}
-              </label>
-            </div>
-            <label><span>{t("systemPrompt")}</span><textarea bind:value={config.llm_post_edit.system_prompt}></textarea></label>
-            <label class:field-invalid={Boolean(fieldError("llm_post_edit.user_prompt_template"))}>
-              <span>{t("userPromptTemplate")}</span>
-              <textarea bind:value={config.llm_post_edit.user_prompt_template}></textarea>
-              {#if fieldError("llm_post_edit.user_prompt_template")}<small class="field-error">{fieldError("llm_post_edit.user_prompt_template")}</small>{/if}
-            </label>
-          </div>
-        </section>
-        {/if}
       </section>
     {:else if selectedSection === "History"}
       <section class="history-page">

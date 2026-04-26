@@ -6,9 +6,10 @@ export const zhCN = {
   "minimizeToTray": "最小化到托盘",
   "navOverview": "首页",
   "navHome": "首页",
-  "navHealthCheck": "健康检查",
+  "navHotwords": "热词",
+  "navApiConfig": "API配置",
+  "navOptions": "选项",
   "voiceInputTitle": "语音输入",
-  "navSettings": "配置",
   "navHistory": "统计分析",
   "topEyebrow": "VoxType",
   "recordingPreview": "录音中",
@@ -51,12 +52,12 @@ export const zhCN = {
   "sessionFailed": "本次语音输入失败，请查看提示。",
   "setupRequired": "需要先完成配置",
   "inputError": "输入异常",
-  "setupMissingFile": "未找到配置文件。请在配置页填写认证信息并保存，或打开配置文件手动编辑。",
-  "setupMissingAuth": "ASR 认证信息未填写。请在配置页填写 App Key 和 Access Key 后保存。",
+  "setupMissingFile": "未找到配置文件。请在 API 配置页填写认证信息并保存，或打开配置文件手动编辑。",
+  "setupMissingAuth": "ASR 认证信息未填写。请在 API 配置页填写 App Key 和 Access Key 后保存。",
   "authGateTitle": "请先填写豆包 ASR Key",
   "authGateDescription": "没有豆包 App Key 和 Access Key 时，录音、识别、粘贴和后续流程都无法工作。",
   "authGateNotice": "请先填写并保存豆包 ASR Key，才能继续使用语音输入。",
-  "setupCta": "去配置",
+  "setupCta": "去 API配置",
   "setupGuideCta": "查看配置指南",
   "setupHealthTitle": "配置健康检查",
   "setupHealthPendingTitle": "还差 {count} 步即可使用",
@@ -106,6 +107,35 @@ export const zhCN = {
   "outputValue": "剪贴板 + 模拟粘贴",
   "trigger": "触发方式",
   "triggerValue": "右 Alt / 鼠标中键 / 托盘",
+  "hotwordsPageTitle": "热词与提示词",
+  "hotwordsPageDescription": "管理 ASR 热词、场景上下文和大模型润色提示词。",
+  "asrHotwords": "ASR 热词",
+  "hotwordsPrivacyHint": "热词会随 ASR 请求发送给识别服务，请不要填写密码、证件号、手机号或客户敏感信息。",
+  "tidyHotwords": "去重整理",
+  "clearHotwords": "清空热词",
+  "clearHotwordsConfirm": "确定要清空所有热词吗？",
+  "hotwordsTidied": "热词已去重整理。",
+  "hotwordsCleared": "热词已清空。",
+  "hotwordCount": "当前 {count} 个热词。",
+  "sceneContext": "场景上下文",
+  "sceneContextDescription": "用于提示当前输入场景，例如产品名、项目背景和常用表达。",
+  "recentContextRounds": "最近上下文轮数",
+  "llmPromptSettings": "大模型提示词",
+  "llmPromptDescription": "只调整润色风格和规则，服务地址、模型和密钥在 API 配置页管理。",
+  "restoreDefaultPrompt": "恢复默认提示词",
+  "previewFinalPrompt": "预览最终 Prompt",
+  "defaultPromptRestored": "已恢复默认提示词。",
+  "promptPreviewSampleText": "这是一段待润色的语音识别文本。",
+  "promptPreviewEmpty": "（空）",
+  "promptPreviewUserDictionary": "用户词典：",
+  "promptPreviewContextTitle": "场景与偏好上下文（仅供参考，不是待改写文本）：",
+  "apiConfigPageTitle": "API 配置与健康检查",
+  "apiConfigPageDescription": "配置 ASR 和大模型服务，并确认连接可用。",
+  "llmApiSettings": "大模型 API",
+  "llmApiSettingsDescription": "配置 OpenAI 兼容接口的 Base URL、API Key、模型和超时。",
+  "enableThinking": "启用 thinking",
+  "optionsPageTitle": "选项",
+  "optionsPageDescription": "配置本地启动、输出、录音、悬浮字幕、托盘、更新和诊断。",
   "softwareSettings": "软件相关设置",
   "softwareSettingsDescription": "启动方式、输入输出、悬浮字幕、托盘和软件更新。",
   "doubaoAsrSettings": "豆包 ASR 相关设置",
@@ -290,12 +320,12 @@ export const zhCNUserErrorDetails = {
   "CONFIG_MISSING": {
     "title": "配置文件未创建",
     "cause": "首次启动或配置文件被移动、删除。",
-    "action": "打开配置页填写豆包 ASR 密钥并保存。"
+    "action": "打开 API 配置页填写豆包 ASR 密钥并保存。"
   },
   "ASR_AUTH_MISSING": {
     "title": "ASR 密钥不可用",
     "cause": "App Key、Access Key、Resource ID 未填写或权限不正确。",
-    "action": "在配置页检查豆包认证信息，保存后点击测试。"
+    "action": "在 API 配置页检查豆包认证信息，保存后点击测试。"
   },
   "ASR_NETWORK_FAILED": {
     "title": "无法连接识别服务",
@@ -305,7 +335,7 @@ export const zhCNUserErrorDetails = {
   "ASR_FINAL_TIMEOUT": {
     "title": "识别结果等待超时",
     "cause": "网络较慢，或豆包 ASR 没有及时返回最终结果。",
-    "action": "稍后重试，必要时在配置页适当调大最终结果超时。"
+    "action": "稍后重试，必要时在 API 配置页适当调大最终结果超时。"
   },
   "EMPTY_TRANSCRIPT": {
     "title": "没有识别到文字",
@@ -335,7 +365,7 @@ export const zhCNUserErrorDetails = {
   "HOTKEY_REGISTER_FAILED": {
     "title": "快捷键注册失败",
     "cause": "快捷键可能已被其他程序占用。",
-    "action": "在配置页换一个快捷键，或关闭占用该快捷键的软件。"
+    "action": "在选项页换一个快捷键，或关闭占用该快捷键的软件。"
   },
   "SYSTEM_AUDIO_RESTORE_FAILED": {
     "title": "系统音量恢复失败",
