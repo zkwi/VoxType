@@ -180,7 +180,7 @@ async fn call_openai_compatible(
         .bearer_auth(api_key)
         .json(&chat_body(
             model,
-            &config.llm_post_edit.system_prompt,
+            &system_prompt_for_request(config),
             user_prompt,
             thinking_flag(base_url, config.llm_post_edit.enable_thinking),
             None,
@@ -201,6 +201,17 @@ async fn call_openai_compatible(
         return Err(format!("LLM 返回错误: {}", error));
     }
     Ok(extract_message_content(&value))
+}
+
+fn system_prompt_for_request(config: &AppConfig) -> String {
+    if config.typing.remove_trailing_period {
+        return config.llm_post_edit.system_prompt.clone();
+    }
+
+    format!(
+        "{}\n\n当前 VoxType 设置：已关闭自动移除句末句号；最终文本如需以句号或句点结尾，请保留。",
+        config.llm_post_edit.system_prompt.trim_end()
+    )
 }
 
 fn chat_body(
@@ -297,7 +308,8 @@ fn friendly_llm_test_error(error: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        chat_body, friendly_llm_error, friendly_llm_test_error, should_polish, thinking_flag,
+        chat_body, friendly_llm_error, friendly_llm_test_error, should_polish,
+        system_prompt_for_request, thinking_flag,
     };
     use crate::config::AppConfig;
 
@@ -353,5 +365,19 @@ mod tests {
         config.llm_post_edit.enabled = true;
         config.llm_post_edit.api_key.clear();
         assert!(!should_polish(&config, "hello"));
+    }
+
+    #[test]
+    fn system_prompt_respects_trailing_period_setting() {
+        let mut config = AppConfig::default();
+        assert_eq!(
+            system_prompt_for_request(&config),
+            config.llm_post_edit.system_prompt
+        );
+
+        config.typing.remove_trailing_period = false;
+        let prompt = system_prompt_for_request(&config);
+        assert!(prompt.contains("已关闭自动移除句末句号"));
+        assert!(prompt.contains("请保留"));
     }
 }

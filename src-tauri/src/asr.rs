@@ -197,9 +197,9 @@ pub fn extract_definite_segments(payload_msg: Option<&Value>) -> Vec<DefiniteSeg
         .collect()
 }
 
-pub fn normalize_final_text(text: &str) -> String {
+pub fn normalize_final_text(text: &str, remove_trailing_period: bool) -> String {
     let mut result = text.trim().to_string();
-    if result.ends_with('。') || result.ends_with('.') {
+    if remove_trailing_period && (result.ends_with('。') || result.ends_with('.')) {
         result.pop();
         result = result.trim_end().to_string();
     }
@@ -277,8 +277,15 @@ mod tests {
     }
 
     #[test]
-    fn trims_final_period() {
-        assert_eq!(normalize_final_text("测试。"), "测试");
-        assert_eq!(normalize_final_text("test."), "test");
+    fn trims_final_period_when_enabled() {
+        assert_eq!(normalize_final_text("测试。", true), "测试");
+        assert_eq!(normalize_final_text("test.", true), "test");
+    }
+
+    #[test]
+    fn keeps_final_period_when_disabled() {
+        assert_eq!(normalize_final_text("测试。", false), "测试。");
+        assert_eq!(normalize_final_text("test.", false), "test.");
+        assert_eq!(normalize_final_text(" test.  ", false), "test.");
     }
 }

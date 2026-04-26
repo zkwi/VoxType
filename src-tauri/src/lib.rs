@@ -165,8 +165,7 @@ fn save_app_config(app: AppHandle, config: AppConfig) -> Result<LoadedConfig, Co
         });
     }
     let previous_config = config::load_config().ok().map(|loaded| loaded.data);
-    let should_restart_hotkey = hotkey_runtime_update_needed(previous_config.as_ref(), &config);
-    let should_apply_autostart = autostart_update_needed(previous_config.as_ref(), &config);
+    let side_effects = config_side_effects(previous_config.as_ref(), &config);
     if hotkey_registration_test_needed(previous_config.as_ref(), &config) {
         if let Err(err) = hotkey::can_register_hotkey(&config.hotkey) {
             app_log::warn(format!(
@@ -184,30 +183,15 @@ fn save_app_config(app: AppHandle, config: AppConfig) -> Result<LoadedConfig, Co
     }
     match config::save_config(config) {
         Ok(loaded) => {
-            hotkey::refresh_trigger_config_from(&loaded.data.triggers);
-            if should_restart_hotkey {
-                if let Err(err) = hotkey::restart_global_hotkey_thread(app.clone()) {
-                    app_log::warn(format!("配置已保存，但快捷键重新注册未确认完成: {}", err));
-                }
-            }
-            overlay::update_config(&app, &loaded.data.ui);
-            if should_apply_autostart {
-                if let Err(err) = autostart::apply(&loaded.data.startup) {
-                    app_log::warn(format!("同步开机自启动失败: {}", err));
-                    return Err(ConfigSaveError {
-                        message: format!("配置已保存，但开机自启动设置失败: {}", err),
-                        errors: Vec::new(),
-                    });
-                }
-            }
+            apply_config_side_effects(app.clone(), &loaded, side_effects);
             app_log::info(format!(
-                "配置保存完成: hotkey_enabled={}, middle_mouse_enabled={}, right_alt_enabled={}, hotkey_restarted={}, launch_on_startup={}, autostart_synced={}, update_auto_check={}, update_repo={}, llm_enabled={}, close_behavior={}",
+                "配置保存完成: hotkey_enabled={}, middle_mouse_enabled={}, right_alt_enabled={}, hotkey_restart_scheduled={}, launch_on_startup={}, autostart_sync_scheduled={}, update_auto_check={}, update_repo={}, llm_enabled={}, close_behavior={}",
                 loaded.data.triggers.hotkey_enabled,
                 loaded.data.triggers.middle_mouse_enabled,
                 loaded.data.triggers.right_alt_enabled,
-                should_restart_hotkey,
+                side_effects.restart_hotkey,
                 loaded.data.startup.launch_on_startup,
-                should_apply_autostart,
+                side_effects.apply_autostart,
                 loaded.data.update.auto_check_on_startup,
                 loaded.data.update.github_repo,
                 loaded.data.llm_post_edit.enabled,
@@ -467,15 +451,21 @@ async fn check_for_update() -> Result<update::UpdateStatus, String> {
 }
 
 #[tauri::command]
-async fn download_and_install_update() -> Result<update::InstallUpdateResult, String> {
+async fn download_and_install_update(
+    app: AppHandle,
+) -> Result<update::InstallUpdateResult, String> {
     app_log::info("开始下载并安装软件更新。");
     let loaded = config::load_config()?;
-    update::download_and_install(&loaded.data.update)
-        .await
-        .map_err(|err| {
+    match update::download_and_install(&loaded.data.update).await {
+        Ok(result) => {
+            exit_after_update_installer_starts(app);
+            Ok(result)
+        }
+        Err(err) => {
             app_log::warn(format!("下载并安装软件更新失败: {}", err));
-            err
-        })
+            Err(err)
+        }
+    }
 }
 
 #[tauri::command]
@@ -598,9 +588,7 @@ pub fn run() {
             setup_guide::open_if_config_missing(app.handle());
             app_log::info("startup stage: setup guide check done");
             if let Ok(loaded) = config::load_config() {
-                if let Err(err) = autostart::apply(&loaded.data.startup) {
-                    app_log::warn(format!("启动时同步开机自启动失败: {}", err));
-                }
+                apply_autostart_in_background(loaded.data.startup);
             }
             app_log::info("startup stage: global hotkey thread start");
             hotkey::start_global_hotkey_thread(app.handle().clone());
@@ -707,6 +695,60 @@ fn autostart_update_needed(previous: Option<&AppConfig>, next: &AppConfig) -> bo
         .unwrap_or(true)
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct ConfigSideEffects {
+    restart_hotkey: bool,
+    apply_autostart: bool,
+}
+
+fn config_side_effects(previous: Option<&AppConfig>, next: &AppConfig) -> ConfigSideEffects {
+    ConfigSideEffects {
+        restart_hotkey: hotkey_runtime_update_needed(previous, next),
+        apply_autostart: autostart_update_needed(previous, next),
+    }
+}
+
+fn apply_config_side_effects(
+    app: AppHandle,
+    loaded: &LoadedConfig,
+    side_effects: ConfigSideEffects,
+) {
+    hotkey::refresh_trigger_config_from(&loaded.data.triggers);
+    overlay::update_config(&app, &loaded.data.ui);
+
+    if side_effects.restart_hotkey {
+        restart_hotkey_in_background(app);
+    }
+
+    if side_effects.apply_autostart {
+        apply_autostart_in_background(loaded.data.startup.clone());
+    }
+}
+
+fn restart_hotkey_in_background(app: AppHandle) {
+    std::thread::spawn(move || {
+        if let Err(err) = hotkey::restart_global_hotkey_thread(app) {
+            app_log::warn(format!("配置已保存，但快捷键重新注册未确认完成: {}", err));
+        }
+    });
+}
+
+fn apply_autostart_in_background(startup: config::StartupConfig) {
+    std::thread::spawn(move || {
+        if let Err(err) = autostart::apply(&startup) {
+            app_log::warn(format!("配置已保存，但开机自启动后台同步失败: {}", err));
+        }
+    });
+}
+
+fn exit_after_update_installer_starts(app: AppHandle) {
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(800));
+        app_log::info("更新安装程序已启动，退出当前版本以释放安装文件。");
+        app.exit(0);
+    });
+}
+
 fn enabled_trigger_summary(config: &AppConfig) -> String {
     let mut triggers = Vec::new();
     if config.triggers.hotkey_enabled {
@@ -753,9 +795,9 @@ fn redact_path_with_profile(value: &str, profile: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        autostart_update_needed, build_setup_status, enabled_trigger_summary,
+        autostart_update_needed, build_setup_status, config_side_effects, enabled_trigger_summary,
         hotkey_registration_test_needed, hotkey_runtime_update_needed, redact_path_with_profile,
-        AppConfig,
+        AppConfig, ConfigSideEffects,
     };
 
     #[test]
@@ -813,6 +855,43 @@ mod tests {
         next.startup.launch_on_startup = !previous.startup.launch_on_startup;
 
         assert!(autostart_update_needed(Some(&previous), &next));
+    }
+
+    #[test]
+    fn config_side_effects_are_empty_for_unrelated_settings() {
+        let previous = AppConfig::default();
+        let mut next = previous.clone();
+        next.typing.paste_delay_ms += 10;
+
+        assert_eq!(
+            config_side_effects(Some(&previous), &next),
+            ConfigSideEffects::default()
+        );
+    }
+
+    #[test]
+    fn config_side_effects_detect_hotkey_and_autostart_independently() {
+        let previous = AppConfig::default();
+
+        let mut hotkey_next = previous.clone();
+        hotkey_next.hotkey = "Ctrl + Space".to_string();
+        assert_eq!(
+            config_side_effects(Some(&previous), &hotkey_next),
+            ConfigSideEffects {
+                restart_hotkey: true,
+                apply_autostart: false,
+            }
+        );
+
+        let mut autostart_next = previous.clone();
+        autostart_next.startup.launch_on_startup = !previous.startup.launch_on_startup;
+        assert_eq!(
+            config_side_effects(Some(&previous), &autostart_next),
+            ConfigSideEffects {
+                restart_hotkey: false,
+                apply_autostart: true,
+            }
+        );
     }
 
     #[test]

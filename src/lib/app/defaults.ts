@@ -75,8 +75,9 @@ export const fallbackConfig: AppConfig = {
   typing: {
     paste_delay_ms: 120,
     paste_method: "ctrl_v",
+    remove_trailing_period: true,
     restore_clipboard_after_paste: true,
-    clipboard_restore_delay_ms: 800,
+    clipboard_restore_delay_ms: 1800,
     clipboard_snapshot_max_bytes: 8 * 1024 * 1024,
     clipboard_open_retry_count: 5,
     clipboard_open_retry_interval_ms: 50,

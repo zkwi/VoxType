@@ -199,6 +199,7 @@ export type AppConfig = {
   typing: {
     paste_delay_ms: number;
     paste_method: string;
+    remove_trailing_period: boolean;
     restore_clipboard_after_paste: boolean;
     clipboard_restore_delay_ms: number;
     clipboard_snapshot_max_bytes: number;

@@ -357,22 +357,30 @@
   }
 
   .form-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
   }
 
   .toggle-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 10px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 18px;
   }
 
   .check {
-    display: flex !important;
+    display: inline-flex !important;
     align-items: center;
+    flex: 0 1 auto;
     gap: 10px;
     min-height: 38px;
-    min-width: 0;
+    width: fit-content;
+    max-width: 100%;
+    min-width: max-content;
+    color: var(--text-main);
+    font-weight: 700;
     line-height: 1.35;
-    overflow-wrap: anywhere;
+    white-space: nowrap;
+    overflow-wrap: normal;
   }
 
   .check input {
@@ -617,16 +625,26 @@
       width: 100%;
     }
 
-    .form-grid,
-    .toggle-grid {
+    .form-grid {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
   }
 
   @media (max-width: 720px) {
-    .form-grid,
-    .toggle-grid {
+    .form-grid {
       grid-template-columns: 1fr;
+    }
+
+    .toggle-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+    }
+
+    .check {
+      width: 100%;
+      min-width: 0;
+      white-space: normal;
+      overflow-wrap: anywhere;
     }
   }
 </style>

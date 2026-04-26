@@ -179,11 +179,13 @@
         <label class="check"><input type="checkbox" bind:checked={config.triggers.hotkey_enabled} />{t("mainHotkey")}</label>
         <label class="check"><input type="checkbox" bind:checked={config.triggers.middle_mouse_enabled} onchange={(event) => onOptionEnabledNotice("middle_mouse_enabled", event.currentTarget.checked)} /><span class="check-copy"><span>{t("middleMouse")}</span><small>{t("tagConflictRisk")}</small></span></label>
         <label class="check"><input type="checkbox" bind:checked={config.triggers.right_alt_enabled} onchange={(event) => onOptionEnabledNotice("right_alt_enabled", event.currentTarget.checked)} /><span class="check-copy"><span>{t("rightAlt")}</span><small>{t("tagConflictRisk")}</small></span></label>
+        <label class="check"><input type="checkbox" bind:checked={config.typing.remove_trailing_period} />{t("removeTrailingPeriod")}</label>
         {#if advancedOpen}
           <label class="check"><input type="checkbox" bind:checked={config.typing.restore_clipboard_after_paste} />{t("restoreClipboardAfterPaste")}</label>
         {/if}
         <label class="check"><input type="checkbox" bind:checked={config.startup.launch_on_startup} />{t("launchOnStartup")}</label>
       </div>
+      <p class="field-hint">{t("removeTrailingPeriodHint")}</p>
       <p class="field-hint">{t("clipboardTextRestoreHint")}</p>
       {#if advancedOpen}
         <p class="field-hint">{t("clipboardRestoreDelayHint")}</p>
@@ -322,35 +324,37 @@
         <p class="field-hint">{t("muteSystemAudioHint")}</p>
       {/if}
     </div>
-    {#if advancedOpen}
-      <div id="settings-update" class="form-panel update-panel">
-        <div class="section-heading"><h3>{t("softwareUpdate")}</h3><p>{t("softwareUpdateDescription")}</p></div>
-        <div class:available={updateStatus?.update_available} class="update-card">
-          <div>
-            <strong>{updatePanelTitle()}</strong>
-            <p>{updatePanelDescription()}</p>
-            <small>{updateMetaText()}</small>
-          </div>
-          <div class="update-actions">
-            <button type="button" onclick={() => onCheckUpdate(true)} disabled={checkingUpdate}>
-              <ShieldCheck size={16} />{checkingUpdate ? t("checkingUpdates") : t("checkUpdates")}
+    <div id="settings-update" class="form-panel update-panel">
+      <div class="section-heading"><h3>{t("softwareUpdate")}</h3><p>{t("softwareUpdateDescription")}</p></div>
+      <div class:available={updateStatus?.update_available} class="update-card">
+        <div>
+          <strong>{updatePanelTitle()}</strong>
+          <p>{updatePanelDescription()}</p>
+          <small>{updateMetaText()}</small>
+        </div>
+        <div class="update-actions">
+          <button type="button" onclick={() => onCheckUpdate(true)} disabled={checkingUpdate}>
+            <ShieldCheck size={16} />{checkingUpdate ? t("checkingUpdates") : t("checkUpdates")}
+          </button>
+          {#if updateStatus?.update_available && updateStatus.asset_name}
+            <button type="button" class="primary" onclick={onDownloadLatestUpdate} disabled={installingUpdate}>
+              <Download size={16} />{installingUpdate ? t("downloadingInstall") : t("downloadInstall")}
             </button>
-            {#if updateStatus?.update_available && updateStatus.asset_name}
-              <button type="button" class="primary" onclick={onDownloadLatestUpdate} disabled={installingUpdate}>
-                <Download size={16} />{installingUpdate ? t("downloadingInstall") : t("downloadInstall")}
-              </button>
-            {/if}
-          </div>
+          {/if}
         </div>
-        <div class="toggle-grid">
-          <label class="check"><input type="checkbox" bind:checked={config.update.auto_check_on_startup} />{t("autoCheckUpdates")}</label>
-        </div>
+      </div>
+      <div class="toggle-grid">
+        <label class="check"><input type="checkbox" bind:checked={config.update.auto_check_on_startup} />{t("autoCheckUpdates")}</label>
+      </div>
+      {#if advancedOpen}
         <label class:field-invalid={Boolean(fieldError("update.github_repo"))}>
           <span>GitHub Release Repo</span>
           <input bind:value={config.update.github_repo} />
           {#if fieldError("update.github_repo")}<small class="field-error">{fieldError("update.github_repo")}</small>{/if}
         </label>
-      </div>
+      {/if}
+    </div>
+    {#if advancedOpen}
       <div id="settings-diagnostics" class="form-panel">
         <div class="section-heading"><h3>{t("diagnosticsAndLogs")}</h3><p>{t("diagnosticsDescription")}</p></div>
         <div class="update-card">
@@ -448,12 +452,14 @@
   }
 
   .form-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
   }
 
   .toggle-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 10px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 18px;
   }
 
   .color-grid {
@@ -461,13 +467,19 @@
   }
 
   .check {
-    display: flex !important;
+    display: inline-flex !important;
     align-items: center;
+    flex: 0 1 auto;
     gap: 10px;
     min-height: 38px;
-    min-width: 0;
+    width: fit-content;
+    max-width: 100%;
+    min-width: max-content;
+    color: var(--text-main);
+    font-weight: 700;
     line-height: 1.35;
-    overflow-wrap: anywhere;
+    white-space: nowrap;
+    overflow-wrap: normal;
   }
 
   .check input {
@@ -487,6 +499,7 @@
     color: var(--text-main);
     font-size: 14px;
     font-weight: 700;
+    white-space: nowrap;
   }
 
   .check-copy small {
@@ -494,6 +507,7 @@
     font-size: 11px;
     font-weight: 700;
     line-height: 1.25;
+    white-space: nowrap;
   }
 
   input,
@@ -802,7 +816,6 @@
     }
 
     .form-grid,
-    .toggle-grid,
     .preset-row {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
@@ -820,10 +833,26 @@
 
   @media (max-width: 720px) {
     .form-grid,
-    .toggle-grid,
     .preset-row,
     .color-grid {
       grid-template-columns: 1fr;
+    }
+
+    .toggle-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+    }
+
+    .check {
+      width: 100%;
+      min-width: 0;
+      white-space: normal;
+      overflow-wrap: anywhere;
+    }
+
+    .check-copy span,
+    .check-copy small {
+      white-space: normal;
     }
   }
 </style>

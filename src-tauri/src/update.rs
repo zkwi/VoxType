@@ -1,7 +1,7 @@
 use crate::{app_log, config::UpdateConfig};
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 const USER_AGENT: &str = concat!("VoxType/", env!("CARGO_PKG_VERSION"));
@@ -96,11 +96,9 @@ pub async fn download_and_install(config: &UpdateConfig) -> Result<InstallUpdate
         latest_version, asset.name, asset.size
     ));
     let installer_path = download_asset(&asset).await?;
-    std::process::Command::new(&installer_path)
-        .spawn()
-        .map_err(|err| format!("启动安装程序失败: {}", err))?;
+    launch_installer(&installer_path)?;
     app_log::info(format!(
-        "更新安装程序已启动: version={} asset={} path={}",
+        "更新安装程序已静默启动: version={} asset={} path={}",
         latest_version,
         asset.name,
         installer_path.display()
@@ -109,9 +107,21 @@ pub async fn download_and_install(config: &UpdateConfig) -> Result<InstallUpdate
     Ok(InstallUpdateResult {
         version: latest_version,
         asset_name: asset.name,
-        message: "安装程序已启动，请按提示完成安装；如提示文件占用，请先从托盘退出声写。"
+        message: "已下载更新并开始自动安装。声写将退出以释放文件，安装完成后请重新打开。"
             .to_string(),
     })
+}
+
+fn launch_installer(installer_path: &Path) -> Result<(), String> {
+    std::process::Command::new(installer_path)
+        .args(silent_installer_args())
+        .spawn()
+        .map_err(|err| format!("启动安装程序失败: {}", err))?;
+    Ok(())
+}
+
+fn silent_installer_args() -> [&'static str; 1] {
+    ["/S"]
 }
 
 async fn fetch_latest_release(config: &UpdateConfig) -> Result<GitHubRelease, String> {
@@ -278,7 +288,7 @@ fn friendly_network_error(prefix: &str, error: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{choose_windows_installer, compare_versions, GitHubAsset};
+    use super::{choose_windows_installer, compare_versions, silent_installer_args, GitHubAsset};
     use std::cmp::Ordering;
 
     #[test]
@@ -297,6 +307,11 @@ mod tests {
         ];
         let selected = choose_windows_installer(&assets).expect("installer asset");
         assert_eq!(selected.name, "VoxType-v0.2.0-windows-x64-setup.exe");
+    }
+
+    #[test]
+    fn launches_nsis_installer_in_silent_mode() {
+        assert_eq!(silent_installer_args(), ["/S"]);
     }
 
     fn asset(name: &str) -> GitHubAsset {

@@ -133,6 +133,8 @@ pub struct TypingConfig {
     #[serde(default = "default_paste_method")]
     pub paste_method: String,
     #[serde(default = "default_true")]
+    pub remove_trailing_period: bool,
+    #[serde(default = "default_true")]
     pub restore_clipboard_after_paste: bool,
     #[serde(default = "default_clipboard_restore_delay_ms")]
     pub clipboard_restore_delay_ms: u64,
@@ -335,6 +337,7 @@ impl Default for TypingConfig {
         Self {
             paste_delay_ms: default_paste_delay_ms(),
             paste_method: default_paste_method(),
+            remove_trailing_period: true,
             restore_clipboard_after_paste: true,
             clipboard_restore_delay_ms: default_clipboard_restore_delay_ms(),
             clipboard_snapshot_max_bytes: default_clipboard_snapshot_max_bytes(),
@@ -709,7 +712,7 @@ fn default_clipboard_open_retry_interval_ms() -> u64 {
     50
 }
 fn default_clipboard_restore_delay_ms() -> u64 {
-    800
+    1_800
 }
 fn default_clipboard_snapshot_max_bytes() -> u64 {
     8 * 1024 * 1024
@@ -812,10 +815,11 @@ mod tests {
         assert_eq!(config.auto_hotwords.max_history_chars, 10_000);
         assert_eq!(config.auto_hotwords.max_candidates, 30);
         assert!(!config.debug.print_transcript_to_console);
+        assert!(config.typing.remove_trailing_period);
         assert!(config.typing.restore_clipboard_after_paste);
         assert_eq!(config.typing.clipboard_open_retry_count, 5);
         assert_eq!(config.typing.clipboard_open_retry_interval_ms, 50);
-        assert_eq!(config.typing.clipboard_restore_delay_ms, 800);
+        assert_eq!(config.typing.clipboard_restore_delay_ms, 1_800);
         assert_eq!(config.typing.clipboard_snapshot_max_bytes, 8 * 1024 * 1024);
     }
 

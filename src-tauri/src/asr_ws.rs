@@ -70,6 +70,7 @@ pub fn spawn_asr_worker(
             }
         };
         let typing = config.typing.clone();
+        let remove_trailing_period = config.typing.remove_trailing_period;
         let runtime_result = runtime.block_on(async {
             let text = run_websocket_session(
                 config.clone(),
@@ -98,7 +99,7 @@ pub fn spawn_asr_worker(
         });
         match runtime_result {
             Ok(outcome) => {
-                let text = outcome.text;
+                let text = asr::normalize_final_text(&outcome.text, remove_trailing_period);
                 let llm_warning = outcome.warning;
                 let mut output_warning = None;
                 let mut output_warning_code = None;
@@ -370,6 +371,7 @@ async fn run_websocket_session(
     session: SessionController,
     generation: u64,
 ) -> Result<String, String> {
+    let remove_trailing_period = config.typing.remove_trailing_period;
     let preview = asr::build_request_preview(&config);
     let mut request = preview
         .ws_url
@@ -483,7 +485,8 @@ async fn run_websocket_session(
                             .collect::<Vec<_>>()
                             .join("");
                         if !text.trim().is_empty() {
-                            let normalized = asr::normalize_final_text(&text);
+                            let normalized =
+                                asr::normalize_final_text(&text, remove_trailing_period);
                             if partial_limiter.should_emit(&normalized) {
                                 emit_partial_text(&app, &normalized);
                             }
@@ -508,7 +511,10 @@ async fn run_websocket_session(
     }
 
     if definitive_segments.is_empty() {
-        return Ok(asr::normalize_final_text(&display_text));
+        return Ok(asr::normalize_final_text(
+            &display_text,
+            remove_trailing_period,
+        ));
     }
     definitive_segments.sort_by_key(|item| (item.start_time, item.end_time));
     let final_text = definitive_segments
@@ -516,9 +522,12 @@ async fn run_websocket_session(
         .map(|item| item.text)
         .collect::<Vec<_>>()
         .join("");
-    let final_text = asr::normalize_final_text(&final_text);
+    let final_text = asr::normalize_final_text(&final_text, remove_trailing_period);
     if final_text.is_empty() {
-        Ok(asr::normalize_final_text(&display_text))
+        Ok(asr::normalize_final_text(
+            &display_text,
+            remove_trailing_period,
+        ))
     } else {
         Ok(final_text)
     }

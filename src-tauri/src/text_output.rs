@@ -25,6 +25,7 @@ const CF_DSPBITMAP: u32 = 0x0082;
 const CF_DSPMETAFILEPICT: u32 = 0x0083;
 const CF_DSPENHMETAFILE: u32 = 0x008E;
 const KEY_INTERVAL: Duration = Duration::from_millis(10);
+const MIN_RESTORE_DELAY_AFTER_PASTE_MS: u64 = 1_800;
 pub const WARNING_CLIPBOARD_PARTIAL_RESTORE: &str = "CLIPBOARD_PARTIAL_RESTORE";
 pub const WARNING_CLIPBOARD_NON_RESTORABLE: &str = "CLIPBOARD_NON_RESTORABLE";
 pub const WARNING_CLIPBOARD_RESTORE_FAILED: &str = "CLIPBOARD_RESTORE_FAILED";
@@ -83,11 +84,12 @@ pub fn output_text(text: &str, typing: &TypingConfig) -> Result<OutputResult, St
         return Ok(OutputResult::ok());
     }
     app_log::info(format!(
-        "准备输出文本: chars={}, method={}, restore_clipboard={}, clipboard_restore_delay_ms={}, clipboard_snapshot_max_bytes={}",
+        "准备输出文本: chars={}, method={}, restore_clipboard={}, clipboard_restore_delay_ms={}, effective_restore_delay_ms={}, clipboard_snapshot_max_bytes={}",
         text.chars().count(),
         typing.paste_method,
         typing.restore_clipboard_after_paste,
         typing.clipboard_restore_delay_ms,
+        effective_clipboard_restore_delay_ms(typing),
         typing.clipboard_snapshot_max_bytes
     ));
     let original_clipboard =
@@ -118,6 +120,7 @@ pub fn output_text(text: &str, typing: &TypingConfig) -> Result<OutputResult, St
         return Ok(OutputResult::ok());
     }
     thread::sleep(Duration::from_millis(typing.paste_delay_ms));
+    ensure_clipboard_text_ready_for_paste(text, typing)?;
     match typing.paste_method.as_str() {
         "shift_insert" => send_shortcut(VK_SHIFT, VK_INSERT, true),
         _ => send_shortcut(VK_CONTROL, VK_V, false),
@@ -192,6 +195,10 @@ fn write_clipboard_text_with_retry(text: &str, typing: &TypingConfig) -> Result<
     with_clipboard_retry(typing, || write_clipboard_text_verified(text))
 }
 
+fn read_clipboard_text_with_retry(typing: &TypingConfig) -> Result<String, String> {
+    with_clipboard_retry(typing, read_clipboard_text)
+}
+
 fn write_clipboard_snapshot_with_retry(
     snapshot: &ClipboardSnapshot,
     typing: &TypingConfig,
@@ -218,6 +225,27 @@ fn with_clipboard_retry<T>(
         }
     }
     Err(last_error)
+}
+
+fn ensure_clipboard_text_ready_for_paste(text: &str, typing: &TypingConfig) -> Result<(), String> {
+    match read_clipboard_text_with_retry(typing) {
+        Ok(actual) if clipboard_text_ready_for_paste(text, &actual) => Ok(()),
+        Ok(_) => {
+            app_log::warn("粘贴前剪贴板内容已变化，重新写入本次识别文本。");
+            write_clipboard_text_with_retry(text, typing)
+        }
+        Err(err) => {
+            app_log::warn(format!(
+                "粘贴前读取剪贴板失败，将重新写入本次识别文本: {}",
+                err
+            ));
+            write_clipboard_text_with_retry(text, typing)
+        }
+    }
+}
+
+fn clipboard_text_ready_for_paste(expected: &str, actual: &str) -> bool {
+    actual == expected
 }
 
 fn read_clipboard_backup(typing: &TypingConfig) -> Result<ClipboardBackup, String> {
@@ -471,7 +499,13 @@ fn set_clipboard_memory(format: u32, bytes: &[u8]) -> Result<(), String> {
 }
 
 fn clipboard_restore_delay(typing: &TypingConfig) -> Duration {
-    Duration::from_millis(typing.clipboard_restore_delay_ms)
+    Duration::from_millis(effective_clipboard_restore_delay_ms(typing))
+}
+
+fn effective_clipboard_restore_delay_ms(typing: &TypingConfig) -> u64 {
+    typing
+        .clipboard_restore_delay_ms
+        .max(MIN_RESTORE_DELAY_AFTER_PASTE_MS)
 }
 
 fn send_shortcut(modifier: VIRTUAL_KEY, key: VIRTUAL_KEY, key_extended: bool) {
@@ -501,9 +535,10 @@ fn send_key_event(key: VIRTUAL_KEY, key_up: bool, extended: bool) {
 #[cfg(test)]
 mod tests {
     use super::{
-        clipboard_format_snapshot_action, clipboard_restore_delay,
-        is_known_non_memory_clipboard_format, is_quiet_output_warning_code,
-        ClipboardFormatSnapshotAction, WARNING_CLIPBOARD_NON_RESTORABLE,
+        clipboard_format_snapshot_action, clipboard_restore_delay, clipboard_text_ready_for_paste,
+        effective_clipboard_restore_delay_ms, is_known_non_memory_clipboard_format,
+        is_quiet_output_warning_code, ClipboardFormatSnapshotAction,
+        MIN_RESTORE_DELAY_AFTER_PASTE_MS, WARNING_CLIPBOARD_NON_RESTORABLE,
         WARNING_CLIPBOARD_PARTIAL_RESTORE,
     };
     use crate::config::TypingConfig;
@@ -516,16 +551,37 @@ mod tests {
             clipboard_restore_delay_ms: 800,
             ..TypingConfig::default()
         };
-        assert_eq!(clipboard_restore_delay(&typing), Duration::from_millis(800));
+        assert_eq!(
+            clipboard_restore_delay(&typing),
+            Duration::from_millis(MIN_RESTORE_DELAY_AFTER_PASTE_MS)
+        );
         let typing = TypingConfig {
             paste_delay_ms: 120,
-            clipboard_restore_delay_ms: 1_200,
+            clipboard_restore_delay_ms: 2_400,
             ..TypingConfig::default()
         };
         assert_eq!(
             clipboard_restore_delay(&typing),
-            Duration::from_millis(1_200)
+            Duration::from_millis(2_400)
         );
+    }
+
+    #[test]
+    fn effective_restore_delay_never_goes_below_paste_safety_floor() {
+        let typing = TypingConfig {
+            clipboard_restore_delay_ms: 0,
+            ..TypingConfig::default()
+        };
+        assert_eq!(
+            effective_clipboard_restore_delay_ms(&typing),
+            MIN_RESTORE_DELAY_AFTER_PASTE_MS
+        );
+    }
+
+    #[test]
+    fn clipboard_text_must_still_match_before_paste() {
+        assert!(clipboard_text_ready_for_paste("识别文本", "识别文本"));
+        assert!(!clipboard_text_ready_for_paste("识别文本", "旧剪贴板文本"));
     }
 
     #[test]

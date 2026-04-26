@@ -2,7 +2,9 @@ import { onMount } from "svelte";
 import { browser } from "$app/environment";
 import { createAutoHotwordsController } from "$lib/app/autoHotwordsController.svelte";
 import { createDiagnosticsController } from "$lib/app/diagnosticsController.svelte";
+import { createHotkeyCaptureController } from "$lib/app/hotkeyCaptureController.svelte";
 import { createOverlayController } from "$lib/app/overlayController.svelte";
+import { createSettingsNavigationController } from "$lib/app/settingsNavigationController.svelte";
 import { createUpdateController } from "$lib/app/updateController.svelte";
 import { createWindowController } from "$lib/app/windowController.svelte";
 import type { SetupStatusItem } from "$lib/components/overview/SetupStatusCard.svelte";
@@ -28,14 +30,13 @@ import {
   isConfigError,
   isErrorStatus as isUserErrorStatus,
   requiresAsrAuth as configRequiresAsrAuth,
-  sectionForSettingsPanel as getSectionForSettingsPanel,
   settingsPanelForError,
   shouldOpenSettingsForError,
   userErrorDetail as getUserErrorDetail,
   userErrorMessage as getUserErrorMessage,
 } from "$lib/utils/appRouting";
 import { actionsForUserError } from "$lib/utils/errorActions";
-import { clonePlain, configFingerprint, firstValidationField, validationErrorMap } from "$lib/utils/config";
+import { clonePlain, configFingerprint, validationErrorMap } from "$lib/utils/config";
 import {
   clampAudioLevel,
   micBarHeight as getMicBarHeight,
@@ -55,7 +56,7 @@ import {
   logFrontendError,
   logFrontendEvent,
 } from "$lib/utils/frontendDiagnostics";
-import { formatHotkey, hotkeyFromKeyboardEvent, validateHotkeyText } from "$lib/utils/hotkeys";
+import { formatHotkey } from "$lib/utils/hotkeys";
 import { overlayOpacityLabel } from "$lib/utils/overlayAppearance";
 import {
   isBlockingSessionPhase,
@@ -85,12 +86,6 @@ import {
   setupActionText as getSetupActionText,
   type SetupStatus,
 } from "$lib/utils/setupStatus";
-import {
-  fieldAdvancedSection,
-  fieldRequiresAdvancedSettings,
-  settingsPanelForField,
-  type AdvancedSection,
-} from "$lib/utils/settingsFields";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type {
@@ -104,13 +99,11 @@ import type {
   ConfigSaveError,
   ConfigValidationError,
   ConnectionTestResult,
-  HotkeyCaptureState,
   LastSessionOutcome,
   LoadedConfig,
   OverlayConfig,
   OverlayText,
   PersistConfigOptions,
-  Section,
   SelectableHotwordCandidate,
   SessionPhase,
   SessionState,
@@ -134,7 +127,6 @@ export function createVoxTypeController() {
   let lastSessionOutcome = $state<LastSessionOutcome>(null);
   let language = $state<Language>("zh-CN");
   let statusMessage = $state(copy["zh-CN"].bridgeLoading);
-  let selectedSection = $state<Section>("Home");
   let saving = $state(false);
   let configExists = $state(true);
   let configLoaded = $state(false);
@@ -206,14 +198,18 @@ export function createVoxTypeController() {
   let succeededIdleTimer: number | undefined;
   let autoSaveTimer: number | undefined;
   let setupStatusLoading = $state(false);
-  let hotkeyCaptureState = $state<HotkeyCaptureState>("idle");
-  let hotkeyValidationMessage = $state("");
-  let advancedVisible = $state<Record<AdvancedSection, boolean>>({
-    Hotwords: false,
-    ApiConfig: false,
-    Options: false,
+  const hotkeyCapture = createHotkeyCaptureController({
+    getConfig: () => config,
+    t,
+    getValidationErrors: () => validationErrors,
+    setValidationErrors: (errors) => {
+      validationErrors = errors;
+    },
   });
-  let llmApiConfigVisible = $state(false);
+  const settingsNav = createSettingsNavigationController({
+    isBrowser: () => browser,
+    requiresAsrAuth,
+  });
   onMount(() => {
     const onError = (event: ErrorEvent) => {
       logFrontendError(`${event.message} (${event.filename}:${event.lineno}:${event.colno})`);
@@ -259,7 +255,7 @@ export function createVoxTypeController() {
           statusMessage = userErrorMessage(event.payload.error_code, event.payload.error);
           showActionNotice(statusMessage, "error");
           if (shouldOpenSettingsForError(event.payload.error, event.payload.error_code)) {
-            scrollToSettingsPanel(settingsPanelForError(event.payload.error, event.payload.error_code));
+            settingsNav.scrollToSettingsPanel(settingsPanelForError(event.payload.error, event.payload.error_code));
           }
           return;
         }
@@ -329,7 +325,7 @@ export function createVoxTypeController() {
     const shouldSave =
       fingerprint !== savedConfigFingerprint &&
       configLoaded &&
-      hotkeyCaptureState === "idle" &&
+      hotkeyCapture.isIdle &&
       !isOverlay &&
       !isToast &&
       hasTauriApi();
@@ -346,7 +342,7 @@ export function createVoxTypeController() {
     autoSaveTimer = undefined;
   }
   function canAutoSaveConfig() {
-    return configLoaded && !isOverlay && !isToast && hasTauriApi() && hotkeyCaptureState === "idle";
+    return configLoaded && !isOverlay && !isToast && hasTauriApi() && hotkeyCapture.isIdle;
   }
   function scheduleAutoSaveConfig() {
     if (!canAutoSaveConfig()) return;
@@ -478,7 +474,7 @@ export function createVoxTypeController() {
       if (setupMessage) {
         statusMessage = setupMessage;
         if (!isOverlay && !isToast && requiresAsrAuth(configResult.data, configResult.exists)) {
-          focusAsrAuthSettings();
+          settingsNav.focusAsrAuthSettings();
         }
       }
     }
@@ -521,13 +517,13 @@ export function createVoxTypeController() {
     if (state.phase === "failed" && state.error_code) {
       statusMessage = userErrorMessage(state.error_code, state.message);
       if (shouldOpenSettingsForError(state.message, state.error_code)) {
-        scrollToSettingsPanel(settingsPanelForError(state.message, state.error_code));
+        settingsNav.scrollToSettingsPanel(settingsPanelForError(state.message, state.error_code));
       }
       return;
     }
     if (isConfigError(state.message)) {
       statusMessage = userErrorMessage(state.error_code, state.message);
-      scrollToSettingsPanel(settingsPanelForError(state.message, state.error_code));
+      settingsNav.scrollToSettingsPanel(settingsPanelForError(state.message, state.error_code));
       return;
     }
     statusMessage = state.phase === "failed" && state.message ? userErrorMessage(state.error_code, state.message) : sessionPhaseMessage(sessionPhase);
@@ -555,15 +551,11 @@ export function createVoxTypeController() {
     saving = true;
     try {
       validationErrors = {};
-      const hotkeyError = validateHotkeyText(configToSave.hotkey, {
-        required: t("hotkeyRequired"),
-        needsModifier: t("hotkeyNeedsModifier"),
-        unsupported: t("hotkeyUnsupported"),
-      });
+      const hotkeyError = hotkeyCapture.validate(configToSave.hotkey);
       if (hotkeyError) {
         validationErrors = { hotkey: hotkeyError };
         statusMessage = hotkeyError;
-        if (focusErrors) scrollToSettingsPanel("settings-output");
+        if (focusErrors) settingsNav.scrollToSettingsPanel("settings-output");
         return null;
       }
       if (enforceAuth && !requireAuthFields(focusErrors, focusErrors)) return null;
@@ -588,7 +580,7 @@ export function createVoxTypeController() {
       const saveError = parseConfigSaveError(error);
       const errors = saveError.errors ?? [];
       validationErrors = validationErrorMap(errors);
-      if (focusErrors) focusFirstValidationError(errors);
+      if (focusErrors) settingsNav.focusFirstValidationError(errors);
       statusMessage = saveError.message || t("validationFailed");
       logFrontendError(`save config failed: ${formatFrontendError(error)}`);
       return null;
@@ -611,28 +603,6 @@ export function createVoxTypeController() {
   }
   function fieldError(field: string) {
     return validationErrors[field] ?? "";
-  }
-  function isAdvancedVisible(section: AdvancedSection) {
-    return advancedVisible[section];
-  }
-  function toggleAdvanced(section: AdvancedSection) {
-    advancedVisible = {
-      ...advancedVisible,
-      [section]: !advancedVisible[section],
-    };
-  }
-  function showAdvanced(section: AdvancedSection) {
-    advancedVisible = {
-      ...advancedVisible,
-      [section]: true,
-    };
-  }
-  function focusFirstValidationError(errors: ConfigValidationError[]) {
-    const field = firstValidationField(errors);
-    if (!field) return;
-    if (fieldRequiresAdvancedSettings(field)) showAdvanced(fieldAdvancedSection(field));
-    if (field.startsWith("llm_post_edit.")) llmApiConfigVisible = true;
-    scrollToSettingsPanel(settingsPanelForField(field));
   }
   function syncSetupStatusFromConfig(nextConfig: AppConfig) {
     const currentStatus = setupStatus ?? localSetupStatusFromConfig(nextConfig);
@@ -658,7 +628,7 @@ export function createVoxTypeController() {
     }
     validationErrors = { ...validationErrors, ...errors };
     statusMessage = authGateMessage();
-    if (focusTarget) focusAsrAuthSettings();
+    if (focusTarget) settingsNav.focusAsrAuthSettings();
     if (showNotice) showActionNotice(statusMessage, "warning");
     return false;
   }
@@ -823,7 +793,7 @@ export function createVoxTypeController() {
   }
   function handleSetupAction(action: string) {
     if (action === "audio") void refreshSetupStatus();
-    if (action === "privacy") showAdvanced("Hotwords");
+    if (action === "privacy") settingsNav.showAdvanced("Hotwords");
     const targetId =
       action === "asr_auth"
         ? "settings-auth"
@@ -834,7 +804,7 @@ export function createVoxTypeController() {
             : action === "privacy"
               ? "settings-prompt-context"
               : "settings-output";
-    scrollToSettingsPanel(targetId);
+    settingsNav.scrollToSettingsPanel(targetId);
   }
   function pasteMethodLabel(value: string) {
     return getPasteMethodLabel(value, t);
@@ -879,66 +849,6 @@ export function createVoxTypeController() {
       sessions: formatNumber(stats.recent_7d.session_count),
       chars: formatNumber(stats.recent_7d.total_chars),
     });
-  }
-
-  function setHotkey(value: string) {
-    const formatted = formatHotkey(value);
-    config.hotkey = formatted;
-    hotkeyValidationMessage = validateHotkeyText(formatted, {
-      required: t("hotkeyRequired"),
-      needsModifier: t("hotkeyNeedsModifier"),
-      unsupported: t("hotkeyUnsupported"),
-    });
-    if (!hotkeyValidationMessage) {
-      const next = { ...validationErrors };
-      delete next.hotkey;
-      validationErrors = next;
-    }
-  }
-
-  function beginHotkeyCapture() {
-    hotkeyValidationMessage = "";
-    hotkeyCaptureState = "recording";
-  }
-
-  function cancelHotkeyCapture() {
-    hotkeyCaptureState = "idle";
-    hotkeyValidationMessage = "";
-  }
-
-  function handleHotkeyKeydown(event: KeyboardEvent) {
-    if (hotkeyCaptureState !== "recording") return;
-    event.preventDefault();
-    event.stopPropagation();
-    if (event.key === "Escape") {
-      cancelHotkeyCapture();
-      return;
-    }
-    if (event.key === "Backspace" || event.key === "Delete") {
-      config.hotkey = "";
-      hotkeyValidationMessage = t("hotkeyRequired");
-      validationErrors = { ...validationErrors, hotkey: hotkeyValidationMessage };
-      return;
-    }
-    if (event.key === "Enter" && !event.ctrlKey && !event.altKey && !event.shiftKey && !event.metaKey) {
-      hotkeyCaptureState = "idle";
-      return;
-    }
-    const captured = hotkeyFromKeyboardEvent(event);
-    if (!captured) {
-      hotkeyValidationMessage = t("hotkeyUnsupported");
-      return;
-    }
-    config.hotkey = captured;
-    hotkeyValidationMessage = validateHotkeyText(captured, {
-      required: t("hotkeyRequired"),
-      needsModifier: t("hotkeyNeedsModifier"),
-      unsupported: t("hotkeyUnsupported"),
-    });
-    validationErrors = hotkeyValidationMessage
-      ? { ...validationErrors, hotkey: hotkeyValidationMessage }
-      : Object.fromEntries(Object.entries(validationErrors).filter(([field]) => field !== "hotkey"));
-    if (!hotkeyValidationMessage) hotkeyCaptureState = "idle";
   }
 
   function settingsToolbarMessage() {
@@ -1048,10 +958,6 @@ export function createVoxTypeController() {
   function hasLlmApiConfig(configValue = config) {
     return configHasLlmApiConfig(configValue);
   }
-  function openLlmApiSettings() {
-    llmApiConfigVisible = true;
-    scrollToSettingsPanel("settings-llm-api");
-  }
   function llmApiStatusText() {
     return hasLlmApiConfig() ? t("llmApiConfigured") : t("llmApiMissing");
   }
@@ -1071,30 +977,12 @@ export function createVoxTypeController() {
   function setupRequiredMessage() {
     return !configExists ? t("setupMissingFile") : t("setupMissingAuth");
   }
-  function scrollToSettingsPanel(targetId: string) {
-    if (!browser) return;
-    selectedSection = sectionForSettingsPanel(targetId);
-    if (targetId === "settings-llm-api") llmApiConfigVisible = true;
-    window.setTimeout(() => {
-      document.getElementById(targetId)?.scrollIntoView({ block: "start", behavior: "smooth" });
-    }, 50);
-  }
-  function sectionForSettingsPanel(targetId: string): Section {
-    return getSectionForSettingsPanel(targetId);
-  }
-  function focusAsrAuthSettings() {
-    scrollToSettingsPanel("settings-auth");
-  }
   function requireAsrAuthGate(showNotice = true) {
     if (!requiresAsrAuth()) return false;
     statusMessage = authGateMessage();
-    focusAsrAuthSettings();
+    settingsNav.focusAsrAuthSettings();
     if (showNotice) showActionNotice(statusMessage, "warning");
     return true;
-  }
-  function selectSection(section: Section) {
-    selectedSection = section;
-    if (section === "ApiConfig" && requiresAsrAuth()) scrollToSettingsPanel("settings-auth");
   }
   function configSetupMessage(loaded: LoadedConfig | null) {
     return getConfigSetupMessage(loaded, t);
@@ -1120,10 +1008,10 @@ export function createVoxTypeController() {
         if (!isSessionBusy() && !requiresAsrAuth()) void toggleRecordingFromUi();
         break;
       case "open_api_config":
-        scrollToSettingsPanel("settings-auth");
+        settingsNav.scrollToSettingsPanel("settings-auth");
         break;
       case "open_options":
-        selectedSection = "Options";
+        settingsNav.selectSection("Options");
         break;
       case "open_setup_guide":
         void openSetupGuide();
@@ -1142,7 +1030,7 @@ export function createVoxTypeController() {
   function appShellProps() {
     return {
       uiCompact,
-      selectedSection,
+      selectedSection: settingsNav.selectedSection,
       language,
       recording,
       inputStatus: inputStatus(),
@@ -1157,7 +1045,7 @@ export function createVoxTypeController() {
       sidebarMicStatusText,
       micBarHeight,
       micBarOpacity,
-      onSelectSection: selectSection,
+      onSelectSection: settingsNav.selectSection,
       onSetLanguage: setLanguage,
       onClose: windows.close,
       onMinimize: windows.minimize,
@@ -1166,7 +1054,7 @@ export function createVoxTypeController() {
   }
   function appContentProps() {
     return {
-      selectedSection,
+      selectedSection: settingsNav.selectedSection,
       stats,
       t,
       uiCompact,
@@ -1193,8 +1081,8 @@ export function createVoxTypeController() {
       setupWarningCount: setupWarningCount(),
       testingAsr,
       testingLlm,
-      hotkeyCaptureState,
-      hotkeyValidationMessage,
+      hotkeyCaptureState: hotkeyCapture.state,
+      hotkeyValidationMessage: hotkeyCapture.validationMessage,
       overlayColorPresets,
       overlayOpacityPresets,
       audioDevices,
@@ -1214,9 +1102,9 @@ export function createVoxTypeController() {
       selectedAutoHotwordCount: autoHotwords.selectedCount(),
       autoHotwordStatusText: autoHotwords.statusText(),
       llmApiStatusText: llmApiStatusText(),
-      advancedHotwordsOpen: isAdvancedVisible("Hotwords"),
-      advancedApiConfigOpen: isAdvancedVisible("ApiConfig"),
-      advancedOptionsOpen: isAdvancedVisible("Options"),
+      advancedHotwordsOpen: settingsNav.isAdvancedVisible("Hotwords"),
+      advancedApiConfigOpen: settingsNav.isAdvancedVisible("ApiConfig"),
+      advancedOptionsOpen: settingsNav.isAdvancedVisible("Options"),
       fieldError,
       candidateConfidenceLabel,
       formatHotkey,
@@ -1243,10 +1131,10 @@ export function createVoxTypeController() {
       onOpenSetupGuide: openSetupGuide,
       onUserErrorAction: handleUserErrorAction,
       onToggleRecording: toggleRecordingFromUi,
-      onSelectSection: selectSection,
+      onSelectSection: settingsNav.selectSection,
       onToggleTrigger: toggleTrigger,
       onReload: reloadConfigFromUi,
-      onToggleAdvanced: toggleAdvanced,
+      onToggleAdvanced: settingsNav.toggleAdvanced,
       onUpdateHotwords: updateHotwords,
       onTidyHotwords: tidyHotwords,
       onClearHotwords: clearHotwords,
@@ -1255,7 +1143,7 @@ export function createVoxTypeController() {
       onOptionEnabledNotice: maybeShowOptionEnabledNotice,
       onRestoreDefaultPrompt: restoreDefaultLlmPrompt,
       onPreviewFinalPrompt: previewFinalPrompt,
-      onOpenLlmApiSettings: openLlmApiSettings,
+      onOpenLlmApiSettings: settingsNav.openLlmApiSettings,
       onGenerateAutoHotwords: autoHotwords.generate,
       onClearAutoHotwordHistory: autoHotwords.clearHistory,
       onRefreshAutoHotwordStatus: autoHotwords.refreshStatus,
@@ -1263,13 +1151,13 @@ export function createVoxTypeController() {
       onTidyAcceptedAutoHotwords: autoHotwords.tidyAccepted,
       onClearAcceptedAutoHotwords: autoHotwords.clearAccepted,
       onApplySelectedAutoHotwords: autoHotwords.applySelected,
-      onScrollToSettingsPanel: scrollToSettingsPanel,
+      onScrollToSettingsPanel: settingsNav.scrollToSettingsPanel,
       onRefreshSetupStatus: refreshSetupStatus,
       onSetupAction: handleSetupAction,
       onTestAsrConfig: testAsrConfig,
       onTestLlmConfig: testLlmConfig,
-      onHotkeyKeydown: handleHotkeyKeydown,
-      onBeginHotkeyCapture: beginHotkeyCapture,
+      onHotkeyKeydown: hotkeyCapture.handleKeydown,
+      onBeginHotkeyCapture: hotkeyCapture.beginCapture,
       onApplyOverlayPreset: overlay.applyPreset,
       onApplyOverlayOpacity: overlay.applyOpacity,
       onSetInputDevice: setInputDevice,
@@ -1280,7 +1168,7 @@ export function createVoxTypeController() {
     };
   }
   function openSettings() {
-    scrollToSettingsPanel("settings-auth");
+    settingsNav.scrollToSettingsPanel("settings-auth");
   }
   async function openSetupGuide() {
     await safeInvoke<void>("open_setup_guide");
@@ -1310,8 +1198,8 @@ export function createVoxTypeController() {
     set config(value: AppConfig) { config = value; },
     get autoHotwordCandidates() { return autoHotwords.candidates; },
     set autoHotwordCandidates(value: SelectableHotwordCandidate[]) { autoHotwords.candidates = value; },
-    get llmApiConfigVisible() { return llmApiConfigVisible; },
-    set llmApiConfigVisible(value: boolean) { llmApiConfigVisible = value; },
+    get llmApiConfigVisible() { return settingsNav.llmApiConfigVisible; },
+    set llmApiConfigVisible(value: boolean) { settingsNav.llmApiConfigVisible = value; },
     appShellProps,
     appContentProps,
     overlayMeterBarHeight: overlay.meterBarHeight,
