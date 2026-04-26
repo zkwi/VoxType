@@ -742,8 +742,8 @@ fn redact_user_path(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        autostart_update_needed, build_setup_status, hotkey_registration_test_needed,
-        hotkey_runtime_update_needed, AppConfig,
+        autostart_update_needed, build_setup_status, enabled_trigger_summary,
+        hotkey_registration_test_needed, hotkey_runtime_update_needed, AppConfig,
     };
 
     #[test]
@@ -851,5 +851,51 @@ mod tests {
         assert_eq!(status.paste_method, "ctrl_v");
         assert!(status.privacy_recent_context_enabled);
         assert!(status.warnings.is_empty());
+    }
+
+    #[test]
+    fn setup_status_keeps_soft_options_non_blocking() {
+        let mut config = AppConfig::default();
+        config.auth.app_key = "app-key".to_string();
+        config.auth.access_key = "access-key".to_string();
+        config.triggers.hotkey_enabled = true;
+        config.triggers.middle_mouse_enabled = true;
+        config.triggers.right_alt_enabled = true;
+        config.context.enable_recent_context = true;
+        config.audio.mute_system_volume_while_recording = true;
+
+        let status = build_setup_status(config, true);
+
+        assert!(status.ready);
+        assert!(status
+            .warnings
+            .iter()
+            .all(|warning| warning.level != "blocking"));
+    }
+
+    #[test]
+    fn enabled_trigger_summary_lists_active_triggers() {
+        let mut config = AppConfig {
+            hotkey: "ctrl+space".to_string(),
+            ..Default::default()
+        };
+        config.triggers.hotkey_enabled = true;
+        config.triggers.middle_mouse_enabled = true;
+        config.triggers.right_alt_enabled = true;
+
+        assert_eq!(
+            enabled_trigger_summary(&config),
+            "CTRL+SPACE / 右 Alt / 鼠标中键"
+        );
+    }
+
+    #[test]
+    fn enabled_trigger_summary_reports_no_active_trigger() {
+        let mut config = AppConfig::default();
+        config.triggers.hotkey_enabled = false;
+        config.triggers.middle_mouse_enabled = false;
+        config.triggers.right_alt_enabled = false;
+
+        assert_eq!(enabled_trigger_summary(&config), "未启用");
     }
 }
