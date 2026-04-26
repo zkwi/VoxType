@@ -24,16 +24,19 @@ VoxType/
 │   │   ├── asr.rs               # ASR 请求组装、上下文和结果解析
 │   │   ├── asr_ws.rs            # 豆包 WebSocket 会话
 │   │   ├── audio.rs             # cpal 麦克风采集
+│   │   ├── autostart.rs         # Windows 开机自启动
 │   │   ├── config.rs            # TOML 配置加载
 │   │   ├── hotkey.rs            # 全局热键与输入钩子
 │   │   ├── llm_post_edit.rs     # LLM 润色
 │   │   ├── overlay.rs           # 屏幕居下悬浮字幕窗
 │   │   ├── protocol.rs          # 豆包二进制协议
 │   │   ├── session.rs           # 录音会话状态机
+│   │   ├── setup_guide.rs       # 配置指南打开逻辑
 │   │   ├── stats.rs             # 使用统计
 │   │   ├── system_audio.rs      # 系统音量控制
 │   │   ├── text_output.rs       # 剪贴板与模拟粘贴
-│   │   └── tray.rs              # 系统托盘
+│   │   ├── tray.rs              # 系统托盘
+│   │   └── update.rs            # GitHub Release 更新检查
 │   ├── capabilities/
 │   ├── icons/
 │   ├── Cargo.toml
@@ -57,13 +60,16 @@ VoxType/
 3. `audio.rs` 采集 PCM 音频块。
 4. `asr_ws.rs` 连接豆包 WebSocket，`protocol.rs` 编码/解析二进制消息。
 5. 实时转写结果发送给悬浮字幕窗；最终结果进入后处理。
-6. `llm_post_edit.rs` 在启用时做轻度润色，失败则回退原文。
-7. `text_output.rs` 写剪贴板并粘贴到当前焦点输入框。
-8. `stats.rs` 追加本地统计，`tray.rs` 维持托盘常驻。
+6. 空识别进入 `EMPTY_TRANSCRIPT` 失败态，不进入润色、粘贴或成功统计。
+7. `llm_post_edit.rs` 只有在启用、达到 `min_chars` 且 Base URL/API Key/模型名完整时才做轻度润色；失败则回退原文。
+8. `text_output.rs` 写剪贴板并粘贴到当前焦点输入框。当前只恢复纯文本剪贴板；非文本剪贴板要给用户 warning。
+9. `stats.rs` 只追加时长和字数等非正文统计，`tray.rs` 维持托盘常驻。
 
 ## 配置
 
 配置文件为根目录 `config.toml`，模板为 `config.example.toml`。真实配置包含密钥，必须保持未提交。
+
+最近上下文默认关闭。开启后，识别片段写入与配置文件相邻的 `context/recent_context.jsonl`，不要写回 `config.toml`。配置文件只保存开关和轮数等设置。
 
 关键配置段：
 
@@ -90,6 +96,8 @@ VoxType/
 - UI 修改优先沿用现有 Svelte 结构和蓝白配色。
 - 首页布局应保持清晰、紧凑、可适配：避免固定高度硬裁切文字；长文案、长设备名和大数字必须能换行或截断；普通内容区不得出现横向滚动条。
 - 主窗口只展示正式用户信息，不展示调试状态、内部路径或协议细节。
+- 配置健康检查中的隐私项、额外触发方式和系统静音只作为 warning，不应阻断 ready。
+- 错误和 warning 文案必须完整可读；底部通知、健康检查 warning 和设置页提示不能单行硬截断关键内容。
 - 实时字幕应显示在屏幕居下悬浮窗，不应依赖主窗口展示。
 - 主窗口关闭时隐藏到托盘；托盘菜单“退出”才是真正退出。
 - 触发键逻辑统一进入会话状态机，避免多处直接启动/停止录音。
@@ -116,6 +124,7 @@ Set-Location .\src-tauri
 cargo fmt --check
 cargo check
 cargo test
+cargo clippy --all-targets -- -D warnings
 ```
 
 正式构建使用：
@@ -162,6 +171,7 @@ Set-Location .\src-tauri
 cargo fmt --check
 cargo check
 cargo test
+cargo clippy --all-targets -- -D warnings
 Set-Location ..
 npm run scan:secrets
 ```

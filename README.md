@@ -40,6 +40,15 @@
 - 配置健康检查：首页显示 ASR 密钥、麦克风、粘贴方式、触发方式和隐私设置状态，帮助新用户快速知道还差哪一步。
 - 多语言界面：简体中文、繁体中文、英语，默认简体中文。
 
+## 主链路保护
+
+这些行为直接影响普通用户对语音输入结果的信任，维护时应保持：
+
+- 空识别会进入失败态并提示“没有识别到文字”，不会显示“已粘贴”，也不会触发润色、粘贴或成功统计。
+- 只有在大模型润色已启用、文本长度达到 `min_chars`，且 Base URL、API Key、模型名都填写完整时，界面才显示“正在润色文本”。
+- 默认自动粘贴后恢复原剪贴板文本；当前只恢复纯文本剪贴板。原剪贴板包含图片、文件、表格区域或富文本时，会保留识别文本并给出 warning。
+- 健康检查的“已准备好”只判断 ASR 密钥、麦克风和至少一种触发方式。最近上下文、右 Alt、鼠标中键、系统静音属于 warning，不阻断主流程可用性。
+
 ## 环境
 
 仅面向 Windows 10/11。
@@ -199,6 +208,9 @@ cargo check
 # Rust 测试
 cargo test
 
+# Rust lint
+cargo clippy --all-targets -- -D warnings
+
 # 本地密钥扫描
 Set-Location ..
 npm run scan:secrets
@@ -267,6 +279,7 @@ VoxType/
 
 - `config.toml`
 - `*.local.toml`
+- `context/recent_context.jsonl`
 - `voice_input.log`
 - `voice_input_stats.jsonl`
 - `src-tauri/target/`
