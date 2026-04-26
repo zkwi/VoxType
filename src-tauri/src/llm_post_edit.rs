@@ -1,4 +1,7 @@
-use crate::{app_log, config::AppConfig};
+use crate::{
+    app_log,
+    config::{effective_hotwords, AppConfig},
+};
 use serde_json::{json, Value};
 use std::time::Duration;
 
@@ -41,14 +44,7 @@ pub async fn polish(config: &AppConfig, text: &str) -> PolishOutcome {
     }
 
     let mut user_prompt = settings.user_prompt_template.replace("{text}", text);
-    let hotwords: Vec<String> = config
-        .context
-        .hotwords
-        .iter()
-        .map(|item| item.trim())
-        .filter(|item| !item.is_empty())
-        .map(str::to_string)
-        .collect();
+    let hotwords = effective_hotwords(config);
     if !hotwords.is_empty() {
         user_prompt.push_str("\n\n用户词典：\n");
         user_prompt.push_str(&hotwords.join("\n"));

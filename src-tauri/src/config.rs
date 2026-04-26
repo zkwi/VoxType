@@ -158,6 +158,8 @@ pub struct UpdateConfig {
 pub struct AutoHotwordConfig {
     #[serde(default)]
     pub enabled: bool,
+    #[serde(default)]
+    pub accepted_hotwords: Vec<String>,
     #[serde(default = "default_auto_hotword_max_history_chars")]
     pub max_history_chars: usize,
     #[serde(default = "default_auto_hotword_max_candidates")]
@@ -351,6 +353,7 @@ impl Default for AutoHotwordConfig {
     fn default() -> Self {
         Self {
             enabled: false,
+            accepted_hotwords: Vec::new(),
             max_history_chars: default_auto_hotword_max_history_chars(),
             max_candidates: default_auto_hotword_max_candidates(),
             ignored_hotwords: Vec::new(),
@@ -1025,6 +1028,30 @@ fn looks_like_project_root(path: &Path) -> bool {
     path.join("package.json").exists() && path.join("src-tauri").is_dir()
 }
 
+pub fn effective_hotwords(config: &AppConfig) -> Vec<String> {
+    let mut merged = Vec::new();
+    for word in config
+        .context
+        .hotwords
+        .iter()
+        .chain(config.auto_hotwords.accepted_hotwords.iter())
+    {
+        let trimmed = word.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let normalized = trimmed.to_lowercase();
+        if merged
+            .iter()
+            .any(|existing: &String| existing.trim().to_lowercase() == normalized)
+        {
+            continue;
+        }
+        merged.push(trimmed.to_string());
+    }
+    merged
+}
+
 fn default_hotkey() -> String {
     "ctrl+q".to_string()
 }
@@ -1163,7 +1190,9 @@ fn default_close_behavior() -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{contains_legacy_recent_context, validate_config, AppConfig, TextContext};
+    use super::{
+        contains_legacy_recent_context, effective_hotwords, validate_config, AppConfig, TextContext,
+    };
 
     #[test]
     fn defaults_are_conservative_for_consumer_use() {
@@ -1174,6 +1203,7 @@ mod tests {
         assert!(!config.audio.mute_system_volume_while_recording);
         assert!(!config.context.enable_recent_context);
         assert!(!config.auto_hotwords.enabled);
+        assert!(config.auto_hotwords.accepted_hotwords.is_empty());
         assert_eq!(config.auto_hotwords.max_history_chars, 10_000);
         assert_eq!(config.auto_hotwords.max_candidates, 30);
         assert!(!config.debug.print_transcript_to_console);
@@ -1190,6 +1220,32 @@ mod tests {
 
         assert!(config.llm_post_edit.system_prompt.contains("语音输入助手"));
         assert!(config.llm_post_edit.user_prompt_template.contains("{text}"));
+    }
+
+    #[test]
+    fn effective_hotwords_merge_manual_and_accepted_auto_lists() {
+        let mut config = AppConfig::default();
+        config.context.hotwords = vec![
+            "VoxType".to_string(),
+            "  ".to_string(),
+            "豆包 ASR".to_string(),
+        ];
+        config.auto_hotwords.accepted_hotwords = vec![
+            "voxtype".to_string(),
+            "自动热词".to_string(),
+            "豆包 ASR ".to_string(),
+        ];
+
+        assert_eq!(
+            effective_hotwords(&config),
+            vec![
+                "VoxType".to_string(),
+                "豆包 ASR".to_string(),
+                "自动热词".to_string()
+            ]
+        );
+        assert_eq!(config.context.hotwords.len(), 3);
+        assert_eq!(config.auto_hotwords.accepted_hotwords.len(), 3);
     }
 
     #[test]

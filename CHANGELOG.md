@@ -6,6 +6,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.1.23] - 2026-04-26
+
+### Added
+
+- Added a separate accepted automatic hotword list so generated hotwords remain visually distinct from user-maintained custom hotwords.
+
+### Changed
+
+- ASR requests, LLM polishing prompts, prompt previews, and automatic hotword duplicate filtering now use a merged effective hotword list without merging the stored lists.
+- Improved the floating caption layout so the voice meter no longer overlaps multiline caption text and browser wrapping cannot create extra visual lines.
+
 ## [0.1.22] - 2026-04-26
 
 ### Added

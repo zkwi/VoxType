@@ -191,6 +191,7 @@ export type AppConfig = {
   update: { auto_check_on_startup: boolean; github_repo: string };
   auto_hotwords: {
     enabled: boolean;
+    accepted_hotwords: string[];
     max_history_chars: number;
     max_candidates: number;
     ignored_hotwords: string[];

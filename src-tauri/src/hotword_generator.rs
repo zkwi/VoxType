@@ -1,4 +1,8 @@
-use crate::{app_log, config::AppConfig, hotword_history};
+use crate::{
+    app_log,
+    config::{effective_hotwords, AppConfig},
+    hotword_history,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashSet;
@@ -35,9 +39,10 @@ pub async fn generate_candidates(config: AppConfig) -> Result<HotwordGenerationR
     let used_chars = history_text.chars().count();
     let redacted_text = redact_sensitive_text(&history_text);
     let system_prompt = hotword_system_prompt();
+    let existing_hotwords = effective_hotwords(&config);
     let user_prompt = hotword_user_prompt(
         &redacted_text,
-        &config.context.hotwords,
+        &existing_hotwords,
         &config.auto_hotwords.ignored_hotwords,
         config.auto_hotwords.max_candidates,
     );
@@ -156,7 +161,8 @@ fn filter_candidates(
     candidates: Vec<HotwordCandidate>,
     config: &AppConfig,
 ) -> Vec<HotwordCandidate> {
-    let existing = normalized_set(&config.context.hotwords);
+    let existing_hotwords = effective_hotwords(config);
+    let existing = normalized_set(&existing_hotwords);
     let ignored = normalized_set(&config.auto_hotwords.ignored_hotwords);
     let mut seen = HashSet::new();
     let mut filtered = Vec::new();
@@ -486,11 +492,13 @@ mod tests {
     fn removes_existing_ignored_and_duplicate_candidates() {
         let mut config = AppConfig::default();
         config.context.hotwords = vec!["VoxType".to_string()];
+        config.auto_hotwords.accepted_hotwords = vec!["自动热词".to_string()];
         config.auto_hotwords.ignored_hotwords = vec!["豆包 ASR".to_string()];
         config.auto_hotwords.max_candidates = 30;
         let result = filter_candidates(
             vec![
                 candidate("VoxType"),
+                candidate("自动热词"),
                 candidate("豆包 ASR"),
                 candidate("OpenAI Compatible"),
                 candidate("OpenAI Compatible"),

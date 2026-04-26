@@ -1,4 +1,4 @@
-use crate::config::AppConfig;
+use crate::config::{effective_hotwords, AppConfig};
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -91,13 +91,16 @@ pub fn build_request_payload(config: &AppConfig, context_payload: Option<String>
 
 pub fn build_context_payload(config: &AppConfig) -> Option<String> {
     let mut payload = serde_json::Map::new();
-    let hotwords: Vec<Value> = config
-        .context
-        .hotwords
-        .iter()
-        .map(|word| word.trim())
-        .filter(|word| !word.is_empty())
-        .map(|word| json!({ "word": word }))
+    let hotwords: Vec<Value> = effective_hotwords(config)
+        .into_iter()
+        .filter_map(|word| {
+            let word = word.trim().to_string();
+            if word.is_empty() {
+                None
+            } else {
+                Some(json!({ "word": word }))
+            }
+        })
         .collect();
     if !hotwords.is_empty() {
         payload.insert("hotwords".to_string(), Value::Array(hotwords));
@@ -212,6 +215,7 @@ mod tests {
     fn builds_context_payload_in_expected_order() {
         let mut config = AppConfig::default();
         config.context.hotwords = vec!["ASR".to_string()];
+        config.auto_hotwords.accepted_hotwords = vec!["VoxType".to_string()];
         config.context.enable_recent_context = true;
         config.context.recent_context = vec![TextContext {
             text: "recent".to_string(),
@@ -222,6 +226,7 @@ mod tests {
         let context = build_context_payload(&config).unwrap();
         let value: Value = serde_json::from_str(&context).unwrap();
         assert_eq!(value["hotwords"][0]["word"], "ASR");
+        assert_eq!(value["hotwords"][1]["word"], "VoxType");
         assert_eq!(value["context_data"][0]["text"], "recent");
         assert_eq!(value["context_data"][1]["text"], "prompt");
     }

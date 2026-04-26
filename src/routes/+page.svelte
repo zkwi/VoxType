@@ -151,6 +151,7 @@
     update: { auto_check_on_startup: true, github_repo: "zkwi/VoxType" },
     auto_hotwords: {
       enabled: false,
+      accepted_hotwords: [],
       max_history_chars: 10000,
       max_candidates: 30,
       ignored_hotwords: [],
@@ -658,7 +659,7 @@
   }
 
   function wrapOverlayText(text: string, fontSize: number) {
-    const maxWidth = Math.max(80, overlayTextElement?.clientWidth ?? window.innerWidth - 88);
+    const maxWidth = overlayTextContentWidth();
     const lines: string[] = [];
 
     for (const paragraph of text.split("\n")) {
@@ -681,11 +682,21 @@
     return lines.length ? lines : [text];
   }
 
+  function overlayTextContentWidth() {
+    if (!overlayTextElement) {
+      return Math.max(80, window.innerWidth - 88);
+    }
+    const styles = window.getComputedStyle(overlayTextElement);
+    const paddingLeft = Number.parseFloat(styles.paddingLeft) || 0;
+    const paddingRight = Number.parseFloat(styles.paddingRight) || 0;
+    return Math.max(80, overlayTextElement.clientWidth - paddingLeft - paddingRight);
+  }
+
   function measureOverlayText(text: string, fontSize: number) {
     measureCanvas ??= document.createElement("canvas");
     const context = measureCanvas.getContext("2d");
     if (!context) return Array.from(text).length * fontSize;
-    context.font = `400 ${fontSize}px "Segoe UI", "Microsoft YaHei", sans-serif`;
+    context.font = `400 ${fontSize}px "Microsoft YaHei", "Segoe UI", "PingFang SC", sans-serif`;
     return context.measureText(text).width;
   }
 
@@ -1638,6 +1649,10 @@
     config.context.hotwords = normalizeHotwords(value);
   }
 
+  function updateAcceptedAutoHotwords(value: string) {
+    config.auto_hotwords.accepted_hotwords = normalizeHotwords(value);
+  }
+
   function normalizeHotwords(value: string) {
     return value
       .split("\n")
@@ -1645,13 +1660,9 @@
       .filter(Boolean);
   }
 
-  function hotwordCount() {
-    return config.context.hotwords.filter((item) => item.trim()).length;
-  }
-
-  function tidyHotwords() {
+  function dedupeHotwords(values: string[]) {
     const seen = new Set<string>();
-    config.context.hotwords = config.context.hotwords
+    return values
       .map((item) => item.trim())
       .filter((item) => {
         if (!item) return false;
@@ -1660,13 +1671,41 @@
         seen.add(key);
         return true;
       });
+  }
+
+  function effectiveHotwords() {
+    return dedupeHotwords([...config.context.hotwords, ...config.auto_hotwords.accepted_hotwords]);
+  }
+
+  function hotwordCount() {
+    return config.context.hotwords.filter((item) => item.trim()).length;
+  }
+
+  function acceptedAutoHotwordCount() {
+    return config.auto_hotwords.accepted_hotwords.filter((item) => item.trim()).length;
+  }
+
+  function tidyHotwords() {
+    config.context.hotwords = dedupeHotwords(config.context.hotwords);
     showActionNotice(t("hotwordsTidied"), "success");
+  }
+
+  function tidyAcceptedAutoHotwords() {
+    config.auto_hotwords.accepted_hotwords = dedupeHotwords(config.auto_hotwords.accepted_hotwords);
+    showActionNotice(t("autoHotwordsAcceptedTidied"), "success");
   }
 
   function clearHotwords() {
     if (!browser || window.confirm(t("clearHotwordsConfirm"))) {
       config.context.hotwords = [];
       showActionNotice(t("hotwordsCleared"), "success");
+    }
+  }
+
+  function clearAcceptedAutoHotwords() {
+    if (!browser || window.confirm(t("autoHotwordsAcceptedClearConfirm"))) {
+      config.auto_hotwords.accepted_hotwords = [];
+      showActionNotice(t("autoHotwordsAcceptedCleared"), "success");
     }
   }
 
@@ -1687,7 +1726,7 @@
   function previewFinalPrompt() {
     const sampleText = t("promptPreviewSampleText");
     let userPrompt = config.llm_post_edit.user_prompt_template.replace("{text}", sampleText);
-    const hotwords = config.context.hotwords.map((item) => item.trim()).filter(Boolean);
+    const hotwords = effectiveHotwords();
     if (hotwords.length > 0) {
       userPrompt += `\n\n${t("promptPreviewUserDictionary")}\n${hotwords.join("\n")}`;
     }
@@ -1769,8 +1808,8 @@
       return;
     }
 
-    const merged = [...config.context.hotwords];
-    const seen = new Set(merged.map((item) => item.trim().toLocaleLowerCase()).filter(Boolean));
+    const merged = [...config.auto_hotwords.accepted_hotwords];
+    const seen = new Set(effectiveHotwords().map((item) => item.trim().toLocaleLowerCase()).filter(Boolean));
     let added = 0;
     for (const word of selected) {
       const key = word.toLocaleLowerCase();
@@ -1779,7 +1818,7 @@
       merged.push(word);
       added += 1;
     }
-    config.context.hotwords = merged;
+    config.auto_hotwords.accepted_hotwords = dedupeHotwords(merged);
     const message = t("autoHotwordsApplied", { count: String(added) });
     statusMessage = message;
     showActionNotice(message, added > 0 ? "success" : "warning");
@@ -2299,16 +2338,17 @@
           <div id="settings-context" class="form-panel">
             <div class="section-heading with-actions">
               <div class="section-heading-copy">
-                <h3>{t("asrHotwords")}</h3>
-                <p>{t("hotwordsPrivacyHint")}</p>
+                <h3>{t("customHotwordsTitle")}</h3>
+                <p>{t("customHotwordsDescription")}</p>
               </div>
               <div class="settings-inline-actions">
                 <button class="test-button" type="button" onclick={tidyHotwords}><Sparkles size={16} />{t("tidyHotwords")}</button>
                 <button class="test-button" type="button" onclick={clearHotwords}><Trash2 size={16} />{t("clearHotwords")}</button>
               </div>
             </div>
-            <p class="field-hint">{t("hotwordCount", { count: String(hotwordCount()) })}</p>
-            <label><span>{t("hotwords")}</span><textarea value={config.context.hotwords.join("\n")} oninput={(event) => updateHotwords(event.currentTarget.value)}></textarea></label>
+            <p class="field-hint">{t("customHotwordCount", { count: String(hotwordCount()) })}</p>
+            <label><span>{t("customHotwords")}</span><textarea value={config.context.hotwords.join("\n")} oninput={(event) => updateHotwords(event.currentTarget.value)}></textarea></label>
+            <p class="field-hint">{t("hotwordsPrivacyHint")}</p>
           </div>
           <div id="settings-prompt-context" class="form-panel">
             <div class="section-heading with-actions">
@@ -2374,6 +2414,23 @@
                 <input type="number" min="5" max="100" bind:value={config.auto_hotwords.max_candidates} />
                 {#if fieldError("auto_hotwords.max_candidates")}<small class="field-error">{fieldError("auto_hotwords.max_candidates")}</small>{/if}
               </label>
+            </div>
+            <div class="auto-hotword-list-editor">
+              <div class="auto-hotword-list-head">
+                <div>
+                  <strong>{t("autoHotwordsAcceptedTitle", { count: String(acceptedAutoHotwordCount()) })}</strong>
+                  <span>{t("autoHotwordsAcceptedDescription")}</span>
+                </div>
+                <div class="settings-inline-actions">
+                  <button class="test-button" type="button" onclick={tidyAcceptedAutoHotwords}><Sparkles size={16} />{t("tidyHotwords")}</button>
+                  <button class="test-button" type="button" onclick={clearAcceptedAutoHotwords}><Trash2 size={16} />{t("autoHotwordsAcceptedClear")}</button>
+                </div>
+              </div>
+              <label>
+                <span>{t("autoHotwordsAcceptedList")}</span>
+                <textarea value={config.auto_hotwords.accepted_hotwords.join("\n")} oninput={(event) => updateAcceptedAutoHotwords(event.currentTarget.value)}></textarea>
+              </label>
+              <p class="field-hint">{t("autoHotwordsAcceptedHint")}</p>
             </div>
             <div class="auto-hotword-status">
               <Info size={16} />
@@ -2984,38 +3041,40 @@
   }
   .overlay-caption {
     position: relative;
-    display: flex;
+    display: grid;
+    grid-template-columns: 34px minmax(0, 1fr);
     align-items: center;
     justify-content: flex-start;
+    column-gap: 12px;
     width: 100%;
     height: 100%;
     min-width: 0;
-    padding: 8px 16px;
+    min-height: 0;
+    padding: 8px 18px;
     overflow: hidden;
     color: var(--overlay-text, #ffffff);
     background: rgba(var(--overlay-bg-rgb, 23, 110, 230), var(--overlay-opacity, 0.9));
     border: 0;
     border-radius: 0;
     box-shadow: none;
+    font-family: "Microsoft YaHei", "Segoe UI", "PingFang SC", "SF Pro Display", "Noto Sans CJK SC", sans-serif;
     text-align: left;
   }
   .overlay-voice-meter {
-    position: absolute;
-    top: 50%;
-    left: 13px;
     display: inline-flex;
     align-items: center;
+    align-self: center;
     justify-content: center;
+    justify-self: center;
     gap: 2px;
-    width: 28px;
-    height: 22px;
+    width: 31px;
+    height: 25px;
     color: var(--overlay-text, #ffffff);
     background: color-mix(in srgb, currentColor 11%, transparent);
     border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
     border-radius: 999px;
     opacity: 0.72;
     pointer-events: none;
-    transform: translateY(-50%);
     transition: opacity 140ms ease, background 140ms ease, border-color 140ms ease;
   }
   .overlay-voice-meter.active {
@@ -3033,9 +3092,10 @@
     align-content: start;
     flex: 1 1 auto;
     min-width: 0;
+    min-height: 0;
     height: 100%;
     max-height: 100%;
-    padding: 0 36px;
+    padding: 0 6px 0 0;
     overflow: hidden;
     color: inherit;
     box-sizing: border-box;
@@ -3047,10 +3107,10 @@
   }
   .overlay-caption-text.single {
     align-content: center;
-    text-align: center;
+    text-align: left;
   }
   .overlay-caption-text.double {
-    align-content: start;
+    align-content: center;
     text-align: left;
   }
   .overlay-caption-text span {
@@ -3058,7 +3118,7 @@
     min-width: 0;
     overflow: hidden;
     text-overflow: clip;
-    white-space: pre-wrap;
+    white-space: pre;
   }
   .toast-root {
     display: grid;
@@ -4471,6 +4531,37 @@
   .update-actions button:disabled {
     cursor: wait;
     opacity: 0.66;
+  }
+  .auto-hotword-list-editor {
+    display: grid;
+    gap: 12px;
+    padding: 14px;
+    background: #fbfdff;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+  }
+  .auto-hotword-list-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .auto-hotword-list-head > div:first-child {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+  }
+  .auto-hotword-list-head strong {
+    color: var(--text-main);
+    font-size: 14px;
+    font-weight: 800;
+  }
+  .auto-hotword-list-head span {
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
   }
   .auto-hotword-status {
     display: flex;

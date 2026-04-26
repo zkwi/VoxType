@@ -55,6 +55,8 @@ hotwords = []
 [auto_hotwords]
 # 是否保存 VoxType 最终语音输入文本，用于手动生成热词候选；默认关闭
 enabled = false
+# 用户确认加入的自动识别热词；与 [context].hotwords 分开保存，调用 ASR/LLM 时自动合并
+accepted_hotwords = []
 # 本地历史文本总量上限
 max_history_chars = 10000
 # 单次生成候选数量上限
