@@ -329,6 +329,7 @@
     { label: "overlayPresetLight", background: "#f8fafc", text: "#111827" },
     { label: "overlayPresetAmber", background: "#92400e", text: "#fff7ed" },
   ];
+  const overlayOpacityPresets = [0.6, 0.75, 0.9, 1] as const;
   const navItems: { id: Section; icon: typeof Gauge }[] = [
     { id: "Home", icon: Gauge },
     { id: "Hotwords", icon: Sparkles },
@@ -344,6 +345,36 @@
     Options: "navOptions",
     History: "navHistory",
   };
+  const setupStatusCacheKey = "voxtype-setup-status-v1";
+
+  function readCachedSetupStatus(): SetupStatus | null {
+    if (!browser) return null;
+    const params = new URLSearchParams(window.location.search);
+    if (params.has("overlay") || params.has("toast")) return null;
+    try {
+      const raw = localStorage.getItem(setupStatusCacheKey);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as Partial<SetupStatus>;
+      if (
+        typeof parsed.ready !== "boolean" ||
+        typeof parsed.missing_auth !== "boolean" ||
+        typeof parsed.has_audio_device !== "boolean"
+      ) {
+        return null;
+      }
+      return {
+        ready: parsed.ready,
+        missing_auth: parsed.missing_auth,
+        has_audio_device: parsed.has_audio_device,
+        hotkey: typeof parsed.hotkey === "string" ? parsed.hotkey : fallbackSnapshot.hotkey,
+        paste_method: typeof parsed.paste_method === "string" ? parsed.paste_method : fallbackConfig.typing.paste_method,
+        privacy_recent_context_enabled: Boolean(parsed.privacy_recent_context_enabled),
+        warnings: Array.isArray(parsed.warnings) ? (parsed.warnings as SetupStatusWarning[]) : [],
+      };
+    } catch {
+      return null;
+    }
+  }
 
   let measureCanvas: HTMLCanvasElement | undefined;
   let snapshot = $state<AppSnapshot>(fallbackSnapshot);
@@ -359,6 +390,7 @@
   let selectedSection = $state<Section>("Home");
   let saving = $state(false);
   let configExists = $state(true);
+  let configLoaded = $state(false);
   let audioLevel = $state(0);
   const initialParams = browser ? new URLSearchParams(window.location.search) : new URLSearchParams();
   let audioDevices = $state<AudioDeviceInfo[]>([]);
@@ -382,7 +414,7 @@
   let actionNoticeKind = $state<"success" | "info" | "warning" | "error">("success");
   let actionNoticeTimer: number | undefined;
   let updateStatus = $state<UpdateStatus | null>(null);
-  let setupStatus = $state<SetupStatus | null>(null);
+  let setupStatus = $state<SetupStatus | null>(readCachedSetupStatus());
   let checkingUpdate = $state(false);
   let installingUpdate = $state(false);
   let openingLog = $state(false);
@@ -397,7 +429,7 @@
   let closePromptFirstTime = $state(false);
   let closePromptBehavior = $state("close_to_tray");
   let succeededIdleTimer: number | undefined;
-  let setupStatusLoading = $state(true);
+  let setupStatusLoading = $state(false);
   let hotkeyCaptureState = $state<HotkeyCaptureState>("idle");
   let hotkeyValidationMessage = $state("");
   let showAdvancedSettings = $state(false);
@@ -775,9 +807,41 @@
     overlayDisplayLines = overlayAllLines.slice(overlayScrollOffset, overlayScrollOffset + visibleCount);
   }
 
+  function rememberSetupStatus(status: SetupStatus) {
+    if (!browser || isOverlay || isToast) return;
+    try {
+      localStorage.setItem(setupStatusCacheKey, JSON.stringify(status));
+    } catch {
+      // 本地缓存只用于首屏体验，失败不影响真实检查。
+    }
+  }
+
+  function applySetupStatus(status: SetupStatus) {
+    setupStatus = status;
+    setupStatusLoading = false;
+    rememberSetupStatus(status);
+  }
+
+  function localSetupStatusFromConfig(configValue: AppConfig, devices = audioDevices): SetupStatus {
+    const missingAuth = !configValue.auth.app_key.trim() || !configValue.auth.access_key.trim();
+    const anyTriggerEnabled =
+      configValue.triggers.hotkey_enabled ||
+      configValue.triggers.middle_mouse_enabled ||
+      configValue.triggers.right_alt_enabled;
+    return {
+      ready: !missingAuth && devices.length > 0 && anyTriggerEnabled,
+      missing_auth: missingAuth,
+      has_audio_device: devices.length > 0,
+      hotkey: configValue.hotkey,
+      paste_method: configValue.typing.paste_method,
+      privacy_recent_context_enabled: configValue.context.enable_recent_context,
+      warnings: setupStatus?.warnings ?? [],
+    };
+  }
+
   async function loadAll() {
     logFrontendEvent(`loadAll started mode=${frontendMode()}`);
-    if (!isOverlay && !isToast) setupStatusLoading = true;
+    if (!isOverlay && !isToast && !setupStatus) setupStatusLoading = true;
     const [snapshotResult, configResult, statsResult, devicesResult, setupResult] = await Promise.all([
       safeInvoke<AppSnapshot>("get_app_snapshot"),
       safeInvoke<LoadedConfig>("load_app_config"),
@@ -791,6 +855,7 @@
       config = configResult.data;
       savedConfigFingerprint = configFingerprint(configResult.data);
       configExists = configResult.exists;
+      configLoaded = true;
       const setupMessage = configSetupMessage(configResult);
       if (setupMessage) {
         statusMessage = setupMessage;
@@ -801,7 +866,12 @@
     }
     if (statsResult) stats = statsResult;
     if (devicesResult) audioDevices = devicesResult;
-    if (setupResult) setupStatus = setupResult;
+    if (!configResult && hasTauriApi() && !isOverlay && !isToast) configLoaded = true;
+    if (setupResult) {
+      applySetupStatus(setupResult);
+    } else if (!setupStatus && configResult) {
+      setupStatus = localSetupStatusFromConfig(configResult.data, devicesResult ?? audioDevices);
+    }
     if (!isOverlay && !isToast) setupStatusLoading = false;
     if ((snapshotResult || configResult || statsResult) && !configSetupMessage(configResult)) {
       statusMessage = t("bridgeConnected");
@@ -900,6 +970,7 @@
         config = result.data;
         savedConfigFingerprint = configFingerprint(result.data);
         configExists = result.exists;
+        configLoaded = true;
         statusMessage = t("configSaved");
       }
       return result;
@@ -920,7 +991,7 @@
     if (result) {
       snapshot = { ...snapshot, hotkey: result.data.hotkey };
       syncSetupStatusFromConfig(result.data);
-      void refreshSetupStatus();
+      void refreshSetupStatus(false);
       showActionNotice(t("configSaved"), "success");
     } else if (statusMessage) {
       showActionNotice(statusMessage, "error");
@@ -961,7 +1032,7 @@
   function fieldRequiresAdvancedSettings(field: string) {
     return (
       field.startsWith("audio.") && field !== "audio.input_device" ||
-      field.startsWith("ui.") ||
+      (field.startsWith("ui.") && !["ui.opacity", "ui.background_color", "ui.text_color"].includes(field)) ||
       field.startsWith("update.") ||
       field === "typing.clipboard_restore_delay_ms" ||
       field === "typing.clipboard_snapshot_max_bytes" ||
@@ -990,15 +1061,16 @@
       nextConfig.triggers.hotkey_enabled ||
       nextConfig.triggers.middle_mouse_enabled ||
       nextConfig.triggers.right_alt_enabled;
-    if (!setupStatus) return;
-    setupStatus = {
-      ...setupStatus,
+    const currentStatus = setupStatus ?? localSetupStatusFromConfig(nextConfig);
+    const nextStatus = {
+      ...currentStatus,
       missing_auth: missingAuth,
       hotkey: nextConfig.hotkey,
       paste_method: nextConfig.typing.paste_method,
       privacy_recent_context_enabled: nextConfig.context.enable_recent_context,
-      ready: !missingAuth && setupStatus.has_audio_device && anyTriggerEnabled,
+      ready: !missingAuth && currentStatus.has_audio_device && anyTriggerEnabled,
     };
+    applySetupStatus(nextStatus);
   }
   function authFieldErrors() {
     const errors: Record<string, string> = {};
@@ -1256,18 +1328,22 @@
     }
     return audioDevices.find((device) => device.is_default) ?? audioDevices[0];
   }
-  async function refreshSetupStatus() {
-    setupStatusLoading = true;
+  async function refreshSetupStatus(showLoading = true) {
+    if (showLoading || !setupStatus) setupStatusLoading = true;
     const [devicesResult, setupResult] = await Promise.all([
       safeInvoke<AudioDeviceInfo[]>("list_audio_input_devices", undefined, true),
       safeInvoke<SetupStatus>("get_setup_status", undefined, true),
     ]);
     if (devicesResult) audioDevices = devicesResult;
-    if (setupResult) setupStatus = setupResult;
+    if (setupResult) {
+      applySetupStatus(setupResult);
+    } else if (!setupStatus) {
+      setupStatus = localSetupStatusFromConfig(config, devicesResult ?? audioDevices);
+    }
     setupStatusLoading = false;
   }
   function setupStatusItems(): SetupStatusItem[] {
-    if (setupStatusLoading) {
+    if (setupStatusLoading && !setupStatus) {
       return [
         {
           label: t("setupAuthLabel"),
@@ -1306,9 +1382,8 @@
         },
       ];
     }
-    const status = setupStatus;
-    const asrStatus = currentAsrConnectionStatus();
-    const authReady = hasAuth();
+    const status = setupStatus ?? localSetupStatusFromConfig(config);
+    const asrStatus = currentAsrConnectionStatus(status);
     const micReady = status ? status.has_audio_device : audioDevices.length > 0;
     return [
       {
@@ -1325,7 +1400,7 @@
       },
       {
         label: t("setupPasteLabel"),
-        value: pasteMethodLabel(config.typing.paste_method),
+        value: pasteMethodLabel(configLoaded ? config.typing.paste_method : status.paste_method),
         ok: true,
         action: "typing",
       },
@@ -1344,13 +1419,14 @@
     ];
   }
   function setupWarningCount() {
-    if (setupStatusLoading) return 0;
+    if (setupStatusLoading && !setupStatus) return 0;
     return setupStatusItems().filter((item) => !item.ok).length;
   }
   function setupIsReady() {
-    if (setupStatusLoading) return false;
-    const baseReady = setupStatus?.ready ?? setupStatusItems().every((item) => item.ok);
-    return baseReady && currentAsrConnectionStatus() !== "tested_failed";
+    if (setupStatusLoading && !setupStatus) return false;
+    const status = setupStatus ?? localSetupStatusFromConfig(config);
+    const baseReady = status.ready;
+    return baseReady && currentAsrConnectionStatus(status) !== "tested_failed";
   }
   function setupActionText(action: string) {
     if (action === "asr_auth") return t("setupActionAsr");
@@ -1388,8 +1464,9 @@
       model_name: configValue.request.model_name,
     });
   }
-  function currentAsrConnectionStatus(): AsrConnectionStatus {
-    if (!hasAuth()) return "missing_auth";
+  function currentAsrConnectionStatus(status: SetupStatus | null = null): AsrConnectionStatus {
+    const authReady = status ? !status.missing_auth : hasAuth();
+    if (!authReady) return "missing_auth";
     if (testingAsr) return "testing";
     const currentFingerprint = asrConfigFingerprint();
     if (
@@ -1419,13 +1496,15 @@
   }
   function micStatusText() {
     const device = currentAudioDevice();
-    if (!device) return t("micUnavailable");
+    if (!device) return !configLoaded && setupStatus?.has_audio_device ? t("setupMicDetected") : t("micUnavailable");
     return recording
       ? t("micMonitoring", { device: device.name })
       : t("micConnected", { device: device.name });
   }
   function sidebarMicStatusText() {
-    return currentAudioDevice() ? t("sidebarMicConnected") : t("sidebarMicUnavailable");
+    return currentAudioDevice() || (!configLoaded && setupStatus?.has_audio_device)
+      ? t("sidebarMicConnected")
+      : t("sidebarMicUnavailable");
   }
   function usageTipText() {
     if (stats.recent_7d.session_count <= 0) return t("usageTipEmpty");
@@ -1694,6 +1773,18 @@
     return Math.min(1, Math.max(0.05, value));
   }
 
+  function overlayOpacityLabel(value: number) {
+    return `${Math.round(value * 100)}%`;
+  }
+
+  function applyOverlayOpacity(value: number) {
+    config.ui.opacity = value;
+  }
+
+  function overlayOpacityPresetActive(value: number) {
+    return Math.abs(overlayOpacity() - value) < 0.001;
+  }
+
   function applyOverlayPreset(background: string, text: string) {
     config.ui.background_color = background;
     config.ui.text_color = text;
@@ -1779,11 +1870,19 @@
   function hasAuth(configValue = config) {
     return Boolean(configValue.auth.app_key.trim() && configValue.auth.access_key.trim());
   }
-  function requiresAsrAuth(configValue = config, exists = configExists) {
-    return !exists || !hasAuth(configValue);
+  function requiresAsrAuth(configValue?: AppConfig, exists?: boolean) {
+    if (configValue === undefined && exists === undefined && !configLoaded) {
+      return setupStatus ? setupStatus.missing_auth : false;
+    }
+    const targetConfig = configValue ?? config;
+    const targetExists = exists ?? configExists;
+    return !targetExists || !hasAuth(targetConfig);
   }
   function authGateMessage() {
     return !configExists ? t("setupMissingFile") : t("authGateNotice");
+  }
+  function setupRequiredMessage() {
+    return !configExists ? t("setupMissingFile") : t("setupMissingAuth");
   }
   function scrollToSettingsPanel(targetId: string) {
     if (!browser) return;
@@ -1987,7 +2086,7 @@
 
   <section
     class:overview-content={selectedSection === "Home"}
-    class:setup-required={!configExists || !hasAuth()}
+    class:setup-required={requiresAsrAuth()}
     class="content"
   >
     <header class="topbar">
@@ -2002,11 +2101,11 @@
         <div class="section-title-row">
           <h3>{t("voiceInputTitle")}</h3>
         </div>
-        {#if !configExists || !hasAuth()}
+        {#if requiresAsrAuth()}
           <div class="setup-alert">
             <div>
               <strong>{t("setupRequired")}</strong>
-              <p>{!configExists ? t("setupMissingFile") : t("setupMissingAuth")}</p>
+              <p>{setupRequiredMessage()}</p>
             </div>
             <div class="setup-actions">
               <button onclick={openSettings}>{t("setupCta")}</button>
@@ -2230,9 +2329,9 @@
         />
         <SetupStatusCard
           ready={setupIsReady()}
-          checking={setupStatusLoading}
+          checking={setupStatusLoading && !setupStatus}
           items={setupStatusItems()}
-          warnings={setupStatusLoading ? [] : setupStatus?.warnings ?? []}
+          warnings={setupStatus?.warnings ?? []}
           texts={{
             title: t("setupHealthTitle"),
             pendingTitle: t("setupHealthPendingTitle", { count: String(setupWarningCount()) }),
@@ -2265,8 +2364,8 @@
             <div class="section-heading with-actions">
               <div class="section-heading-copy">
                 <h3>{t("doubaoAuth")}</h3>
-                {#if !configExists || !hasAuth()}
-                  <p class="setup-note">{!configExists ? t("setupMissingFile") : t("setupMissingAuth")}</p>
+                {#if requiresAsrAuth()}
+                  <p class="setup-note">{setupRequiredMessage()}</p>
                   <button class="link-button" onclick={openSetupGuide}>{t("setupGuideCta")}</button>
                 {/if}
               </div>
@@ -2456,6 +2555,85 @@
             {/if}
             <p class="field-hint">{t("triggerConflictHint")}</p>
           </div>
+          <div id="settings-overlay" class="form-panel">
+            <div class="section-heading"><h3>{t("floatingCaptionAppearance")}</h3><p>{t("floatingCaptionAppearanceDescription")}</p></div>
+            <div class="caption-theme-panel">
+              <div class="caption-theme-head">
+                <div>
+                  <strong>{t("captionColors")}</strong>
+                  <span>{t("captionColorsDescription")}</span>
+                </div>
+                <div class="caption-preview" style={`--preview-bg-rgb: ${overlayBackgroundRgb()}; --preview-opacity: ${overlayOpacity()}; --preview-text: ${overlayTextColor()};`}>
+                  {t("captionPreviewText")}
+                </div>
+              </div>
+              <div class="preset-row">
+                {#each overlayColorPresets as preset}
+                  <button
+                    type="button"
+                    class:active={overlayPresetActive(preset.background, preset.text)}
+                    aria-pressed={overlayPresetActive(preset.background, preset.text)}
+                    onclick={() => applyOverlayPreset(preset.background, preset.text)}
+                  >
+                    <span class="preset-swatch" style={`--preset-bg: ${preset.background}; --preset-text: ${preset.text};`}>Aa</span>
+                    <span>{t(preset.label)}</span>
+                  </button>
+                {/each}
+              </div>
+              <div class="caption-opacity-row" class:field-invalid={Boolean(fieldError("ui.opacity"))}>
+                <div>
+                  <strong>{t("captionOpacity")}</strong>
+                  <span>{t("captionOpacityDescription")}</span>
+                </div>
+                <div class="preset-row opacity-preset-row">
+                  {#each overlayOpacityPresets as opacity}
+                    <button
+                      type="button"
+                      class:active={overlayOpacityPresetActive(opacity)}
+                      aria-pressed={overlayOpacityPresetActive(opacity)}
+                      onclick={() => applyOverlayOpacity(opacity)}
+                    >
+                      {overlayOpacityLabel(opacity)}
+                    </button>
+                  {/each}
+                </div>
+                {#if fieldError("ui.opacity")}<small class="field-error">{fieldError("ui.opacity")}</small>{/if}
+              </div>
+              <div class="form-grid color-grid">
+                <label class="color-field" class:field-invalid={Boolean(fieldError("ui.background_color"))}>
+                  <span>{t("captionBackgroundColor")}</span>
+                  <input type="color" value={overlayBackgroundColor()} oninput={(event) => (config.ui.background_color = event.currentTarget.value)} />
+                  {#if fieldError("ui.background_color")}<small class="field-error">{fieldError("ui.background_color")}</small>{/if}
+                </label>
+                <label class="color-field" class:field-invalid={Boolean(fieldError("ui.text_color"))}>
+                  <span>{t("captionTextColor")}</span>
+                  <input type="color" value={overlayTextColor()} oninput={(event) => (config.ui.text_color = event.currentTarget.value)} />
+                  {#if fieldError("ui.text_color")}<small class="field-error">{fieldError("ui.text_color")}</small>{/if}
+                </label>
+              </div>
+            </div>
+            {#if showAdvancedSettings}
+              <div class="form-grid">
+                <label class:field-invalid={Boolean(fieldError("ui.width"))}>
+                  <span>{t("width")}</span>
+                  <input type="number" bind:value={config.ui.width} />
+                  {#if fieldError("ui.width")}<small class="field-error">{fieldError("ui.width")}</small>{/if}
+                </label>
+                <label class:field-invalid={Boolean(fieldError("ui.height"))}>
+                  <span>{t("height")}</span>
+                  <input type="number" bind:value={config.ui.height} />
+                  {#if fieldError("ui.height")}<small class="field-error">{fieldError("ui.height")}</small>{/if}
+                </label>
+                <label><span>{t("marginBottom")}</span><input type="number" bind:value={config.ui.margin_bottom} /></label>
+                <label><span>{t("scrollInterval")}</span><input type="number" bind:value={config.ui.scroll_interval_ms} /></label>
+                <label><span>{t("startupTimeout")}</span><input type="number" bind:value={config.tray.startup_message_timeout_ms} /></label>
+              </div>
+              <div class="toggle-grid">
+                <label class="check"><input type="checkbox" bind:checked={config.tray.show_startup_message} />{t("showStartupMessage")}</label>
+              </div>
+              <p class="field-hint">{t("closeBehaviorHint")}</p>
+            {/if}
+          </div>
           <div id="settings-audio" class="form-panel">
             <div class="section-heading"><h3>{t("recordingParams")}</h3><p>{t("audioDescription")}</p></div>
             <div class="form-grid">
@@ -2506,71 +2684,6 @@
             <p class="field-hint">{t("muteSystemAudioHint")}</p>
             {/if}
           </div>
-          {#if showAdvancedSettings}
-          <div id="settings-overlay" class="form-panel">
-            <div class="section-heading"><h3>{t("floatingCaptionAndTray")}</h3><p>{t("interfaceDescription")}</p></div>
-            <div class="form-grid">
-              <label class:field-invalid={Boolean(fieldError("ui.width"))}>
-                <span>{t("width")}</span>
-                <input type="number" bind:value={config.ui.width} />
-                {#if fieldError("ui.width")}<small class="field-error">{fieldError("ui.width")}</small>{/if}
-              </label>
-              <label class:field-invalid={Boolean(fieldError("ui.height"))}>
-                <span>{t("height")}</span>
-                <input type="number" bind:value={config.ui.height} />
-                {#if fieldError("ui.height")}<small class="field-error">{fieldError("ui.height")}</small>{/if}
-              </label>
-              <label><span>{t("marginBottom")}</span><input type="number" bind:value={config.ui.margin_bottom} /></label>
-              <label class:field-invalid={Boolean(fieldError("ui.opacity"))}>
-                <span>{t("opacity")}</span>
-                <input type="number" step="0.05" bind:value={config.ui.opacity} />
-                {#if fieldError("ui.opacity")}<small class="field-error">{fieldError("ui.opacity")}</small>{/if}
-              </label>
-              <label><span>{t("scrollInterval")}</span><input type="number" bind:value={config.ui.scroll_interval_ms} /></label>
-              <label><span>{t("startupTimeout")}</span><input type="number" bind:value={config.tray.startup_message_timeout_ms} /></label>
-            </div>
-            <div class="caption-theme-panel">
-              <div class="caption-theme-head">
-                <div>
-                  <strong>{t("captionColors")}</strong>
-                  <span>{t("captionColorsDescription")}</span>
-                </div>
-                <div class="caption-preview" style={`--preview-bg: ${overlayBackgroundColor()}; --preview-text: ${overlayTextColor()};`}>
-                  {t("captionPreviewText")}
-                </div>
-              </div>
-              <div class="preset-row">
-                {#each overlayColorPresets as preset}
-                  <button
-                    type="button"
-                    class:active={overlayPresetActive(preset.background, preset.text)}
-                    aria-pressed={overlayPresetActive(preset.background, preset.text)}
-                    onclick={() => applyOverlayPreset(preset.background, preset.text)}
-                  >
-                    <span class="preset-swatch" style={`--preset-bg: ${preset.background}; --preset-text: ${preset.text};`}>Aa</span>
-                    <span>{t(preset.label)}</span>
-                  </button>
-                {/each}
-              </div>
-              <div class="form-grid color-grid">
-                <label class="color-field" class:field-invalid={Boolean(fieldError("ui.background_color"))}>
-                  <span>{t("captionBackgroundColor")}</span>
-                  <input type="color" value={overlayBackgroundColor()} oninput={(event) => (config.ui.background_color = event.currentTarget.value)} />
-                  {#if fieldError("ui.background_color")}<small class="field-error">{fieldError("ui.background_color")}</small>{/if}
-                </label>
-                <label class="color-field" class:field-invalid={Boolean(fieldError("ui.text_color"))}>
-                  <span>{t("captionTextColor")}</span>
-                  <input type="color" value={overlayTextColor()} oninput={(event) => (config.ui.text_color = event.currentTarget.value)} />
-                  {#if fieldError("ui.text_color")}<small class="field-error">{fieldError("ui.text_color")}</small>{/if}
-                </label>
-              </div>
-            </div>
-            <div class="toggle-grid">
-              <label class="check"><input type="checkbox" bind:checked={config.tray.show_startup_message} />{t("showStartupMessage")}</label>
-            </div>
-            <p class="field-hint">{t("closeBehaviorHint")}</p>
-          </div>
-          {/if}
           {#if showAdvancedSettings}
           <div id="settings-update" class="form-panel update-panel">
             <div class="section-heading"><h3>{t("softwareUpdate")}</h3><p>{t("softwareUpdateDescription")}</p></div>
@@ -3931,7 +4044,7 @@
     padding: 0 14px;
     overflow: hidden;
     color: var(--preview-text);
-    background: var(--preview-bg);
+    background: rgba(var(--preview-bg-rgb), var(--preview-opacity));
     border-radius: 10px;
     font-size: 14px;
     font-weight: 700;
@@ -3979,6 +4092,34 @@
     border-radius: 8px;
     font-size: 12px;
     font-weight: 800;
+  }
+  .caption-opacity-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(220px, 0.8fr);
+    align-items: center;
+    gap: 12px;
+  }
+  .caption-opacity-row > div:first-child {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+  }
+  .caption-opacity-row strong {
+    color: var(--text-main);
+    font-size: 14px;
+    font-weight: 800;
+  }
+  .caption-opacity-row span {
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.45;
+  }
+  .opacity-preset-row {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  .opacity-preset-row button {
+    justify-content: center;
+    padding: 6px 8px;
   }
   .color-field input[type="color"] {
     height: 38px;
