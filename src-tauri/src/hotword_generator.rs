@@ -127,10 +127,9 @@ fn chat_body(
 async fn handle_generation_response(response: reqwest::Response) -> Result<String, String> {
     if !response.status().is_success() {
         let status = response.status();
-        let body = response.text().await.unwrap_or_default();
         return Err(friendly_generation_error(&format!(
-            "LLM 返回状态码: {}; {}",
-            status, body
+            "LLM 返回状态码: {}",
+            status
         )));
     }
     let value: Value = response
@@ -456,8 +455,8 @@ fn hotword_user_prompt(
 #[cfg(test)]
 mod tests {
     use super::{
-        filter_candidates, is_valid_hotword, parse_candidates, redact_sensitive_text,
-        HotwordCandidate,
+        filter_candidates, friendly_generation_error, is_valid_hotword, parse_candidates,
+        redact_sensitive_text, HotwordCandidate,
     };
     use crate::config::AppConfig;
 
@@ -524,5 +523,15 @@ mod tests {
         assert!(!redacted.contains("https://example.com"));
         assert!(!redacted.contains("13800138000"));
         assert!(!redacted.contains("api_key_example_value"));
+    }
+
+    #[test]
+    fn friendly_error_does_not_echo_raw_service_body() {
+        let message =
+            friendly_generation_error("LLM 返回状态码: 400; api_key_example_value password token");
+
+        assert!(!message.contains("api_key_example_value"));
+        assert!(!message.contains("password"));
+        assert!(!message.contains("token"));
     }
 }

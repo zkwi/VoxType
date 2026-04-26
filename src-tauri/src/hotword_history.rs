@@ -9,7 +9,6 @@ const MAX_ENTRY_CHARS: usize = 2_000;
 #[derive(Debug, Clone, Serialize)]
 pub struct AutoHotwordStatus {
     pub enabled: bool,
-    pub path: String,
     pub entry_count: usize,
     pub total_chars: usize,
     pub max_history_chars: usize,
@@ -81,7 +80,6 @@ fn status_at(config_path: &Path, config: &AppConfig) -> AutoHotwordStatus {
     let entries = load_entries_from_path(&path);
     AutoHotwordStatus {
         enabled: config.auto_hotwords.enabled,
-        path: path.display().to_string(),
         entry_count: entries.len(),
         total_chars: entries.iter().map(|entry| entry.text.chars().count()).sum(),
         max_history_chars: config.auto_hotwords.max_history_chars,
@@ -193,39 +191,61 @@ mod tests {
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    fn temp_config_path(name: &str) -> PathBuf {
-        let suffix = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let dir = std::env::temp_dir().join(format!(
-            "voxtype_hotword_history_{}_{}_{}",
-            name,
-            std::process::id(),
-            suffix
-        ));
-        std::fs::create_dir_all(&dir).unwrap();
-        dir.join("config.toml")
+    struct TempConfigPath {
+        path: PathBuf,
+    }
+
+    impl TempConfigPath {
+        fn new(name: &str) -> Self {
+            let suffix = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let dir = std::env::temp_dir().join(format!(
+                "voxtype_hotword_history_{}_{}_{}",
+                name,
+                std::process::id(),
+                suffix
+            ));
+            std::fs::create_dir_all(&dir).unwrap();
+            Self {
+                path: dir.join("config.toml"),
+            }
+        }
+
+        fn path(&self) -> &PathBuf {
+            &self.path
+        }
+    }
+
+    impl Drop for TempConfigPath {
+        fn drop(&mut self) {
+            if let Some(parent) = self.path.parent() {
+                let _ = std::fs::remove_dir_all(parent);
+            }
+        }
     }
 
     #[test]
     fn disabled_config_does_not_create_history_file() {
-        let config_path = temp_config_path("disabled");
+        let fixture = TempConfigPath::new("disabled");
+        let config_path = fixture.path();
         let config = AppConfig::default();
 
-        append_transcript_with_config(&config_path, &config, "VoxType 测试文本").unwrap();
+        append_transcript_with_config(config_path, &config, "VoxType 测试文本").unwrap();
 
-        assert!(!history_path_for_config(&config_path).exists());
+        assert!(!history_path_for_config(config_path).exists());
     }
 
     #[test]
     fn enabled_config_writes_history_file() {
-        let config_path = temp_config_path("enabled");
+        let fixture = TempConfigPath::new("enabled");
+        let config_path = fixture.path();
         let mut config = AppConfig::default();
         config.auto_hotwords.enabled = true;
 
-        append_transcript_with_config(&config_path, &config, "  VoxType   自动 热词  ").unwrap();
-        let path = history_path_for_config(&config_path);
+        append_transcript_with_config(config_path, &config, "  VoxType   自动 热词  ").unwrap();
+        let path = history_path_for_config(config_path);
         let text = std::fs::read_to_string(path).unwrap();
 
         assert!(text.contains("VoxType 自动 热词"));
@@ -233,14 +253,15 @@ mod tests {
 
     #[test]
     fn history_is_trimmed_to_max_chars() {
-        let config_path = temp_config_path("trim");
+        let fixture = TempConfigPath::new("trim");
+        let config_path = fixture.path();
         let mut config = AppConfig::default();
         config.auto_hotwords.enabled = true;
         config.auto_hotwords.max_history_chars = 10;
 
-        append_transcript_with_config(&config_path, &config, "一二三四五六").unwrap();
-        append_transcript_with_config(&config_path, &config, "七八九十十一").unwrap();
-        let text = load_recent_text_from_path(&history_path_for_config(&config_path), 10);
+        append_transcript_with_config(config_path, &config, "一二三四五六").unwrap();
+        append_transcript_with_config(config_path, &config, "七八九十十一").unwrap();
+        let text = load_recent_text_from_path(&history_path_for_config(config_path), 10);
 
         assert!(text.replace('\n', "").chars().count() <= 10);
         assert!(text.contains("七八九十"));
@@ -248,12 +269,13 @@ mod tests {
 
     #[test]
     fn clear_history_removes_file() {
-        let config_path = temp_config_path("clear");
+        let fixture = TempConfigPath::new("clear");
+        let config_path = fixture.path();
         let mut config = AppConfig::default();
         config.auto_hotwords.enabled = true;
 
-        append_transcript_with_config(&config_path, &config, "VoxType").unwrap();
-        let path = history_path_for_config(&config_path);
+        append_transcript_with_config(config_path, &config, "VoxType").unwrap();
+        let path = history_path_for_config(config_path);
         assert!(path.exists());
 
         clear_history_at(&path).unwrap();
@@ -262,16 +284,16 @@ mod tests {
 
     #[test]
     fn status_reports_counts_without_text() {
-        let config_path = temp_config_path("status");
+        let fixture = TempConfigPath::new("status");
+        let config_path = fixture.path();
         let mut config = AppConfig::default();
         config.auto_hotwords.enabled = true;
 
-        append_transcript_with_config(&config_path, &config, "VoxType").unwrap();
-        let status = status_at(&config_path, &config);
+        append_transcript_with_config(config_path, &config, "VoxType").unwrap();
+        let status = status_at(config_path, &config);
 
         assert!(status.enabled);
         assert_eq!(status.entry_count, 1);
         assert_eq!(status.total_chars, 7);
-        assert!(status.path.ends_with("hotword_history.jsonl"));
     }
 }

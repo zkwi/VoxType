@@ -94,7 +94,6 @@
   };
   type AutoHotwordStatus = {
     enabled: boolean;
-    path: string;
     entry_count: number;
     total_chars: number;
     max_history_chars: number;
