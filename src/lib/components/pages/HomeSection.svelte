@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { AppConfig, LastSessionOutcome, StatsSnapshot, TriggerKey, UserErrorAction } from "$lib/types/app";
+  import type { AppConfig, StatsSnapshot, TriggerKey, UserErrorAction } from "$lib/types/app";
   import type { CopyKey, UserErrorDetail } from "$lib/i18n";
   import {
     CalendarDays,
@@ -32,7 +32,6 @@
     setupRequiredMessage: string;
     activeErrorDetail: UserErrorDetail | null;
     activeErrorActions: UserErrorAction[];
-    lastSessionOutcome: LastSessionOutcome;
     sessionBusy: boolean;
     snapshotHotkey: string;
     chineseTypingCharsPerMinute: number;
@@ -65,7 +64,6 @@
     setupRequiredMessage,
     activeErrorDetail,
     activeErrorActions,
-    lastSessionOutcome,
     sessionBusy,
     snapshotHotkey,
     chineseTypingCharsPerMinute,
@@ -84,18 +82,6 @@
     onToggleTrigger,
   }: Props = $props();
 
-  const outcomePreviewLimit = 500;
-  let lastOutcomeExpanded = $state(false);
-  let lastOutcomeCreatedAt = $state<number | null>(null);
-
-  $effect(() => {
-    const createdAt = lastSessionOutcome?.createdAt ?? null;
-    if (createdAt !== lastOutcomeCreatedAt) {
-      lastOutcomeCreatedAt = createdAt;
-      lastOutcomeExpanded = false;
-    }
-  });
-
   function actionLabel(action: UserErrorAction) {
     switch (action) {
       case "retry_recording":
@@ -113,9 +99,6 @@
     }
   }
 
-  function outcomeTextPreview(text: string) {
-    return text.length > outcomePreviewLimit ? text.slice(0, outcomePreviewLimit) : text;
-  }
 </script>
 
 <section class="voice-card">
@@ -176,106 +159,83 @@
     </button>
   </div>
 </section>
-{#if lastSessionOutcome?.kind === "success"}
-  <section class="last-outcome-card">
-    <div class="last-outcome-copy">
-      <strong>{t("lastOutcomeSuccessTitle")}</strong>
-      <p>{t("lastOutcomeSuccessDescription")}</p>
-      {#if lastSessionOutcome.warning}
-        <p class="last-outcome-warning">
-          <span>{t("lastOutcomeWarningLabel")}：</span>{lastSessionOutcome.warning}
-        </p>
-      {/if}
-      <p class="last-outcome-memory">{t("lastOutcomeTextMemoryHint")}</p>
-    </div>
-    <button type="button" class="link-action compact" onclick={() => (lastOutcomeExpanded = !lastOutcomeExpanded)}>
-      {lastOutcomeExpanded ? t("lastOutcomeHideText") : t("lastOutcomeViewText")}
-    </button>
-    {#if lastOutcomeExpanded}
-      <div class="last-outcome-text">
-        <p>{outcomeTextPreview(lastSessionOutcome.text)}</p>
-        {#if lastSessionOutcome.text.length > outcomePreviewLimit}
-          <small>{t("lastOutcomeTextTruncated")}</small>
-        {/if}
+<div class="home-secondary-grid">
+  <section class="launch-card">
+    <div class="section-title-row">
+      <div>
+        <Keyboard size={20} />
+        <h3>{t("desktopControl")}</h3>
       </div>
-    {/if}
+      <button class="link-action" type="button" onclick={() => onSelectSection("Options")}>
+        {t("shortcutSettings")} <ChevronRight size={16} />
+      </button>
+    </div>
+    <div class="trigger-grid">
+      <label class:active={config.triggers.hotkey_enabled} class:disabled={saving} class="trigger-item">
+        <input class="trigger-input" type="checkbox" checked={config.triggers.hotkey_enabled} disabled={saving} onchange={() => onToggleTrigger("hotkey_enabled")} />
+        <span class="trigger-check">
+          {#if config.triggers.hotkey_enabled}<Check size={uiCompact ? 18 : 24} />{/if}
+        </span>
+        <div>
+          <strong>{formatHotkey(snapshotHotkey)}</strong>
+          <p>{config.triggers.hotkey_enabled ? t("mainHotkey") : t("disabled")}</p>
+        </div>
+      </label>
+      <label class:active={config.triggers.middle_mouse_enabled} class:disabled={saving} class="trigger-item">
+        <input class="trigger-input" type="checkbox" checked={config.triggers.middle_mouse_enabled} disabled={saving} onchange={() => onToggleTrigger("middle_mouse_enabled")} />
+        <span class="trigger-check">
+          {#if config.triggers.middle_mouse_enabled}<Check size={uiCompact ? 18 : 24} />{/if}
+        </span>
+        <div>
+          <strong>{t("middleMouse")}</strong>
+          <p>{triggerLabel(config.triggers.middle_mouse_enabled)}</p>
+        </div>
+      </label>
+      <label class:active={config.triggers.right_alt_enabled} class:disabled={saving} class="trigger-item">
+        <input class="trigger-input" type="checkbox" checked={config.triggers.right_alt_enabled} disabled={saving} onchange={() => onToggleTrigger("right_alt_enabled")} />
+        <span class="trigger-check">
+          {#if config.triggers.right_alt_enabled}<Check size={uiCompact ? 18 : 24} />{/if}
+        </span>
+        <div>
+          <strong>{t("rightAlt")}</strong>
+          <p>{triggerLabel(config.triggers.right_alt_enabled)}</p>
+        </div>
+      </label>
+    </div>
   </section>
-{/if}
-<section class="launch-card">
-  <div class="section-title-row">
-    <div>
-      <Keyboard size={20} />
-      <h3>{t("desktopControl")}</h3>
+  <section class="performance-card">
+    <div class="section-title-row">
+      <h3>{t("recentUsage")}</h3>
     </div>
-    <button class="link-action" type="button" onclick={() => onSelectSection("Options")}>
-      {t("shortcutSettings")} <ChevronRight size={16} />
-    </button>
-  </div>
-  <div class="trigger-grid">
-    <label class:active={config.triggers.hotkey_enabled} class:disabled={saving} class="trigger-item">
-      <input class="trigger-input" type="checkbox" checked={config.triggers.hotkey_enabled} disabled={saving} onchange={() => onToggleTrigger("hotkey_enabled")} />
-      <span class="trigger-check">
-        {#if config.triggers.hotkey_enabled}<Check size={uiCompact ? 18 : 24} />{/if}
-      </span>
-      <div>
-        <strong>{formatHotkey(snapshotHotkey)}</strong>
-        <p>{config.triggers.hotkey_enabled ? t("mainHotkey") : t("disabled")}</p>
-      </div>
-    </label>
-    <label class:active={config.triggers.middle_mouse_enabled} class:disabled={saving} class="trigger-item">
-      <input class="trigger-input" type="checkbox" checked={config.triggers.middle_mouse_enabled} disabled={saving} onchange={() => onToggleTrigger("middle_mouse_enabled")} />
-      <span class="trigger-check">
-        {#if config.triggers.middle_mouse_enabled}<Check size={uiCompact ? 18 : 24} />{/if}
-      </span>
-      <div>
-        <strong>{t("middleMouse")}</strong>
-        <p>{triggerLabel(config.triggers.middle_mouse_enabled)}</p>
-      </div>
-    </label>
-    <label class:active={config.triggers.right_alt_enabled} class:disabled={saving} class="trigger-item">
-      <input class="trigger-input" type="checkbox" checked={config.triggers.right_alt_enabled} disabled={saving} onchange={() => onToggleTrigger("right_alt_enabled")} />
-      <span class="trigger-check">
-        {#if config.triggers.right_alt_enabled}<Check size={uiCompact ? 18 : 24} />{/if}
-      </span>
-      <div>
-        <strong>{t("rightAlt")}</strong>
-        <p>{triggerLabel(config.triggers.right_alt_enabled)}</p>
-      </div>
-    </label>
-  </div>
-</section>
-<section class="performance-card">
-  <div class="section-title-row">
-    <h3>{t("recentUsage")}</h3>
-  </div>
-  <div class="stats-row" aria-label="Usage summary">
-    <article class="stat-card blue">
-      <span class="stat-icon"><PenLine size={uiCompact ? 16 : 20} /></span>
-      <p>{t("todayInput")}</p>
-      <strong>{formatNumber(stats.recent_24h.total_chars)} {t("chars")}</strong>
-      <small>{t("savedToday", { hours: formatHours(stats.recent_24h.total_chars / chineseTypingCharsPerMinute / 60).replace(" h", "") })}</small>
-    </article>
-    <article class="stat-card purple">
-      <span class="stat-icon"><CalendarDays size={uiCompact ? 16 : 20} /></span>
-      <p>{t("recent7d")}</p>
-      <strong>{formatNumber(stats.recent_7d.total_chars)} {t("chars")}</strong>
-      <small>{t("savedToday", { hours: formatHours(stats.recent_7d.total_chars / chineseTypingCharsPerMinute / 60).replace(" h", "") })}</small>
-    </article>
-    <article class="stat-card green">
-      <span class="stat-icon"><Zap size={uiCompact ? 16 : 20} /></span>
-      <p>{t("inputSpeed")}</p>
-      <strong>{stats.recent_7d.avg_chars_per_minute.toFixed(0)} {t("perMinute")}</strong>
-      <small>{t("avgCpm")}</small>
-    </article>
-    <article class="stat-card orange">
-      <span class="stat-icon"><Clock3 size={uiCompact ? 16 : 20} /></span>
-      <p>{t("savedTime")}</p>
-      <strong>{formatSavedHours(weeklySavedHours())}</strong>
-      <small>{t("weeklySavedShort")}</small>
-    </article>
-  </div>
-  <p class="usage-tip"><Sparkles size={15} />{usageTipText()}</p>
-</section>
+    <div class="stats-row" aria-label="Usage summary">
+      <article class="stat-card blue">
+        <span class="stat-icon"><PenLine size={uiCompact ? 16 : 20} /></span>
+        <p>{t("todayInput")}</p>
+        <strong>{formatNumber(stats.recent_24h.total_chars)} {t("chars")}</strong>
+        <small>{t("savedToday", { hours: formatHours(stats.recent_24h.total_chars / chineseTypingCharsPerMinute / 60).replace(" h", "") })}</small>
+      </article>
+      <article class="stat-card purple">
+        <span class="stat-icon"><CalendarDays size={uiCompact ? 16 : 20} /></span>
+        <p>{t("recent7d")}</p>
+        <strong>{formatNumber(stats.recent_7d.total_chars)} {t("chars")}</strong>
+        <small>{t("savedToday", { hours: formatHours(stats.recent_7d.total_chars / chineseTypingCharsPerMinute / 60).replace(" h", "") })}</small>
+      </article>
+      <article class="stat-card green">
+        <span class="stat-icon"><Zap size={uiCompact ? 16 : 20} /></span>
+        <p>{t("inputSpeed")}</p>
+        <strong>{stats.recent_7d.avg_chars_per_minute.toFixed(0)} {t("perMinute")}</strong>
+        <small>{t("avgCpm")}</small>
+      </article>
+      <article class="stat-card orange">
+        <span class="stat-icon"><Clock3 size={uiCompact ? 16 : 20} /></span>
+        <p>{t("savedTime")}</p>
+        <strong>{formatSavedHours(weeklySavedHours())}</strong>
+        <small>{t("weeklySavedShort")}</small>
+      </article>
+    </div>
+    <p class="usage-tip"><Sparkles size={15} />{usageTipText()}</p>
+  </section>
+</div>
 
 <style>
   .voice-card,
@@ -293,6 +253,13 @@
   .launch-card,
   .performance-card {
     margin-top: 0;
+  }
+
+  .home-secondary-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr);
+    gap: 14px;
+    min-width: 0;
   }
 
   .section-title-row {
@@ -415,78 +382,6 @@
     opacity: 0.55;
   }
 
-  .last-outcome-card {
-    display: grid;
-    gap: 10px;
-    min-width: 0;
-    padding: 14px;
-    overflow: hidden;
-    background: #f7fffb;
-    border: 1px solid rgba(16, 185, 129, 0.24);
-    border-radius: 16px;
-    box-shadow: var(--shadow-card);
-  }
-
-  .last-outcome-copy {
-    display: grid;
-    gap: 4px;
-    min-width: 0;
-  }
-
-  .last-outcome-copy strong {
-    color: var(--text-main);
-    font-size: 15px;
-    font-weight: 800;
-  }
-
-  .last-outcome-copy p {
-    margin: 0;
-    color: var(--text-secondary);
-    font-size: 13px;
-    line-height: 1.45;
-    overflow-wrap: anywhere;
-  }
-
-  .last-outcome-warning {
-    color: #92400e !important;
-  }
-
-  .last-outcome-warning span {
-    font-weight: 800;
-  }
-
-  .last-outcome-memory {
-    color: var(--text-muted) !important;
-  }
-
-  .link-action.compact {
-    justify-self: start;
-  }
-
-  .last-outcome-text {
-    display: grid;
-    gap: 6px;
-    min-width: 0;
-    padding: 10px 12px;
-    background: #ffffff;
-    border: 1px solid var(--border);
-    border-radius: 12px;
-  }
-
-  .last-outcome-text p {
-    margin: 0;
-    color: var(--text-main);
-    font-size: 13px;
-    line-height: 1.55;
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-  }
-
-  .last-outcome-text small {
-    color: var(--text-secondary);
-    font-size: 12px;
-  }
-
   .voice-hero {
     position: relative;
     display: grid;
@@ -605,31 +500,41 @@
   }
 
   .voice-copy p {
+    display: -webkit-box;
     max-width: 100%;
     margin: 0;
+    overflow: hidden;
     color: rgba(255, 255, 255, 0.88);
     font-size: 14px;
     line-height: 1.45;
     overflow-wrap: anywhere;
+    line-clamp: 2;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
   }
 
   .hero-features {
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     gap: 10px;
     margin-top: 14px;
+    overflow: hidden;
   }
 
   .hero-features span {
     display: inline-flex;
     align-items: center;
     gap: 6px;
+    min-width: 0;
     min-height: 30px;
     padding: 0 10px;
+    overflow: hidden;
     background: rgba(255, 255, 255, 0.16);
     border-radius: 999px;
     font-size: 12px;
     font-weight: 700;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .shortcut-help {
@@ -678,7 +583,7 @@
   .stats-row {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 10px;
+    gap: 8px;
   }
 
   .trigger-item,
@@ -696,8 +601,8 @@
   .trigger-item {
     grid-template-columns: 30px minmax(0, 1fr);
     align-items: center;
-    gap: 10px;
-    padding: 11px;
+    gap: 9px;
+    padding: 10px;
     cursor: pointer;
   }
 
@@ -760,8 +665,8 @@
   .stat-card {
     gap: 2px;
     align-content: start;
-    min-height: 88px;
-    padding: 10px 10px 9px;
+    min-height: 82px;
+    padding: 9px;
   }
 
   .stat-icon {
@@ -859,7 +764,7 @@
 
   :global(.ui-compact) .trigger-grid,
   :global(.ui-compact) .stats-row {
-    gap: 8px;
+    gap: 7px;
   }
 
   :global(.ui-compact) .trigger-item {
@@ -888,6 +793,10 @@
   }
 
   @media (max-width: 920px) {
+    .home-secondary-grid {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
     .trigger-grid,
     .stats-row,
     :global(.ui-compact) .trigger-grid,

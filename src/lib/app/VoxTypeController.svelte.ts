@@ -99,7 +99,6 @@ import type {
   ConfigSaveError,
   ConfigValidationError,
   ConnectionTestResult,
-  LastSessionOutcome,
   LoadedConfig,
   OverlayConfig,
   OverlayText,
@@ -124,7 +123,6 @@ export function createVoxTypeController() {
   let recording = $state(false);
   let sessionPhase = $state<SessionPhase>("idle");
   let sessionErrorCode = $state<string | null>(null);
-  let lastSessionOutcome = $state<LastSessionOutcome>(null);
   let language = $state<Language>("zh-CN");
   let statusMessage = $state(copy["zh-CN"].bridgeLoading);
   let saving = $state(false);
@@ -265,13 +263,6 @@ export function createVoxTypeController() {
         if (visibleWarning) {
           showActionNotice(visibleWarning, "warning");
         }
-        lastSessionOutcome = {
-          kind: "success",
-          text: event.payload.text,
-          warning: visibleWarning,
-          warningCode: visibleWarning ? event.payload.warning_code : null,
-          createdAt: Date.now(),
-        };
         statusMessage = visibleWarning ?? t("sessionSucceeded");
         if (sessionPhase === "succeeded") scheduleSucceededIdleHint();
       });
@@ -421,7 +412,6 @@ export function createVoxTypeController() {
   async function toggleRecordingFromUi() {
     if (requireAsrAuthGate()) return;
     if (isSessionBusy()) return;
-    lastSessionOutcome = null;
     const result = await safeInvoke<SessionState>("toggle_recording");
     if (result) applySessionState(result);
   }
@@ -508,7 +498,6 @@ export function createVoxTypeController() {
     recording = state.recording;
     sessionPhase = state.phase ?? (state.recording ? "recording" : "idle");
     sessionErrorCode = state.error_code;
-    if (sessionPhase === "starting") lastSessionOutcome = null;
     if (sessionPhase !== "succeeded" && succeededIdleTimer !== undefined) {
       window.clearTimeout(succeededIdleTimer);
       succeededIdleTimer = undefined;
@@ -1069,7 +1058,6 @@ export function createVoxTypeController() {
       setupRequiredMessage,
       activeErrorDetail: activeUserErrorDetail(),
       activeErrorActions: activeUserErrorActions(),
-      lastSessionOutcome,
       sessionBusy: isSessionBusy(),
       snapshotHotkey: snapshot.hotkey,
       chineseTypingCharsPerMinute,

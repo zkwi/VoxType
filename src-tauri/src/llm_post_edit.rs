@@ -5,6 +5,8 @@ use crate::{
 use serde_json::{json, Value};
 use std::time::Duration;
 
+const LLM_CONNECTION_TEST_MAX_TOKENS: u32 = 128;
+
 pub struct PolishOutcome {
     pub text: String,
     pub warning: Option<String>,
@@ -121,7 +123,7 @@ pub async fn test_connection(config: &AppConfig) -> Result<(), String> {
             "你是配置连通性测试助手。只回复 OK。",
             "请回复 OK",
             thinking_flag(base_url, settings.enable_thinking),
-            Some(8),
+            Some(LLM_CONNECTION_TEST_MAX_TOKENS),
         ))
         .send()
         .await
@@ -141,9 +143,10 @@ pub async fn test_connection(config: &AppConfig) -> Result<(), String> {
     if let Some(error) = value.get("error") {
         return Err(friendly_llm_test_error(&format!("LLM 返回错误: {}", error)));
     }
-    let content = extract_message_content(&value);
-    if content.trim().is_empty() {
-        return Err("大模型已响应，但测试返回空内容，请检查模型名称。".to_string());
+    if !has_connection_test_output(&value) {
+        return Err(
+            "大模型已响应，但测试返回空内容；请检查模型名称，或关闭思考模式后再测试。".to_string(),
+        );
     }
     app_log::info("LLM connection test finished");
     Ok(())
@@ -246,15 +249,28 @@ fn thinking_flag(base_url: &str, enable_thinking: bool) -> Option<bool> {
 }
 
 fn extract_message_content(value: &Value) -> String {
+    extract_message_string_field(value, "content")
+}
+
+fn extract_reasoning_content(value: &Value) -> String {
+    extract_message_string_field(value, "reasoning_content")
+}
+
+fn extract_message_string_field(value: &Value, field: &str) -> String {
     value
         .get("choices")
         .and_then(Value::as_array)
         .and_then(|choices| choices.first())
         .and_then(|choice| choice.get("message"))
-        .and_then(|message| message.get("content"))
+        .and_then(|message| message.get(field))
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_string()
+}
+
+fn has_connection_test_output(value: &Value) -> bool {
+    !extract_message_content(value).trim().is_empty()
+        || !extract_reasoning_content(value).trim().is_empty()
 }
 
 fn friendly_llm_error(error: &str) -> String {
@@ -308,10 +324,12 @@ fn friendly_llm_test_error(error: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        chat_body, friendly_llm_error, friendly_llm_test_error, should_polish,
-        system_prompt_for_request, thinking_flag,
+        chat_body, extract_message_content, friendly_llm_error, friendly_llm_test_error,
+        has_connection_test_output, should_polish, system_prompt_for_request, thinking_flag,
+        LLM_CONNECTION_TEST_MAX_TOKENS,
     };
     use crate::config::AppConfig;
+    use serde_json::json;
 
     #[test]
     fn explains_common_llm_failures() {
@@ -334,6 +352,53 @@ mod tests {
         assert_eq!(
             body.get("max_tokens").and_then(|item| item.as_u64()),
             Some(8)
+        );
+    }
+
+    #[test]
+    fn connection_test_allows_reasoning_only_response() {
+        let value = json!({
+            "choices": [{
+                "message": {
+                    "reasoning_content": "先确认请求已经到达服务。",
+                    "content": ""
+                }
+            }]
+        });
+
+        assert!(has_connection_test_output(&value));
+        assert_eq!(extract_message_content(&value), "");
+    }
+
+    #[test]
+    fn connection_test_rejects_empty_assistant_message() {
+        let value = json!({
+            "choices": [{
+                "message": {
+                    "reasoning_content": "",
+                    "content": ""
+                }
+            }]
+        });
+
+        assert!(!has_connection_test_output(&value));
+    }
+
+    #[test]
+    fn connection_test_token_limit_leaves_room_for_reasoning() {
+        let body = chat_body(
+            "model",
+            "system",
+            "user",
+            Some(true),
+            Some(LLM_CONNECTION_TEST_MAX_TOKENS),
+        );
+
+        assert!(
+            body.get("max_tokens")
+                .and_then(|item| item.as_u64())
+                .unwrap_or_default()
+                >= 64
         );
     }
 

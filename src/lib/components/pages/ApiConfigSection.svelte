@@ -228,6 +228,13 @@
           {#if !hasLlmApiConfig}<small>{t("llmApiRequiredForPolishing")}</small>{/if}
         </span>
       </label>
+      <label class="check">
+        <input type="checkbox" bind:checked={config.llm_post_edit.enable_thinking} />
+        <span class="check-copy">
+          <span>{t("enableThinking")}</span>
+          <small>{t("enableThinkingHint")}</small>
+        </span>
+      </label>
       {#if llmApiConfigVisible || advancedOpen}
         <div class="form-grid">
           <label class:field-invalid={Boolean(fieldError("llm_post_edit.base_url"))}>
@@ -254,11 +261,6 @@
         <button class="test-button" type="button" onclick={onTestLlmConfig} disabled={testingLlm}>
           <ShieldCheck size={16} />{testingLlm ? t("testingConnection") : t("testConnection")}
         </button>
-      {/if}
-      {#if advancedOpen}
-        <div class="toggle-grid">
-          <label class="check"><input type="checkbox" bind:checked={config.llm_post_edit.enable_thinking} />{t("enableThinking")}</label>
-        </div>
       {/if}
     </div>
   </section>

@@ -150,11 +150,13 @@
       class:setup-required={requiresAsrAuth}
       class="content"
     >
-      <header class="topbar">
-        <div>
-          <h2>{t(navLabelKeys[selectedSection])}</h2>
-        </div>
-      </header>
+      {#if selectedSection !== "Home"}
+        <header class="topbar">
+          <div>
+            <h2>{t(navLabelKeys[selectedSection])}</h2>
+          </div>
+        </header>
+      {/if}
 
       {@render children?.()}
     </section>
