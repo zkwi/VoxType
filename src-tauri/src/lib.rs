@@ -727,23 +727,33 @@ fn redact_user_path(value: &str) -> String {
     let Ok(profile) = std::env::var("USERPROFILE") else {
         return value.to_string();
     };
+    redact_path_with_profile(value, &profile)
+}
+
+fn redact_path_with_profile(value: &str, profile: &str) -> String {
     if profile.is_empty() {
         return value.to_string();
     }
     let lower_value = value.to_ascii_lowercase();
     let lower_profile = profile.to_ascii_lowercase();
-    if lower_value.starts_with(&lower_profile) {
-        format!("%USERPROFILE%{}", &value[profile.len()..])
-    } else {
-        value.to_string()
+    if lower_value == lower_profile {
+        return "%USERPROFILE%".to_string();
     }
+    if lower_value.starts_with(&lower_profile) {
+        let suffix = &value[profile.len()..];
+        if suffix.starts_with('\\') || suffix.starts_with('/') {
+            return format!("%USERPROFILE%{}", suffix);
+        }
+    }
+    value.to_string()
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
         autostart_update_needed, build_setup_status, enabled_trigger_summary,
-        hotkey_registration_test_needed, hotkey_runtime_update_needed, AppConfig,
+        hotkey_registration_test_needed, hotkey_runtime_update_needed, redact_path_with_profile,
+        AppConfig,
     };
 
     #[test]
@@ -897,5 +907,32 @@ mod tests {
         config.triggers.right_alt_enabled = false;
 
         assert_eq!(enabled_trigger_summary(&config), "未启用");
+    }
+
+    #[test]
+    fn redacts_exact_user_profile_path() {
+        assert_eq!(
+            redact_path_with_profile("C:\\Users\\Alice", "C:\\Users\\Alice"),
+            "%USERPROFILE%"
+        );
+    }
+
+    #[test]
+    fn redacts_user_profile_child_path_case_insensitively() {
+        assert_eq!(
+            redact_path_with_profile(
+                "C:\\Users\\Alice\\AppData\\Local\\VoxType\\config.toml",
+                "c:\\users\\alice",
+            ),
+            "%USERPROFILE%\\AppData\\Local\\VoxType\\config.toml"
+        );
+    }
+
+    #[test]
+    fn does_not_redact_similar_user_profile_prefix() {
+        assert_eq!(
+            redact_path_with_profile("C:\\Users\\AliceBackup\\config.toml", "C:\\Users\\Alice"),
+            "C:\\Users\\AliceBackup\\config.toml"
+        );
     }
 }
