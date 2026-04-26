@@ -126,16 +126,15 @@ fn get_setup_status() -> Result<SetupStatus, String> {
         warnings.push(SetupWarning {
             code: "RECENT_CONTEXT_ENABLED".to_string(),
             title: "最近上下文已开启".to_string(),
-            message: "最近识别片段会保存在本地，用于改善连续识别；如介意隐私可关闭。".to_string(),
+            message: "最近识别片段会保存在单独的本地上下文文件中，可随时关闭或清除。".to_string(),
             action: "privacy".to_string(),
         });
     }
-
+    let any_trigger_enabled = data.triggers.hotkey_enabled
+        || data.triggers.middle_mouse_enabled
+        || data.triggers.right_alt_enabled;
     Ok(SetupStatus {
-        ready: !missing_auth
-            && has_audio_device
-            && data.triggers.hotkey_enabled
-            && !data.context.enable_recent_context,
+        ready: !missing_auth && has_audio_device && any_trigger_enabled,
         missing_auth,
         has_audio_device,
         hotkey: data.hotkey,
@@ -259,12 +258,35 @@ fn open_log_file(app: AppHandle) -> Result<(), String> {
 fn get_diagnostic_report(
     session: State<'_, SessionController>,
 ) -> Result<DiagnosticReport, String> {
+    let report = build_diagnostic_report(&session)?;
+    app_log::info("用户生成诊断报告。");
+    Ok(report)
+}
+
+#[tauri::command]
+fn copy_diagnostic_report_to_clipboard(
+    session: State<'_, SessionController>,
+) -> Result<DiagnosticReport, String> {
+    let report = build_diagnostic_report(&session)?;
+    text_output::copy_text_to_clipboard(&report.text)?;
+    app_log::info("用户复制诊断报告到剪贴板。");
+    Ok(report)
+}
+
+fn build_diagnostic_report(
+    session: &State<'_, SessionController>,
+) -> Result<DiagnosticReport, String> {
     let loaded = config::load_config()?;
     let state = session.current_state();
     let asr_ready = !loaded.data.auth.app_key.trim().is_empty()
         && !loaded.data.auth.access_key.trim().is_empty();
     let trigger_summary = enabled_trigger_summary(&loaded.data);
     let recent_error = state.error_code.as_deref().unwrap_or("无");
+    let recent_context_summary = if loaded.data.context.enable_recent_context {
+        format!("已启用，保存条数 {}", config::recent_context_count())
+    } else {
+        "未启用".to_string()
+    };
     let text = format!(
         "VoxType 诊断报告\n\
 版本: {}\n\
@@ -273,10 +295,12 @@ fn get_diagnostic_report(
 日志文件: {}\n\
 ASR 已配置: {}\n\
 LLM 润色: {}\n\
+最近上下文: {}\n\
 触发方式: {}\n\
 最近会话状态: {:?}\n\
 最近错误码: {}\n\
-日志脱敏: 是\n",
+诊断报告内容: 不包含识别正文、热词、Prompt、最近上下文正文、密钥原文\n\
+日志脱敏范围: key/token/bearer/password/secret 类字段和本机用户路径\n",
         env!("CARGO_PKG_VERSION"),
         std::env::consts::OS,
         std::env::consts::ARCH,
@@ -293,18 +317,11 @@ LLM 润色: {}\n\
         } else {
             "未启用"
         },
+        recent_context_summary,
         trigger_summary,
         state.phase,
         recent_error
     );
-    app_log::info(format!(
-        "用户复制诊断报告: config_exists={}, asr_ready={}, llm_enabled={}, phase={:?}, error_code={}",
-        loaded.exists,
-        asr_ready,
-        loaded.data.llm_post_edit.enabled,
-        state.phase,
-        recent_error
-    ));
     Ok(DiagnosticReport { text })
 }
 
@@ -359,6 +376,18 @@ fn log_frontend_event(message: String) {
 #[tauri::command]
 fn get_usage_stats() -> StatsSnapshot {
     stats::load_stats_snapshot()
+}
+
+#[tauri::command]
+fn clear_recent_context() -> Result<ConnectionTestResult, String> {
+    config::clear_recent_context()?;
+    app_log::info(format!(
+        "用户清除最近上下文: remaining={}",
+        config::recent_context_count()
+    ));
+    Ok(ConnectionTestResult {
+        message: "最近上下文已清除。".to_string(),
+    })
 }
 
 #[tauri::command]
@@ -468,12 +497,14 @@ pub fn run() {
             open_setup_guide,
             open_log_file,
             get_diagnostic_report,
+            copy_diagnostic_report_to_clipboard,
             hide_main_window,
             exit_application,
             update_close_preference,
             log_frontend_error,
             log_frontend_event,
             get_usage_stats,
+            clear_recent_context,
             check_for_update,
             download_and_install_update,
             get_overlay_text,

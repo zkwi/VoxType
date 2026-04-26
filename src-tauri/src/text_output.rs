@@ -4,8 +4,8 @@ use std::thread;
 use std::time::Duration;
 use windows::Win32::Foundation::{GlobalFree, HANDLE, HGLOBAL};
 use windows::Win32::System::DataExchange::{
-    CloseClipboard, EmptyClipboard, GetClipboardData, IsClipboardFormatAvailable, OpenClipboard,
-    SetClipboardData,
+    CloseClipboard, CountClipboardFormats, EmptyClipboard, EnumClipboardFormats, GetClipboardData,
+    IsClipboardFormatAvailable, OpenClipboard, SetClipboardData,
 };
 use windows::Win32::System::Memory::{
     GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock, GMEM_MOVEABLE,
@@ -16,10 +16,19 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 };
 
 const CF_UNICODETEXT: u32 = 13;
+const CF_TEXT: u32 = 1;
+const CF_OEMTEXT: u32 = 7;
+const CF_LOCALE: u32 = 16;
 const KEY_INTERVAL: Duration = Duration::from_millis(10);
 
 pub struct OutputResult {
     pub warning: Option<String>,
+}
+
+enum ClipboardBackup {
+    Text(String),
+    NonText,
+    Empty,
 }
 
 pub fn output_text(text: &str, typing: &TypingConfig) -> Result<OutputResult, String> {
@@ -34,15 +43,15 @@ pub fn output_text(text: &str, typing: &TypingConfig) -> Result<OutputResult, St
     ));
     let original_clipboard =
         if typing.restore_clipboard_after_paste && typing.paste_method != "clipboard_only" {
-            match read_clipboard_text_with_retry(typing) {
+            match read_clipboard_backup_with_retry(typing) {
                 Ok(value) => value,
                 Err(err) => {
-                    app_log::warn(format!("备份剪贴板文本失败，将继续输出: {}", err));
-                    None
+                    app_log::warn(format!("备份剪贴板失败，将继续输出: {}", err));
+                    ClipboardBackup::Empty
                 }
             }
         } else {
-            None
+            ClipboardBackup::Empty
         };
 
     write_clipboard_text_with_retry(text, typing)?;
@@ -51,45 +60,46 @@ pub fn output_text(text: &str, typing: &TypingConfig) -> Result<OutputResult, St
         return Ok(OutputResult { warning: None });
     }
     thread::sleep(Duration::from_millis(typing.paste_delay_ms));
-    let result = match typing.paste_method.as_str() {
+    match typing.paste_method.as_str() {
         "shift_insert" => send_shortcut(VK_SHIFT, VK_INSERT, true),
         _ => send_shortcut(VK_CONTROL, VK_V, false),
-    };
-    if let Err(err) = result {
-        app_log::warn(format!(
-            "发送粘贴快捷键失败，识别文本已保留在剪贴板: {}",
-            err
-        ));
-        return Ok(OutputResult {
-            warning: Some("粘贴失败，文本已复制，可手动 Ctrl+V。".to_string()),
-        });
     }
 
     app_log::info(format!(
         "粘贴快捷键已发送: method={}, delay_ms={}",
         typing.paste_method, typing.paste_delay_ms
     ));
-    if let Some(original) = original_clipboard {
+    if let ClipboardBackup::Text(original) = original_clipboard {
         thread::sleep(clipboard_restore_delay(typing));
         match write_clipboard_text_with_retry(&original, typing) {
             Ok(()) => {
-                app_log::info("自动粘贴后已恢复原剪贴板文本");
+                app_log::info("发送粘贴快捷键后已恢复原剪贴板文本");
                 Ok(OutputResult { warning: None })
             }
             Err(err) => {
                 app_log::warn(format!("恢复原剪贴板文本失败: {}", err));
                 Ok(OutputResult {
-                    warning: Some("文本已粘贴，但恢复原剪贴板失败。".to_string()),
+                    warning: Some("已发送粘贴快捷键，但恢复原剪贴板失败。".to_string()),
                 })
             }
         }
+    } else if matches!(original_clipboard, ClipboardBackup::NonText) {
+        let warning = "已发送粘贴快捷键；原剪贴板包含图片、文件或富文本，VoxType 暂时只能恢复纯文本剪贴板，当前剪贴板保留识别文本。".to_string();
+        app_log::warn(&warning);
+        Ok(OutputResult {
+            warning: Some(warning),
+        })
     } else {
         Ok(OutputResult { warning: None })
     }
 }
 
-fn read_clipboard_text_with_retry(typing: &TypingConfig) -> Result<Option<String>, String> {
-    with_clipboard_retry(typing, read_clipboard_text)
+pub fn copy_text_to_clipboard(text: &str) -> Result<(), String> {
+    write_clipboard_text_with_retry(text, &TypingConfig::default())
+}
+
+fn read_clipboard_backup_with_retry(typing: &TypingConfig) -> Result<ClipboardBackup, String> {
+    with_clipboard_retry(typing, read_clipboard_backup)
 }
 
 fn write_clipboard_text_with_retry(text: &str, typing: &TypingConfig) -> Result<(), String> {
@@ -117,17 +127,25 @@ fn with_clipboard_retry<T>(
     Err(last_error)
 }
 
-fn read_clipboard_text() -> Result<Option<String>, String> {
+fn read_clipboard_backup() -> Result<ClipboardBackup, String> {
     unsafe {
         OpenClipboard(None).map_err(|err| format!("打开剪贴板失败: {}", err))?;
         let result = (|| {
+            let format_count = CountClipboardFormats();
             if IsClipboardFormatAvailable(CF_UNICODETEXT).is_err() {
-                return Ok(None);
+                return Ok(if format_count > 0 {
+                    ClipboardBackup::NonText
+                } else {
+                    ClipboardBackup::Empty
+                });
+            }
+            if !clipboard_contains_only_text_formats() {
+                return Ok(ClipboardBackup::NonText);
             }
             let handle = GetClipboardData(CF_UNICODETEXT)
                 .map_err(|err| format!("读取剪贴板失败: {}", err))?;
             if handle.is_invalid() {
-                return Ok(None);
+                return Ok(ClipboardBackup::Empty);
             }
             let memory = HGLOBAL(handle.0);
             let size = GlobalSize(memory);
@@ -140,11 +158,28 @@ fn read_clipboard_text() -> Result<Option<String>, String> {
             let len = slice.iter().position(|value| *value == 0).unwrap_or(units);
             let text = String::from_utf16_lossy(&slice[..len]);
             let _ = GlobalUnlock(memory);
-            Ok(Some(text))
+            Ok(ClipboardBackup::Text(text))
         })();
         let _ = CloseClipboard();
         result
     }
+}
+
+fn clipboard_contains_only_text_formats() -> bool {
+    let mut format = 0;
+    loop {
+        format = unsafe { EnumClipboardFormats(format) };
+        if format == 0 {
+            return true;
+        }
+        if !is_text_clipboard_format(format) {
+            return false;
+        }
+    }
+}
+
+fn is_text_clipboard_format(format: u32) -> bool {
+    matches!(format, CF_TEXT | CF_OEMTEXT | CF_UNICODETEXT | CF_LOCALE)
 }
 
 fn write_clipboard_text(text: &str) -> Result<(), String> {
@@ -188,11 +223,7 @@ fn clipboard_restore_delay(typing: &TypingConfig) -> Duration {
     Duration::from_millis(typing.paste_delay_ms.max(200))
 }
 
-fn send_shortcut(
-    modifier: VIRTUAL_KEY,
-    key: VIRTUAL_KEY,
-    key_extended: bool,
-) -> Result<(), String> {
+fn send_shortcut(modifier: VIRTUAL_KEY, key: VIRTUAL_KEY, key_extended: bool) {
     send_key_event(modifier, false, false);
     thread::sleep(KEY_INTERVAL);
     send_key_event(key, false, key_extended);
@@ -200,7 +231,6 @@ fn send_shortcut(
     send_key_event(key, true, key_extended);
     thread::sleep(KEY_INTERVAL);
     send_key_event(modifier, true, false);
-    Ok(())
 }
 
 fn send_key_event(key: VIRTUAL_KEY, key_up: bool, extended: bool) {
@@ -219,7 +249,7 @@ fn send_key_event(key: VIRTUAL_KEY, key_up: bool, extended: bool) {
 
 #[cfg(test)]
 mod tests {
-    use super::clipboard_restore_delay;
+    use super::{clipboard_restore_delay, is_text_clipboard_format};
     use crate::config::TypingConfig;
     use std::time::Duration;
 
@@ -235,5 +265,15 @@ mod tests {
             ..TypingConfig::default()
         };
         assert_eq!(clipboard_restore_delay(&typing), Duration::from_millis(350));
+    }
+
+    #[test]
+    fn only_text_clipboard_formats_are_treated_as_restorable() {
+        assert!(is_text_clipboard_format(1));
+        assert!(is_text_clipboard_format(7));
+        assert!(is_text_clipboard_format(13));
+        assert!(is_text_clipboard_format(16));
+        assert!(!is_text_clipboard_format(15));
+        assert!(!is_text_clipboard_format(49350));
     }
 }

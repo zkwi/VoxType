@@ -45,7 +45,7 @@ end_window_size = 1200
 final_result_timeout_seconds = 15
 
 [context]
-# 是否把最近几轮输入内容作为上下文提示；会在本地保存最近识别片段，默认关闭
+# 是否把最近几轮输入内容作为上下文提示；开启后会写入单独的本地 context/recent_context.jsonl，默认关闭
 enable_recent_context = false
 # 最近上下文保留轮数
 recent_context_rounds = 5
@@ -65,7 +65,7 @@ right_alt_enabled = false
 paste_delay_ms = 120
 # 粘贴方式：ctrl_v / shift_insert / clipboard_only
 paste_method = "ctrl_v"
-# 自动粘贴后恢复原剪贴板文本；粘贴失败时会保留识别文本方便手动 Ctrl+V
+# 自动粘贴后恢复原剪贴板文本；当前只能恢复纯文本，图片/文件/富文本会保留识别文本并提示
 restore_clipboard_after_paste = true
 # 打开剪贴板失败时的短暂重试
 clipboard_open_retry_count = 5

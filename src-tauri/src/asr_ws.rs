@@ -64,20 +64,39 @@ pub fn spawn_asr_worker(
             let text =
                 run_websocket_session(config.clone(), audio_rx, app.clone(), session.clone())
                     .await?;
-            session.set_phase(
-                Some(&app),
-                SessionPhase::PostEditing,
-                "Post-editing transcript.",
-                None,
-            );
-            overlay::update_text(&app, overlay::POST_EDITING_TEXT);
-            Ok::<llm_post_edit::PolishOutcome, String>(llm_post_edit::polish(&config, &text).await)
+            if text.trim().is_empty() {
+                return Ok::<llm_post_edit::PolishOutcome, String>(llm_post_edit::PolishOutcome {
+                    text,
+                    warning: Some("EMPTY_TRANSCRIPT".to_string()),
+                });
+            }
+            if config.llm_post_edit.enabled {
+                session.set_phase(
+                    Some(&app),
+                    SessionPhase::PostEditing,
+                    "Post-editing transcript.",
+                    None,
+                );
+                overlay::update_text(&app, overlay::POST_EDITING_TEXT);
+                Ok::<llm_post_edit::PolishOutcome, String>(
+                    llm_post_edit::polish(&config, &text).await,
+                )
+            } else {
+                Ok::<llm_post_edit::PolishOutcome, String>(llm_post_edit::PolishOutcome {
+                    text,
+                    warning: None,
+                })
+            }
         });
         match runtime_result {
             Ok(outcome) => {
                 let text = outcome.text;
                 let mut output_warning = None;
                 app_log::info(format!("ASR worker 返回文本长度: {}", text.chars().count()));
+                if text.trim().is_empty() {
+                    handle_empty_transcript(&app, &session);
+                    return;
+                }
                 if !text.trim().is_empty() {
                     overlay::update_text(&app, &text);
                     let duration = started_at.elapsed().as_secs_f64();
@@ -127,9 +146,6 @@ pub fn spawn_asr_worker(
                         text.chars().count()
                     ));
                 }
-                if text.trim().is_empty() {
-                    app_log::info("ASR session finished: empty transcript");
-                }
                 let final_overlay_text = output_warning.as_deref().unwrap_or(overlay::PASTED_TEXT);
                 let final_hold = if output_warning.is_some() {
                     ATTENTION_OVERLAY_HOLD
@@ -140,7 +156,7 @@ pub fn spawn_asr_worker(
                 session.set_phase(
                     Some(&app),
                     SessionPhase::Succeeded,
-                    "Transcript pasted.",
+                    "Transcript output completed.",
                     None,
                 );
                 let _ = app.emit(
@@ -410,6 +426,28 @@ fn emit_partial_text(app: &AppHandle, text: &str) {
 
 fn normalize_live_text(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn handle_empty_transcript(app: &AppHandle, session: &SessionController) {
+    app_log::info("ASR session finished: empty transcript");
+    session.set_phase(
+        Some(app),
+        SessionPhase::Failed,
+        overlay::EMPTY_TRANSCRIPT_TEXT,
+        Some("EMPTY_TRANSCRIPT"),
+    );
+    overlay::update_text(app, overlay::EMPTY_TRANSCRIPT_TEXT);
+    let _ = app.emit(
+        "asr-final-text",
+        AsrFinalText {
+            text: String::new(),
+            error: Some(overlay::EMPTY_TRANSCRIPT_TEXT.to_string()),
+            error_code: Some("EMPTY_TRANSCRIPT".to_string()),
+            warning: None,
+        },
+    );
+    thread::sleep(ATTENTION_OVERLAY_HOLD);
+    overlay::hide(app);
 }
 
 fn emit_error(app: &AppHandle, error_code: &str, error: String) {

@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -101,7 +102,7 @@ pub struct ContextConfig {
     pub hotwords: Vec<String>,
     #[serde(default)]
     pub prompt_context: Vec<TextContext>,
-    #[serde(default)]
+    #[serde(default, skip_serializing)]
     pub recent_context: Vec<TextContext>,
 }
 
@@ -425,8 +426,26 @@ pub fn load_config() -> Result<LoadedConfig, String> {
     }
 
     let text = std::fs::read_to_string(&path).map_err(|err| format!("读取配置失败: {}", err))?;
-    let data =
+    let mut data =
         toml::from_str::<AppConfig>(&text).map_err(|err| format!("解析配置失败: {}", err))?;
+    let legacy_recent_context = data.context.recent_context.clone();
+    if data.context.enable_recent_context {
+        data.context.recent_context = load_recent_context_entries(
+            &path,
+            legacy_recent_context.clone(),
+            data.context.recent_context_rounds,
+        );
+        if !legacy_recent_context.is_empty() && !recent_context_path(&path).exists() {
+            write_recent_context_entries(&path, &data.context.recent_context)?;
+        }
+    } else {
+        data.context.recent_context.clear();
+    }
+    if contains_legacy_recent_context(&text) {
+        let mut cleaned = data.clone();
+        cleaned.context.recent_context.clear();
+        write_config_file(&path, &cleaned)?;
+    }
     Ok(LoadedConfig {
         path: path.display().to_string(),
         exists: true,
@@ -437,16 +456,12 @@ pub fn load_config() -> Result<LoadedConfig, String> {
 pub fn save_config(config: AppConfig) -> Result<LoadedConfig, String> {
     validate_config(&config).map_err(format_validation_errors)?;
     let path = resolve_config_path();
-    let text = toml::to_string_pretty(&config).map_err(|err| format!("序列化配置失败: {}", err))?;
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|err| format!("创建配置目录失败: {}", err))?;
-    }
-    std::fs::write(&path, text).map_err(|err| format!("写入配置失败: {}", err))?;
+    write_config_file(&path, &config)?;
     load_config()
 }
 
 pub fn remember_recent_context(text: &str) -> Result<(), String> {
-    let mut loaded = load_config()?;
+    let loaded = load_config()?;
     if !loaded.data.context.enable_recent_context {
         return Ok(());
     }
@@ -454,22 +469,34 @@ pub fn remember_recent_context(text: &str) -> Result<(), String> {
     if cleaned.is_empty() {
         return Ok(());
     }
-    loaded
-        .data
-        .context
-        .recent_context
-        .retain(|item| item.text != cleaned);
-    loaded
-        .data
-        .context
-        .recent_context
-        .insert(0, TextContext { text: cleaned });
-    loaded
-        .data
-        .context
-        .recent_context
-        .truncate(loaded.data.context.recent_context_rounds);
-    save_config(loaded.data).map(|_| ())
+    let path = PathBuf::from(&loaded.path);
+    let mut entries = load_recent_context_entries(
+        &path,
+        loaded.data.context.recent_context.clone(),
+        loaded.data.context.recent_context_rounds,
+    );
+    entries.retain(|item| item.text != cleaned);
+    entries.insert(0, TextContext { text: cleaned });
+    entries.truncate(loaded.data.context.recent_context_rounds);
+    write_recent_context_entries(&path, &entries)
+}
+
+pub fn clear_recent_context() -> Result<(), String> {
+    let config_path = resolve_config_path();
+    let path = recent_context_path(&config_path);
+    remove_recent_context_file(&path)?;
+    if config_path.exists() {
+        let mut loaded = load_config()?;
+        loaded.data.context.recent_context.clear();
+        save_config(loaded.data)?;
+        remove_recent_context_file(&path)?;
+    }
+    Ok(())
+}
+
+pub fn recent_context_count() -> usize {
+    let path = resolve_config_path();
+    load_recent_context_entries(&path, Vec::new(), usize::MAX).len()
 }
 
 pub fn validate_config(config: &AppConfig) -> Result<(), Vec<ConfigValidationError>> {
@@ -639,6 +666,26 @@ fn format_validation_errors(errors: Vec<ConfigValidationError>) -> String {
     format!("配置存在不合法字段，请修改后再保存。{}", summary)
 }
 
+fn write_config_file(path: &Path, config: &AppConfig) -> Result<(), String> {
+    let mut clean_config = config.clone();
+    clean_config.context.recent_context.clear();
+    let text =
+        toml::to_string_pretty(&clean_config).map_err(|err| format!("序列化配置失败: {}", err))?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|err| format!("创建配置目录失败: {}", err))?;
+    }
+    std::fs::write(path, text).map_err(|err| format!("写入配置失败: {}", err))
+}
+
+fn contains_legacy_recent_context(text: &str) -> bool {
+    text.lines().any(|line| {
+        let line = line.trim();
+        line == "[[context.recent_context]]"
+            || line.starts_with("recent_context =")
+            || line.starts_with("recent_context=")
+    })
+}
+
 fn sanitize_recent_context_text(text: &str) -> String {
     text.split_whitespace()
         .collect::<Vec<_>>()
@@ -648,6 +695,64 @@ fn sanitize_recent_context_text(text: &str) -> String {
         .collect::<String>()
         .trim()
         .to_string()
+}
+
+fn recent_context_path(config_path: &Path) -> PathBuf {
+    config_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("context")
+        .join("recent_context.jsonl")
+}
+
+fn load_recent_context_entries(
+    config_path: &Path,
+    fallback: Vec<TextContext>,
+    max_rounds: usize,
+) -> Vec<TextContext> {
+    let path = recent_context_path(config_path);
+    let entries = std::fs::read_to_string(&path)
+        .ok()
+        .map(|text| {
+            text.lines()
+                .filter_map(|line| serde_json::from_str::<TextContext>(line).ok())
+                .map(|item| sanitize_recent_context_text(&item.text))
+                .filter(|text| !text.is_empty())
+                .map(|text| TextContext { text })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let mut entries = if entries.is_empty() {
+        fallback
+    } else {
+        entries
+    };
+    entries.retain(|item| !item.text.trim().is_empty());
+    entries.truncate(max_rounds);
+    entries
+}
+
+fn write_recent_context_entries(config_path: &Path, entries: &[TextContext]) -> Result<(), String> {
+    let path = recent_context_path(config_path);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|err| format!("创建最近上下文目录失败: {}", err))?;
+    }
+    let mut file =
+        std::fs::File::create(&path).map_err(|err| format!("写入最近上下文失败: {}", err))?;
+    for item in entries {
+        let line =
+            serde_json::to_string(item).map_err(|err| format!("序列化最近上下文失败: {}", err))?;
+        writeln!(file, "{}", line).map_err(|err| format!("写入最近上下文失败: {}", err))?;
+    }
+    Ok(())
+}
+
+fn remove_recent_context_file(path: &Path) -> Result<(), String> {
+    if path.exists() {
+        std::fs::remove_file(path).map_err(|err| format!("清除最近上下文失败: {}", err))?;
+    }
+    Ok(())
 }
 
 fn normalize_path(path: impl AsRef<Path>) -> PathBuf {
@@ -751,7 +856,7 @@ fn default_close_behavior() -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{validate_config, AppConfig};
+    use super::{contains_legacy_recent_context, validate_config, AppConfig, TextContext};
 
     #[test]
     fn defaults_are_conservative_for_consumer_use() {
@@ -794,5 +899,34 @@ mod tests {
     #[test]
     fn accepts_default_config() {
         assert!(validate_config(&AppConfig::default()).is_ok());
+    }
+
+    #[test]
+    fn recent_context_is_not_serialized_to_config() {
+        let mut config = AppConfig::default();
+        config.context.enable_recent_context = true;
+        config.context.recent_context = vec![TextContext {
+            text: "private words".to_string(),
+        }];
+
+        let text = toml::to_string_pretty(&config).unwrap();
+        assert!(!text.contains("context.recent_context"));
+        assert!(!text.contains("private words"));
+    }
+
+    #[test]
+    fn detects_legacy_recent_context_shapes() {
+        assert!(contains_legacy_recent_context(
+            "[context]\nenable_recent_context = true\nrecent_context = []\n"
+        ));
+        assert!(contains_legacy_recent_context(
+            "[context]\nrecent_context=[]\n"
+        ));
+        assert!(contains_legacy_recent_context(
+            "[[context.recent_context]]\ntext = \"private words\"\n"
+        ));
+        assert!(!contains_legacy_recent_context(
+            "[context]\nenable_recent_context = true\nrecent_context_rounds = 5\n"
+        ));
     }
 }

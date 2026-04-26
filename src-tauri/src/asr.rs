@@ -104,10 +104,12 @@ pub fn build_context_payload(config: &AppConfig) -> Option<String> {
     }
 
     let mut context_data = Vec::new();
-    for item in &config.context.recent_context {
-        let text = item.text.trim();
-        if !text.is_empty() {
-            context_data.push(json!({ "text": text }));
+    if config.context.enable_recent_context {
+        for item in &config.context.recent_context {
+            let text = item.text.trim();
+            if !text.is_empty() {
+                context_data.push(json!({ "text": text }));
+            }
         }
     }
     if let Some(image_url) = &config.context.image_url {
@@ -216,6 +218,7 @@ mod tests {
     fn builds_context_payload_in_expected_order() {
         let mut config = AppConfig::default();
         config.context.hotwords = vec!["ASR".to_string()];
+        config.context.enable_recent_context = true;
         config.context.recent_context = vec![TextContext {
             text: "recent".to_string(),
         }];

@@ -5,6 +5,7 @@
     type SetupStatusItem,
     type SetupStatusWarning,
   } from "$lib/components/overview/SetupStatusCard.svelte";
+  import SettingsToolbar from "$lib/components/settings/SettingsToolbar.svelte";
   import { copy, userErrorDetails, type CopyKey, type Language, type UserErrorDetail } from "$lib/i18n";
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
@@ -21,16 +22,17 @@
     FileText,
     Gauge,
     Globe2,
+    Info,
     Keyboard,
     Maximize2,
     MessageSquareText,
     Mic,
     Minus,
     PenLine,
-    Save,
     Settings,
     ShieldCheck,
     Sparkles,
+    Trash2,
     Zap,
     X as XIcon,
   } from "lucide-svelte";
@@ -90,7 +92,6 @@
     message: string;
     errors?: ConfigValidationError[];
   };
-
   type CloseToTrayRequest = {
     first_time: boolean;
     behavior: string;
@@ -218,6 +219,7 @@
     debug: { print_transcript_to_console: boolean };
   };
   type TriggerKey = keyof AppConfig["triggers"];
+  type SoftConfigNoticeKey = TriggerKey | "mute_system_volume_while_recording" | "enable_recent_context";
 
   const fallbackConfig: AppConfig = {
     hotkey: "ctrl+q",
@@ -345,7 +347,7 @@
   let overlaySmallLayoutLocked = false;
   let uiCompact = $state(false);
   let actionNotice = $state("");
-  let actionNoticeKind = $state<"success" | "warning" | "error">("success");
+  let actionNoticeKind = $state<"success" | "info" | "warning" | "error">("success");
   let actionNoticeTimer: number | undefined;
   let updateStatus = $state<UpdateStatus | null>(null);
   let setupStatus = $state<SetupStatus | null>(null);
@@ -355,10 +357,12 @@
   let testingAsr = $state(false);
   let testingLlm = $state(false);
   let copyingDiagnosticReport = $state(false);
+  let clearingRecentContext = $state(false);
   let validationErrors = $state<Record<string, string>>({});
   let closePromptVisible = $state(false);
   let closePromptFirstTime = $state(false);
   let closePromptBehavior = $state("close_to_tray");
+  let succeededIdleTimer: number | undefined;
   onMount(() => {
     const onError = (event: ErrorEvent) => {
       logFrontendError(`${event.message} (${event.filename}:${event.lineno}:${event.colno})`);
@@ -411,6 +415,7 @@
         }
         if (event.payload.warning) showActionNotice(event.payload.warning, "warning");
         statusMessage = event.payload.warning ? event.payload.warning : t("sessionSucceeded");
+        if (sessionPhase === "succeeded") scheduleSucceededIdleHint();
       });
       const unlistenPartial = listen<AsrPartialText>("asr-partial-text", (event) => {
         if (event.payload.text.trim()) {
@@ -447,6 +452,7 @@
     return () => {
       if (overlayPoll !== undefined) window.clearInterval(overlayPoll);
       if (actionNoticeTimer !== undefined) window.clearTimeout(actionNoticeTimer);
+      if (succeededIdleTimer !== undefined) window.clearTimeout(succeededIdleTimer);
       stopOverlayScroll();
       window.removeEventListener("resize", refreshMainDensity);
       window.removeEventListener("resize", refreshOverlayLayout);
@@ -772,6 +778,10 @@
     recording = state.recording;
     sessionPhase = state.phase ?? (state.recording ? "recording" : "idle");
     sessionErrorCode = state.error_code;
+    if (sessionPhase !== "succeeded" && succeededIdleTimer !== undefined) {
+      window.clearTimeout(succeededIdleTimer);
+      succeededIdleTimer = undefined;
+    }
     if (!state.recording) audioLevel = 0;
     if (state.phase === "failed" && state.error_code) {
       statusMessage = userErrorMessage(state.error_code, state.message);
@@ -784,6 +794,16 @@
       return;
     }
     statusMessage = state.phase === "failed" && state.message ? userErrorMessage(state.error_code, state.message) : sessionPhaseMessage(sessionPhase);
+    if (sessionPhase === "succeeded") scheduleSucceededIdleHint();
+  }
+  function scheduleSucceededIdleHint() {
+    if (succeededIdleTimer !== undefined) window.clearTimeout(succeededIdleTimer);
+    succeededIdleTimer = window.setTimeout(() => {
+      if (sessionPhase !== "succeeded") return;
+      sessionPhase = "idle";
+      statusMessage = sessionPhaseMessage("idle");
+      succeededIdleTimer = undefined;
+    }, 2000);
   }
   function sessionPhaseMessage(phase: SessionPhase) {
     const hotkey = formatHotkey(snapshot.hotkey);
@@ -967,8 +987,7 @@
     }
     copyingDiagnosticReport = true;
     try {
-      const result = await invoke<DiagnosticReport>("get_diagnostic_report");
-      await navigator.clipboard.writeText(result.text);
+      await invoke<DiagnosticReport>("copy_diagnostic_report_to_clipboard");
       statusMessage = t("diagnosticCopied");
       showActionNotice(t("diagnosticCopied"), "success");
     } catch (error) {
@@ -977,6 +996,27 @@
       showActionNotice(statusMessage, "error");
     } finally {
       copyingDiagnosticReport = false;
+    }
+  }
+  async function clearRecentContextFromUi() {
+    if (clearingRecentContext) return;
+    if (!hasTauriApi()) {
+      statusMessage = t("browserPreview");
+      showActionNotice(statusMessage, "error");
+      return;
+    }
+    clearingRecentContext = true;
+    try {
+      const result = await invoke<ConnectionTestResult>("clear_recent_context");
+      statusMessage = result.message || t("recentContextCleared");
+      showActionNotice(statusMessage, "success");
+      await refreshSetupStatus();
+    } catch (error) {
+      statusMessage = typeof error === "string" ? error : t("browserPreview");
+      logFrontendError(`clear recent context failed: ${formatFrontendError(error)}`);
+      showActionNotice(statusMessage, "error");
+    } finally {
+      clearingRecentContext = false;
     }
   }
   async function testAsrConfig() {
@@ -1010,7 +1050,7 @@
       testingLlm = false;
     }
   }
-  function showActionNotice(message: string, kind: "success" | "warning" | "error") {
+  function showActionNotice(message: string, kind: "success" | "info" | "warning" | "error") {
     actionNotice = message;
     actionNoticeKind = kind;
     if (actionNoticeTimer !== undefined) window.clearTimeout(actionNoticeTimer);
@@ -1018,6 +1058,17 @@
       actionNotice = "";
       actionNoticeTimer = undefined;
     }, 2800);
+  }
+  function optionEnabledNotice(key: SoftConfigNoticeKey, enabled: boolean) {
+    if (!enabled) return "";
+    if (key === "middle_mouse_enabled" || key === "right_alt_enabled") return t("extraTriggerEnabledNotice");
+    if (key === "mute_system_volume_while_recording") return t("systemAudioMuteEnabledNotice");
+    if (key === "enable_recent_context") return t("recentContextEnabledNotice");
+    return "";
+  }
+  function maybeShowOptionEnabledNotice(key: SoftConfigNoticeKey, enabled: boolean) {
+    const notice = optionEnabledNotice(key, enabled);
+    if (notice) showActionNotice(notice, "info");
   }
   async function toggleTrigger(key: TriggerKey) {
     if (saving) return;
@@ -1029,7 +1080,8 @@
       if (statusMessage) showActionNotice(statusMessage, "error");
       return;
     }
-    showActionNotice(t("configSaved"), "success");
+    const notice = optionEnabledNotice(key, !previous);
+    showActionNotice(notice || t("configSaved"), notice ? "info" : "success");
   }
   function triggerLabel(enabled: boolean) {
     return enabled ? t("enabled") : t("disabled");
@@ -1120,24 +1172,22 @@
       {
         label: t("setupTriggerLabel"),
         value: formatEnabledTriggers(),
-        ok: config.triggers.hotkey_enabled,
+        ok: config.triggers.hotkey_enabled || config.triggers.middle_mouse_enabled || config.triggers.right_alt_enabled,
         action: "hotkey",
       },
       {
         label: t("setupPrivacyLabel"),
         value: config.context.enable_recent_context ? t("setupRecentOn") : t("setupRecentOff"),
-        ok: !config.context.enable_recent_context,
+        ok: true,
         action: "privacy",
       },
     ];
   }
   function setupWarningCount() {
-    const warnings = setupStatus?.warnings.length ?? 0;
-    const blocking = setupStatusItems().filter((item) => !item.ok).length;
-    return Math.max(warnings, blocking);
+    return setupStatusItems().filter((item) => !item.ok).length;
   }
   function setupIsReady() {
-    return setupStatusItems().every((item) => item.ok);
+    return setupStatus?.ready ?? setupStatusItems().every((item) => item.ok);
   }
   function setupActionText(action: string) {
     if (action === "asr_auth") return t("setupActionAsr");
@@ -1422,12 +1472,13 @@
     return {
       title: t("inputError"),
       cause: fallback || t("sessionFailed"),
-      action: language === "en" ? "Open logs or copy the diagnostic report for troubleshooting." : language === "zh-TW" ? "可打開日誌或複製診斷報告協助排查。" : "可打开日志或复制诊断报告协助排查。",
+      action: t("genericErrorAction"),
     };
   }
   function userErrorMessage(code: string | null | undefined, fallback = "") {
     const detail = userErrorDetail(code, fallback);
-    return `${detail.title}。${detail.action}`;
+    const separator = language === "en" ? ". " : "。";
+    return `${detail.title}${separator}${detail.action}`;
   }
   function activeUserErrorDetail() {
     if (inputStatus() !== "error") return null;
@@ -1735,6 +1786,17 @@
             </div>
           </section>
         {/if}
+        <SettingsToolbar
+          title={t("settingsActionTitle")}
+          hint={t("settingsActionHint")}
+          {statusMessage}
+          saveLabel={t("saveConfig")}
+          savingLabel={t("saving")}
+          reloadLabel={t("reload")}
+          {saving}
+          onSave={saveConfig}
+          onReload={reloadConfigFromUi}
+        />
         <section class="settings-group">
           <div class="settings-group-heading">
             <h3>{t("softwareSettings")}</h3>
@@ -1755,11 +1817,12 @@
             </div>
             <div class="toggle-grid">
               <label class="check"><input type="checkbox" bind:checked={config.triggers.hotkey_enabled} />{t("mainHotkey")}</label>
-              <label class="check"><input type="checkbox" bind:checked={config.triggers.middle_mouse_enabled} />{t("middleMouse")}</label>
-              <label class="check"><input type="checkbox" bind:checked={config.triggers.right_alt_enabled} />{t("rightAlt")}</label>
+              <label class="check"><input type="checkbox" bind:checked={config.triggers.middle_mouse_enabled} onchange={(event) => maybeShowOptionEnabledNotice("middle_mouse_enabled", event.currentTarget.checked)} />{t("middleMouse")}</label>
+              <label class="check"><input type="checkbox" bind:checked={config.triggers.right_alt_enabled} onchange={(event) => maybeShowOptionEnabledNotice("right_alt_enabled", event.currentTarget.checked)} />{t("rightAlt")}</label>
               <label class="check"><input type="checkbox" bind:checked={config.typing.restore_clipboard_after_paste} />{t("restoreClipboardAfterPaste")}</label>
               <label class="check"><input type="checkbox" bind:checked={config.startup.launch_on_startup} />{t("launchOnStartup")}</label>
             </div>
+            <p class="field-hint">{t("clipboardTextRestoreHint")}</p>
             <p class="field-hint">{t("triggerConflictHint")}</p>
           </div>
           <div class="form-panel">
@@ -1845,7 +1908,7 @@
           </div>
           <div id="settings-auth" class="form-panel">
             <div class="section-heading with-actions">
-              <div>
+              <div class="section-heading-copy">
                 <h3>{t("doubaoAuth")}</h3>
                 {#if !configExists || !hasAuth()}
                   <p class="setup-note">{!configExists ? t("setupMissingFile") : t("setupMissingAuth")}</p>
@@ -1912,7 +1975,7 @@
               </label>
             </div>
             <div class="toggle-grid">
-              <label class="check"><input type="checkbox" bind:checked={config.audio.mute_system_volume_while_recording} />{t("muteSystemAudio")}</label>
+              <label class="check"><input type="checkbox" bind:checked={config.audio.mute_system_volume_while_recording} onchange={(event) => maybeShowOptionEnabledNotice("mute_system_volume_while_recording", event.currentTarget.checked)} />{t("muteSystemAudio")}</label>
             </div>
             <p class="field-hint">{t("muteSystemAudioHint")}</p>
           </div>
@@ -1935,12 +1998,17 @@
             </div>
           </div>
           <div id="settings-context" class="form-panel">
-            <div class="section-heading"><h3>{t("context")}</h3><p>{t("contextDescription")}</p></div>
+            <div class="section-heading with-actions">
+              <div class="section-heading-copy"><h3>{t("context")}</h3><p>{t("contextDescription")}</p></div>
+              <button class="test-button" onclick={clearRecentContextFromUi} disabled={clearingRecentContext}>
+                <Trash2 size={16} />{clearingRecentContext ? t("clearingRecentContext") : t("clearRecentContext")}
+              </button>
+            </div>
             <label><span>{t("hotwords")}</span><textarea value={config.context.hotwords.join("\n")} oninput={(event) => updateHotwords(event.currentTarget.value)}></textarea></label>
             <label><span>{t("promptContext")}</span><textarea value={config.context.prompt_context.map((item) => item.text).join("\n")} oninput={(event) => updatePromptContext(event.currentTarget.value)}></textarea></label>
             <label><span>{t("imageUrl")}</span><input value={config.context.image_url ?? ""} oninput={(event) => setOptionalImageUrl(event.currentTarget.value)} /></label>
             <div class="toggle-grid">
-              <label class="check"><input type="checkbox" bind:checked={config.context.enable_recent_context} />{t("useRecentContext")}</label>
+              <label class="check"><input type="checkbox" bind:checked={config.context.enable_recent_context} onchange={(event) => maybeShowOptionEnabledNotice("enable_recent_context", event.currentTarget.checked)} />{t("useRecentContext")}</label>
             </div>
             <p class="field-hint">{t("recentContextHint")}</p>
           </div>
@@ -1952,7 +2020,7 @@
           </div>
           <div class="form-panel">
             <div class="section-heading with-actions">
-              <div><h3>{t("llmPostEdit")}</h3><p>{t("llmDescription")}</p></div>
+              <div class="section-heading-copy"><h3>{t("llmPostEdit")}</h3><p>{t("llmDescription")}</p></div>
               <button class="test-button" onclick={testLlmConfig} disabled={testingLlm}>
                 <ShieldCheck size={16} />{testingLlm ? t("testingConnection") : t("testConnection")}
               </button>
@@ -1973,10 +2041,6 @@
             <label><span>{t("userPromptTemplate")}</span><textarea bind:value={config.llm_post_edit.user_prompt_template}></textarea></label>
           </div>
         </section>
-        <div class="form-actions">
-          <button class="primary" onclick={saveConfig} disabled={saving}><Save size={16} />{saving ? t("saving") : t("saveConfig")}</button>
-          <button onclick={reloadConfigFromUi}><ShieldCheck size={16} />{t("reload")}</button>
-        </div>
       </section>
     {:else if selectedSection === "History"}
       <section class="history-page">
@@ -2028,9 +2092,18 @@
   </section>
 </main>
 {#if actionNotice}
-  <div class:error={actionNoticeKind === "error"} class:warning={actionNoticeKind === "warning"} class="action-notice" role="status" aria-live="polite">
+  <div
+    class:error={actionNoticeKind === "error"}
+    class:info={actionNoticeKind === "info"}
+    class:warning={actionNoticeKind === "warning"}
+    class="action-notice"
+    role="status"
+    aria-live="polite"
+  >
     {#if actionNoticeKind === "success"}
       <Check size={16} />
+    {:else if actionNoticeKind === "info"}
+      <Info size={16} />
     {:else}
       <AlertCircle size={16} />
     {/if}
@@ -3156,7 +3229,7 @@
   }
   .settings-stack {
     display: grid;
-    gap: 22px;
+    gap: 18px;
     max-width: 1040px;
   }
   .settings-group {
@@ -3185,6 +3258,9 @@
     padding: 18px;
     border-radius: 18px;
     box-shadow: none;
+  }
+  .form-panel[id^="settings-"] {
+    scroll-margin-top: 86px;
   }
   .form-panel label {
     display: grid;
@@ -3236,12 +3312,15 @@
   .section-heading.with-actions {
     display: flex;
     flex-wrap: wrap;
-    align-items: flex-start;
+    align-items: center;
     justify-content: space-between;
     gap: 12px;
   }
   .section-heading.with-actions > div {
     min-width: 0;
+  }
+  .section-heading-copy {
+    flex: 1 1 320px;
   }
   .section-heading.with-actions .link-button {
     margin-top: 8px;
@@ -3252,13 +3331,13 @@
     align-items: center;
     gap: 7px;
     justify-content: center;
-    min-width: 78px;
-    min-height: 34px;
-    padding: 0 12px;
+    min-width: 96px;
+    min-height: 36px;
+    padding: 0 14px;
     color: var(--primary);
     background: var(--primary-light);
     border: 1px solid rgba(47, 128, 237, 0.18);
-    border-radius: 10px;
+    border-radius: 12px;
     font-size: 13px;
     font-weight: 800;
     white-space: nowrap;
@@ -3310,30 +3389,9 @@
     border-color: var(--primary);
     box-shadow: 0 0 0 3px rgba(47, 128, 237, 0.14);
   }
-  .form-actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 12px;
-    grid-column: 1 / -1;
-    justify-content: flex-end;
-  }
-  .form-actions button {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    min-height: 38px;
-    padding: 0 16px;
-    color: var(--text-main);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-  }
-  .form-actions .primary {
-    color: #ffffff;
-    background: var(--primary);
-  }
   .update-card {
-    display: flex;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
     justify-content: space-between;
     gap: 14px;
@@ -3343,8 +3401,7 @@
     border-radius: 12px;
   }
   .update-card > div:first-child {
-    min-width: min(100%, 320px);
-    flex: 1 1 320px;
+    min-width: 0;
   }
   .update-card.available {
     background: #fff7ed;
@@ -3375,18 +3432,22 @@
     flex-wrap: wrap;
     gap: 10px;
     justify-content: flex-end;
+    min-width: 0;
   }
   .update-actions button {
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     gap: 8px;
     min-height: 36px;
+    min-width: 118px;
     padding: 0 12px;
     color: var(--text-main);
     background: #ffffff;
     border: 1px solid var(--border);
     border-radius: 10px;
     font-weight: 700;
+    white-space: nowrap;
   }
   .update-actions .primary {
     color: #ffffff;
@@ -3421,6 +3482,11 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .action-notice.info {
+    color: #245b93;
+    background: rgba(240, 247, 255, 0.98);
+    border-color: rgba(47, 128, 237, 0.24);
   }
   .action-notice.warning {
     color: #854d0e;
@@ -3668,6 +3734,24 @@
     .shell { grid-template-columns: 210px minmax(0, 1fr); }
     .content { padding: 16px; }
     .content.overview-content { overflow: auto; }
+    .section-heading.with-actions {
+      display: grid;
+      grid-template-columns: 1fr;
+      align-items: stretch;
+    }
+    .test-button {
+      width: 100%;
+    }
+    .update-card {
+      grid-template-columns: 1fr;
+      align-items: stretch;
+    }
+    .update-actions {
+      justify-content: stretch;
+    }
+    .update-actions button {
+      flex: 1 1 150px;
+    }
     .trigger-grid,
     .stats-row,
     .ui-compact .trigger-grid,
