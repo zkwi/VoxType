@@ -237,9 +237,8 @@
   .setup-check-item small {
     display: block;
     min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    line-height: 1.28;
+    overflow-wrap: anywhere;
   }
 
   .setup-check-item strong {

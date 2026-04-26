@@ -97,8 +97,6 @@ pub struct ContextConfig {
     #[serde(default = "default_recent_context_rounds")]
     pub recent_context_rounds: usize,
     #[serde(default)]
-    pub image_url: Option<String>,
-    #[serde(default)]
     pub hotwords: Vec<String>,
     #[serde(default)]
     pub prompt_context: Vec<TextContext>,
@@ -182,6 +180,10 @@ pub struct UiConfig {
     pub margin_bottom: u32,
     #[serde(default = "default_ui_opacity")]
     pub opacity: f64,
+    #[serde(default = "default_overlay_background_color")]
+    pub background_color: String,
+    #[serde(default = "default_overlay_text_color")]
+    pub text_color: String,
     #[serde(default = "default_scroll_interval_ms")]
     pub scroll_interval_ms: u64,
 }
@@ -286,7 +288,6 @@ impl Default for ContextConfig {
         Self {
             enable_recent_context: false,
             recent_context_rounds: default_recent_context_rounds(),
-            image_url: None,
             hotwords: Vec::new(),
             prompt_context: Vec::new(),
             recent_context: Vec::new(),
@@ -348,6 +349,8 @@ impl Default for UiConfig {
             height: default_ui_height(),
             margin_bottom: default_ui_margin_bottom(),
             opacity: default_ui_opacity(),
+            background_color: default_overlay_background_color(),
+            text_color: default_overlay_text_color(),
             scroll_interval_ms: default_scroll_interval_ms(),
         }
     }
@@ -583,6 +586,18 @@ pub fn validate_config(config: &AppConfig) -> Result<(), Vec<ConfigValidationErr
         400,
         "悬浮窗高度需在 40 到 400 之间。",
     );
+    validate_hex_color(
+        &mut errors,
+        "ui.background_color",
+        &config.ui.background_color,
+        "悬浮字幕背景色需使用 #RRGGBB 格式。",
+    );
+    validate_hex_color(
+        &mut errors,
+        "ui.text_color",
+        &config.ui.text_color,
+        "悬浮字幕文字色需使用 #RRGGBB 格式。",
+    );
     validate_f64_range(
         &mut errors,
         "llm_post_edit.timeout_seconds",
@@ -688,6 +703,21 @@ fn validate_f64_range(
     message: &str,
 ) {
     if !value.is_finite() || value < min || value > max {
+        push_validation_error(errors, field, message);
+    }
+}
+
+fn validate_hex_color(
+    errors: &mut Vec<ConfigValidationError>,
+    field: &str,
+    value: &str,
+    message: &str,
+) {
+    let value = value.trim();
+    let valid = value.len() == 7
+        && value.starts_with('#')
+        && value[1..].chars().all(|ch| ch.is_ascii_hexdigit());
+    if !valid {
         push_validation_error(errors, field, message);
     }
 }
@@ -886,6 +916,12 @@ fn default_ui_margin_bottom() -> u32 {
 fn default_ui_opacity() -> f64 {
     0.9
 }
+fn default_overlay_background_color() -> String {
+    "#176ee6".to_string()
+}
+fn default_overlay_text_color() -> String {
+    "#ffffff".to_string()
+}
 fn default_scroll_interval_ms() -> u64 {
     1200
 }
@@ -922,6 +958,8 @@ mod tests {
         config.typing.paste_delay_ms = 9_999;
         config.request.final_result_timeout_seconds = 0.0;
         config.ui.opacity = 2.0;
+        config.ui.background_color = "blue".to_string();
+        config.ui.text_color = "#fff".to_string();
         config.llm_post_edit.timeout_seconds = f64::NAN;
 
         let errors = validate_config(&config).expect_err("invalid config should fail");
@@ -935,6 +973,8 @@ mod tests {
         assert!(fields.contains(&"typing.paste_delay_ms"));
         assert!(fields.contains(&"request.final_result_timeout_seconds"));
         assert!(fields.contains(&"ui.opacity"));
+        assert!(fields.contains(&"ui.background_color"));
+        assert!(fields.contains(&"ui.text_color"));
         assert!(fields.contains(&"llm_post_edit.timeout_seconds"));
     }
 

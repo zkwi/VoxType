@@ -9,6 +9,7 @@
     savingLabel: string;
     reloadLabel: string;
     saving: boolean;
+    dirty?: boolean;
     onSave: () => void;
     onReload: () => void;
   };
@@ -21,12 +22,13 @@
     savingLabel,
     reloadLabel,
     saving,
+    dirty = false,
     onSave,
     onReload,
   }: Props = $props();
 </script>
 
-<section class="settings-toolbar" aria-label={title}>
+<section class:dirty class="settings-toolbar" aria-label={title}>
   <div>
     <strong>{title}</strong>
     <span>{statusMessage || hint}</span>
@@ -45,9 +47,6 @@
 
 <style>
   .settings-toolbar {
-    position: sticky;
-    top: 0;
-    z-index: 12;
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
@@ -58,6 +57,11 @@
     border-radius: 16px;
     box-shadow: 0 12px 34px rgba(15, 23, 42, 0.1);
     backdrop-filter: blur(14px);
+  }
+
+  .settings-toolbar.dirty {
+    border-color: rgba(47, 128, 237, 0.38);
+    box-shadow: 0 14px 36px rgba(47, 128, 237, 0.14);
   }
 
   .settings-toolbar strong {
@@ -105,6 +109,11 @@
     color: #ffffff;
     background: var(--primary, #2f80ed);
     border-color: var(--primary, #2f80ed);
+  }
+
+  .settings-toolbar.dirty .toolbar-actions .primary {
+    background: #1d4ed8;
+    border-color: #1d4ed8;
   }
 
   .toolbar-actions button:disabled {

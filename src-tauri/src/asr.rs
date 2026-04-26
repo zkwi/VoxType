@@ -112,12 +112,6 @@ pub fn build_context_payload(config: &AppConfig) -> Option<String> {
             }
         }
     }
-    if let Some(image_url) = &config.context.image_url {
-        let image_url = image_url.trim();
-        if !image_url.is_empty() {
-            context_data.push(json!({ "image_url": image_url }));
-        }
-    }
     for item in &config.context.prompt_context {
         let text = item.text.trim();
         if !text.is_empty() {
@@ -222,7 +216,6 @@ mod tests {
         config.context.recent_context = vec![TextContext {
             text: "recent".to_string(),
         }];
-        config.context.image_url = Some("https://example.com/a.png".to_string());
         config.context.prompt_context = vec![TextContext {
             text: "prompt".to_string(),
         }];
@@ -230,11 +223,7 @@ mod tests {
         let value: Value = serde_json::from_str(&context).unwrap();
         assert_eq!(value["hotwords"][0]["word"], "ASR");
         assert_eq!(value["context_data"][0]["text"], "recent");
-        assert_eq!(
-            value["context_data"][1]["image_url"],
-            "https://example.com/a.png"
-        );
-        assert_eq!(value["context_data"][2]["text"], "prompt");
+        assert_eq!(value["context_data"][1]["text"], "prompt");
     }
 
     #[test]

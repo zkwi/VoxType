@@ -221,7 +221,6 @@ pub async fn test_connection(config: &AppConfig) -> Result<(), String> {
     test_config.context.hotwords.clear();
     test_config.context.prompt_context.clear();
     test_config.context.recent_context.clear();
-    test_config.context.image_url = None;
     let preview = asr::build_request_preview(&test_config);
     let mut request = preview
         .ws_url

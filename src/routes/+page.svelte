@@ -29,6 +29,7 @@
     Mic,
     Minus,
     PenLine,
+    Save,
     Settings,
     ShieldCheck,
     Sparkles,
@@ -173,7 +174,6 @@
     context: {
       enable_recent_context: boolean;
       recent_context_rounds: number;
-      image_url: string | null;
       hotwords: string[];
       prompt_context: TextContext[];
       recent_context: TextContext[];
@@ -209,6 +209,8 @@
       margin_bottom: number;
       opacity: number;
       scroll_interval_ms: number;
+      background_color: string;
+      text_color: string;
     };
     tray: {
       show_startup_message: boolean;
@@ -251,7 +253,6 @@
     context: {
       enable_recent_context: false,
       recent_context_rounds: 5,
-      image_url: null,
       hotwords: [],
       prompt_context: [],
       recent_context: [],
@@ -277,7 +278,15 @@
       system_prompt: "",
       user_prompt_template: "{text}",
     },
-    ui: { width: 350, height: 64, margin_bottom: 52, opacity: 0.9, scroll_interval_ms: 1200 },
+    ui: {
+      width: 350,
+      height: 64,
+      margin_bottom: 52,
+      opacity: 0.9,
+      scroll_interval_ms: 1200,
+      background_color: "#176ee6",
+      text_color: "#ffffff",
+    },
     tray: {
       show_startup_message: true,
       startup_message_timeout_ms: 6000,
@@ -303,6 +312,12 @@
   const overlayLineHeight = 1.18;
   const chineseTypingCharsPerMinute = 50;
   const micBars = [0, 1, 2, 3, 4, 5];
+  const overlayColorPresets: { label: CopyKey; background: string; text: string }[] = [
+    { label: "overlayPresetBlue", background: "#176ee6", text: "#ffffff" },
+    { label: "overlayPresetDark", background: "#111827", text: "#f8fafc" },
+    { label: "overlayPresetLight", background: "#f8fafc", text: "#111827" },
+    { label: "overlayPresetAmber", background: "#92400e", text: "#fff7ed" },
+  ];
   const navItems: { id: Section; icon: typeof Gauge }[] = [
     { id: "Home", icon: Gauge },
     { id: "Health", icon: ShieldCheck },
@@ -320,6 +335,8 @@
   let measureCanvas: HTMLCanvasElement | undefined;
   let snapshot = $state<AppSnapshot>(fallbackSnapshot);
   let config = $state<AppConfig>(clonePlain(fallbackConfig));
+  let savedConfigFingerprint = $state(configFingerprint(fallbackConfig));
+  let settingsDirty = $derived(configFingerprint(config) !== savedConfigFingerprint);
   let stats = $state<StatsSnapshot>(emptyStats);
   let recording = $state(false);
   let sessionPhase = $state<SessionPhase>("idle");
@@ -459,6 +476,9 @@
   });
   function clonePlain<T>(value: T): T {
     return JSON.parse(JSON.stringify(value)) as T;
+  }
+  function configFingerprint(value: AppConfig) {
+    return JSON.stringify(value);
   }
   function refreshMainDensity() {
     if (isOverlay || isToast) {
@@ -740,6 +760,7 @@
     if (snapshotResult) snapshot = snapshotResult;
     if (configResult) {
       config = configResult.data;
+      savedConfigFingerprint = configFingerprint(configResult.data);
       configExists = configResult.exists;
       const setupMessage = configSetupMessage(configResult);
       if (setupMessage) {
@@ -846,6 +867,7 @@
       const result = await invoke<LoadedConfig>("save_app_config", { config });
       if (result) {
         config = result.data;
+        savedConfigFingerprint = configFingerprint(result.data);
         configExists = result.exists;
         statusMessage = t("configSaved");
       }
@@ -1057,10 +1079,12 @@
     actionNotice = message;
     actionNoticeKind = kind;
     if (actionNoticeTimer !== undefined) window.clearTimeout(actionNoticeTimer);
+    const baseDuration = kind === "error" ? 6400 : kind === "warning" ? 5200 : 3200;
+    const extraDuration = message.length > 80 ? 1800 : 0;
     actionNoticeTimer = window.setTimeout(() => {
       actionNotice = "";
       actionNoticeTimer = undefined;
-    }, 2800);
+    }, baseDuration + extraDuration);
   }
   function optionEnabledNotice(key: SoftConfigNoticeKey, enabled: boolean) {
     if (!enabled) return "";
@@ -1445,8 +1469,15 @@
     );
     if (result) {
       config = result.data;
+      savedConfigFingerprint = configFingerprint(result.data);
       configExists = result.exists;
     }
+  }
+
+  function settingsToolbarMessage() {
+    if (Object.keys(validationErrors).length > 0 && statusMessage) return statusMessage;
+    if (settingsDirty) return t("settingsUnsavedHint");
+    return statusMessage || t("settingsActionHint");
   }
 
   function updateHotwords(value: string) {
@@ -1464,9 +1495,26 @@
       .map((text) => ({ text }));
   }
 
-  function setOptionalImageUrl(value: string) {
-    const trimmed = value.trim();
-    config.context.image_url = trimmed ? trimmed : null;
+  function normalizedHexColor(value: string | undefined, fallback: string) {
+    const trimmed = (value ?? "").trim();
+    return /^#[0-9a-fA-F]{6}$/.test(trimmed) ? trimmed : fallback;
+  }
+
+  function overlayBackgroundColor() {
+    return normalizedHexColor(config.ui.background_color, fallbackConfig.ui.background_color);
+  }
+
+  function overlayTextColor() {
+    return normalizedHexColor(config.ui.text_color, fallbackConfig.ui.text_color);
+  }
+
+  function applyOverlayPreset(background: string, text: string) {
+    config.ui.background_color = background;
+    config.ui.text_color = text;
+  }
+
+  function overlayPresetActive(background: string, text: string) {
+    return overlayBackgroundColor().toLowerCase() === background.toLowerCase() && overlayTextColor().toLowerCase() === text.toLowerCase();
   }
 
   function setInputDevice(value: string | number | null) {
@@ -1652,7 +1700,7 @@
 </svelte:head>
 
 {#if isOverlay}
-  <main class="overlay-root">
+  <main class="overlay-root" style={`--overlay-bg: ${overlayBackgroundColor()}; --overlay-text: ${overlayTextColor()};`}>
     <div class="overlay-caption">
       <span class="overlay-dot"></span>
       <div
@@ -1798,8 +1846,8 @@
             </div>
           </div>
           <button class="shortcut-help" onclick={() => selectSection("Settings")}>
-            {t("shortcutSettings")}
-            <ChevronRight size={16} />
+            <Keyboard size={14} />
+            <span>{formatHotkey(snapshot.hotkey)}</span>
           </button>
         </div>
       </section>
@@ -1927,11 +1975,12 @@
         <SettingsToolbar
           title={t("settingsActionTitle")}
           hint={t("settingsActionHint")}
-          {statusMessage}
+          statusMessage={settingsToolbarMessage()}
           saveLabel={t("saveConfig")}
           savingLabel={t("saving")}
           reloadLabel={t("reload")}
           {saving}
+          dirty={settingsDirty}
           onSave={saveConfig}
           onReload={reloadConfigFromUi}
         />
@@ -2007,6 +2056,42 @@
                 </select>
               </label>
             </div>
+            <div class="caption-theme-panel">
+              <div class="caption-theme-head">
+                <div>
+                  <strong>{t("captionColors")}</strong>
+                  <span>{t("captionColorsDescription")}</span>
+                </div>
+                <div class="caption-preview" style={`--preview-bg: ${overlayBackgroundColor()}; --preview-text: ${overlayTextColor()};`}>
+                  {t("captionPreviewText")}
+                </div>
+              </div>
+              <div class="preset-row">
+                {#each overlayColorPresets as preset}
+                  <button
+                    type="button"
+                    class:active={overlayPresetActive(preset.background, preset.text)}
+                    aria-pressed={overlayPresetActive(preset.background, preset.text)}
+                    onclick={() => applyOverlayPreset(preset.background, preset.text)}
+                  >
+                    <span class="preset-swatch" style={`--preset-bg: ${preset.background}; --preset-text: ${preset.text};`}>Aa</span>
+                    <span>{t(preset.label)}</span>
+                  </button>
+                {/each}
+              </div>
+              <div class="form-grid color-grid">
+                <label class="color-field" class:field-invalid={Boolean(fieldError("ui.background_color"))}>
+                  <span>{t("captionBackgroundColor")}</span>
+                  <input type="color" value={overlayBackgroundColor()} oninput={(event) => (config.ui.background_color = event.currentTarget.value)} />
+                  {#if fieldError("ui.background_color")}<small class="field-error">{fieldError("ui.background_color")}</small>{/if}
+                </label>
+                <label class="color-field" class:field-invalid={Boolean(fieldError("ui.text_color"))}>
+                  <span>{t("captionTextColor")}</span>
+                  <input type="color" value={overlayTextColor()} oninput={(event) => (config.ui.text_color = event.currentTarget.value)} />
+                  {#if fieldError("ui.text_color")}<small class="field-error">{fieldError("ui.text_color")}</small>{/if}
+                </label>
+              </div>
+            </div>
             <div class="toggle-grid">
               <label class="check"><input type="checkbox" bind:checked={config.tray.show_startup_message} />{t("showStartupMessage")}</label>
             </div>
@@ -2067,9 +2152,14 @@
                   <button class="link-button" onclick={openSetupGuide}>{t("setupGuideCta")}</button>
                 {/if}
               </div>
-              <button class="test-button" onclick={testAsrConfig} disabled={testingAsr}>
-                <ShieldCheck size={16} />{testingAsr ? t("testingConnection") : t("testConnection")}
-              </button>
+              <div class="settings-inline-actions">
+                <button class="test-button primary" onclick={saveConfig} disabled={saving}>
+                  <Save size={16} />{saving ? t("saving") : t("saveConfig")}
+                </button>
+                <button class="test-button" onclick={testAsrConfig} disabled={testingAsr}>
+                  <ShieldCheck size={16} />{testingAsr ? t("testingConnection") : t("testConnection")}
+                </button>
+              </div>
             </div>
             <div class="form-grid">
               <label><span>{t("resourceId")}</span><input bind:value={config.auth.resource_id} /></label>
@@ -2158,7 +2248,6 @@
             </div>
             <label><span>{t("hotwords")}</span><textarea value={config.context.hotwords.join("\n")} oninput={(event) => updateHotwords(event.currentTarget.value)}></textarea></label>
             <label><span>{t("promptContext")}</span><textarea value={config.context.prompt_context.map((item) => item.text).join("\n")} oninput={(event) => updatePromptContext(event.currentTarget.value)}></textarea></label>
-            <label><span>{t("imageUrl")}</span><input value={config.context.image_url ?? ""} oninput={(event) => setOptionalImageUrl(event.currentTarget.value)} /></label>
             <div class="toggle-grid">
               <label class="check"><input type="checkbox" bind:checked={config.context.enable_recent_context} onchange={(event) => maybeShowOptionEnabledNotice("enable_recent_context", event.currentTarget.checked)} />{t("useRecentContext")}</label>
             </div>
@@ -2317,7 +2406,7 @@
     width: 100vw;
     height: 100vh;
     overflow: hidden !important;
-    background: #176ee6;
+    background: transparent;
   }
   :global(html:has(.toast-root)), :global(body:has(.toast-root)) {
     min-width: 0;
@@ -2343,7 +2432,7 @@
     height: 100vh;
     padding: 0;
     overflow: hidden;
-    background: #176ee6;
+    background: var(--overlay-bg, #176ee6);
   }
   .overlay-caption {
     display: flex;
@@ -2355,8 +2444,8 @@
     min-width: 0;
     padding: 8px 14px;
     overflow: hidden;
-    color: #ffffff;
-    background: #176ee6;
+    color: var(--overlay-text, #ffffff);
+    background: var(--overlay-bg, #176ee6);
     border: 0;
     border-radius: 0;
     box-shadow: none;
@@ -2378,10 +2467,10 @@
     height: 100%;
     max-height: 100%;
     overflow: hidden;
-    color: #ffffff !important;
+    color: inherit;
     font-weight: 400;
     line-height: 1.18;
-    text-shadow: 0 1px 1px rgba(12, 57, 120, 0.55);
+    text-shadow: none;
     white-space: normal;
     overflow-wrap: normal;
   }
@@ -3120,6 +3209,11 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  .shortcut-help span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
   .shortcut-help :global(svg) {
     flex: 0 0 auto;
   }
@@ -3416,19 +3510,117 @@
   }
   .form-panel label {
     display: grid;
+    align-content: start;
     gap: 8px;
     color: var(--text-secondary);
     font-size: 14px;
   }
   .form-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: 14px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    align-items: start;
+    gap: 16px 14px;
   }
   .toggle-grid {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    align-items: start;
     gap: 10px;
+  }
+  .color-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .caption-theme-panel {
+    display: grid;
+    gap: 12px;
+    padding: 14px;
+    background: #f8fbff;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+  }
+  .caption-theme-head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px;
+  }
+  .caption-theme-head > div:first-child {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+  }
+  .caption-theme-head strong {
+    color: var(--text-main);
+    font-size: 14px;
+    font-weight: 800;
+  }
+  .caption-theme-head span {
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.45;
+  }
+  .caption-preview {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 168px;
+    min-height: 36px;
+    padding: 0 14px;
+    overflow: hidden;
+    color: var(--preview-text);
+    background: var(--preview-bg);
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 700;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .preset-row {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+  }
+  .preset-row button {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    min-height: 42px;
+    padding: 6px 10px;
+    color: var(--text-main);
+    background: #ffffff;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 700;
+  }
+  .preset-row button.active {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px rgba(47, 128, 237, 0.12);
+  }
+  .preset-row button > span:last-child {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .preset-swatch {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 26px;
+    color: var(--preset-text);
+    background: var(--preset-bg);
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 800;
+  }
+  .color-field input[type="color"] {
+    height: 38px;
+    padding: 4px;
+    cursor: pointer;
   }
   .check {
     display: flex !important;
@@ -3493,6 +3685,22 @@
     font-size: 13px;
     font-weight: 800;
     white-space: nowrap;
+  }
+  .settings-inline-actions {
+    display: flex;
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: flex-end;
+    min-width: 0;
+  }
+  .settings-inline-actions .test-button {
+    min-width: 96px;
+  }
+  .test-button.primary {
+    color: #ffffff;
+    background: var(--primary);
+    border-color: var(--primary);
   }
   .test-button:disabled {
     cursor: wait;
@@ -3946,6 +4154,19 @@
     .ui-compact .stats-row {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
+    .form-grid,
+    .toggle-grid,
+    .preset-row {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .caption-theme-head {
+      grid-template-columns: 1fr;
+      align-items: stretch;
+    }
+    .caption-preview {
+      width: 100%;
+      min-width: 0;
+    }
     .voice-hero {
       grid-template-columns: 86px minmax(0, 1fr);
       padding: 18px 22px;
@@ -3971,6 +4192,14 @@
     .day-list article {
       grid-template-columns: minmax(104px, 1fr) repeat(4, minmax(78px, 0.82fr));
       gap: 8px;
+    }
+  }
+  @media (max-width: 720px) {
+    .form-grid,
+    .toggle-grid,
+    .preset-row,
+    .color-grid {
+      grid-template-columns: 1fr;
     }
   }
 </style>

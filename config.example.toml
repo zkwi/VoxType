@@ -49,8 +49,6 @@ final_result_timeout_seconds = 15
 enable_recent_context = false
 # 最近上下文保留轮数
 recent_context_rounds = 5
-# 可选图片 URL；不用就保持注释掉
-# image_url = "https://example.com/demo.png"
 # 不要在模板或文档中填写个人热词；复制到本地 config.toml 后再按需填写
 hotwords = []
 
@@ -132,6 +130,9 @@ height = 64
 margin_bottom = 52
 # 悬浮窗透明度
 opacity = 0.9
+# 悬浮字幕背景色和文字色
+background_color = "#176ee6"
+text_color = "#ffffff"
 # 长文本滚动刷新间隔
 scroll_interval_ms = 1200
 
