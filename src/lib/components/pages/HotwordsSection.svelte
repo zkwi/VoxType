@@ -87,6 +87,8 @@
     onClearAcceptedAutoHotwords,
     onApplySelectedAutoHotwords,
   }: Props = $props();
+
+  let promptEditorOpen = $state(false);
 </script>
 
 <section class="settings-stack">
@@ -115,8 +117,8 @@
     <div id="settings-context" class="form-panel">
       <div class="section-heading with-actions">
         <div class="section-heading-copy">
-          <h3>{t("customHotwordsTitle")}</h3>
-          <p>{t("customHotwordsDescription")}</p>
+          <h3>{t("hotwordsCommonTitle")}</h3>
+          <p>{t("hotwordsCommonDescription")}</p>
           <SettingTags tags={[t("tagSentToService")]} />
         </div>
         <div class="settings-inline-actions">
@@ -127,6 +129,49 @@
       <p class="field-hint">{t("customHotwordCount", { count: String(hotwordCount) })}</p>
       <label><span>{t("customHotwords")}</span><textarea value={config.context.hotwords.join("\n")} oninput={(event) => onUpdateHotwords(event.currentTarget.value)}></textarea></label>
       <p class="field-hint">{t("hotwordsPrivacyHint")}</p>
+    </div>
+    <div id="settings-llm-prompt" class="form-panel">
+      <div class="section-heading with-actions">
+        <div class="section-heading-copy">
+          <h3>{t("polishingPromptTitle")}</h3>
+          <p>{t("polishingPromptDescription")}</p>
+          <SettingTags tags={[t("tagOptional")]} />
+          {#if !config.llm_post_edit.enabled}
+            <p class="field-hint">{t("polishingPromptInactiveHint")}</p>
+          {/if}
+        </div>
+        <div class="settings-inline-actions">
+          <button class="test-button" type="button" onclick={() => (promptEditorOpen = !promptEditorOpen)}><FileText size={16} />{promptEditorOpen ? t("hidePromptEditor") : t("editPrompt")}</button>
+          <button class="test-button" type="button" onclick={onRestoreDefaultPrompt}><Sparkles size={16} />{t("restoreDefaultPrompt")}</button>
+          <button class="test-button" type="button" onclick={onPreviewFinalPrompt}><FileText size={16} />{t("previewFinalPrompt")}</button>
+        </div>
+      </div>
+      {#if promptEditorOpen}
+        <label class:field-invalid={Boolean(fieldError("llm_post_edit.user_prompt_template"))}>
+          <span>{t("userPromptTemplate")}</span>
+          <textarea bind:value={config.llm_post_edit.user_prompt_template}></textarea>
+          {#if fieldError("llm_post_edit.user_prompt_template")}<small class="field-error">{fieldError("llm_post_edit.user_prompt_template")}</small>{/if}
+        </label>
+      {:else}
+        <div class="prompt-summary">
+          <FileText size={16} />
+          <span>{t("promptEditorCollapsedHint")}</span>
+        </div>
+      {/if}
+      {#if advancedOpen}
+        <div class="advanced-subpanel">
+          <div class="section-heading">
+            <div class="section-heading-copy">
+              <h3>{t("advancedPromptTitle")}</h3>
+              <p>{t("advancedPromptDescription")}</p>
+            </div>
+          </div>
+          <div class="form-grid">
+            <label><span>{t("minChars")}</span><input type="number" bind:value={config.llm_post_edit.min_chars} /></label>
+          </div>
+          <label><span>{t("systemPrompt")}</span><textarea bind:value={config.llm_post_edit.system_prompt}></textarea></label>
+        </div>
+      {/if}
     </div>
     {#if advancedOpen}
       <div id="settings-prompt-context" class="form-panel">
@@ -148,28 +193,6 @@
           <label class="check"><input type="checkbox" bind:checked={config.context.enable_recent_context} onchange={(event) => onOptionEnabledNotice("enable_recent_context", event.currentTarget.checked)} />{t("useRecentContext")}</label>
         </div>
         <p class="field-hint">{t("recentContextHint")}</p>
-      </div>
-      <div id="settings-llm-prompt" class="form-panel">
-        <div class="section-heading with-actions">
-          <div class="section-heading-copy">
-            <h3>{t("llmPromptSettings")}</h3>
-            <p>{t("llmPromptDescription")}</p>
-            <SettingTags tags={[t("tagAdvanced")]} />
-          </div>
-          <div class="settings-inline-actions">
-            <button class="test-button" type="button" onclick={onRestoreDefaultPrompt}><Sparkles size={16} />{t("restoreDefaultPrompt")}</button>
-            <button class="test-button" type="button" onclick={onPreviewFinalPrompt}><FileText size={16} />{t("previewFinalPrompt")}</button>
-          </div>
-        </div>
-        <div class="form-grid">
-          <label><span>{t("minChars")}</span><input type="number" bind:value={config.llm_post_edit.min_chars} /></label>
-        </div>
-        <label><span>{t("systemPrompt")}</span><textarea bind:value={config.llm_post_edit.system_prompt}></textarea></label>
-        <label class:field-invalid={Boolean(fieldError("llm_post_edit.user_prompt_template"))}>
-          <span>{t("userPromptTemplate")}</span>
-          <textarea bind:value={config.llm_post_edit.user_prompt_template}></textarea>
-          {#if fieldError("llm_post_edit.user_prompt_template")}<small class="field-error">{fieldError("llm_post_edit.user_prompt_template")}</small>{/if}
-        </label>
       </div>
       <div id="settings-auto-hotwords" class="form-panel auto-hotwords-panel">
         <div class="section-heading with-actions">
@@ -201,18 +224,6 @@
           </div>
         {/if}
         {#if showAutoHotwordDetails}
-          <div class="form-grid">
-            <label class:field-invalid={Boolean(fieldError("auto_hotwords.max_history_chars"))}>
-              <span>{t("autoHotwordsMaxHistoryChars")}</span>
-              <input type="number" min="1000" max="20000" bind:value={config.auto_hotwords.max_history_chars} />
-              {#if fieldError("auto_hotwords.max_history_chars")}<small class="field-error">{fieldError("auto_hotwords.max_history_chars")}</small>{/if}
-            </label>
-            <label class:field-invalid={Boolean(fieldError("auto_hotwords.max_candidates"))}>
-              <span>{t("autoHotwordsMaxCandidates")}</span>
-              <input type="number" min="5" max="100" bind:value={config.auto_hotwords.max_candidates} />
-              {#if fieldError("auto_hotwords.max_candidates")}<small class="field-error">{fieldError("auto_hotwords.max_candidates")}</small>{/if}
-            </label>
-          </div>
           <div class="auto-hotword-list-editor">
             <div class="auto-hotword-list-head">
               <div>
@@ -458,7 +469,6 @@
     line-height: 1.45;
   }
 
-  .field-invalid input,
   .field-invalid textarea {
     border-color: var(--danger);
     background: #fff7f7;
@@ -487,6 +497,28 @@
 
   .inline-warning :global(svg) {
     flex: 0 0 auto;
+  }
+
+  .prompt-summary,
+  .advanced-subpanel {
+    display: grid;
+    gap: 12px;
+    padding: 14px;
+    background: #fbfdff;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+  }
+
+  .prompt-summary {
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.45;
+  }
+
+  .prompt-summary :global(svg) {
+    color: var(--primary);
   }
 
   .link-button {

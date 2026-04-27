@@ -167,39 +167,31 @@
         </label>
       </div>
     </div>
-    <div id="settings-request" class="form-panel">
-      <div class="section-heading">
-        <div class="section-heading-copy">
-          <h3>{t("recognitionOptions")}</h3>
-          <p>{t("asrDescription")}</p>
-          <SettingTags tags={[t("tagAdvanced")]} />
+    {#if advancedOpen}
+      <div id="settings-request" class="form-panel">
+        <div class="section-heading">
+          <div class="section-heading-copy">
+            <h3>{t("asrConnectionParams")}</h3>
+            <p>{t("asrConnectionParamsDescription")}</p>
+            <SettingTags tags={[t("tagAdvanced")]} />
+          </div>
         </div>
-      </div>
-      <div class="form-grid">
-        <label class:field-invalid={Boolean(fieldError("request.final_result_timeout_seconds"))}>
-          <span>{t("finalTimeout")}</span>
-          <input type="number" bind:value={config.request.final_result_timeout_seconds} />
-          {#if fieldError("request.final_result_timeout_seconds")}<small class="field-error">{fieldError("request.final_result_timeout_seconds")}</small>{/if}
-          <small class="field-hint">{t("finalTimeoutHint")}</small>
-        </label>
-      </div>
-      {#if advancedOpen}
+        <div class="form-grid">
+          <label class:field-invalid={Boolean(fieldError("request.final_result_timeout_seconds"))}>
+            <span>{t("finalTimeout")}</span>
+            <input type="number" bind:value={config.request.final_result_timeout_seconds} />
+            {#if fieldError("request.final_result_timeout_seconds")}<small class="field-error">{fieldError("request.final_result_timeout_seconds")}</small>{/if}
+            <small class="field-hint">{t("finalTimeoutHint")}</small>
+          </label>
+          <label><span>{t("model")}</span><input bind:value={config.request.model_name} /></label>
+        </div>
         <label class:field-invalid={Boolean(fieldError("request.ws_url"))}>
           <span>{t("websocketUrl")}</span>
           <input bind:value={config.request.ws_url} />
           {#if fieldError("request.ws_url")}<small class="field-error">{fieldError("request.ws_url")}</small>{/if}
         </label>
-        <div class="form-grid">
-          <label><span>{t("model")}</span><input bind:value={config.request.model_name} /></label>
-        </div>
-        <div class="toggle-grid">
-          <label class="check"><input type="checkbox" bind:checked={config.request.enable_nonstream} />{t("secondPass")}</label>
-          <label class="check"><input type="checkbox" bind:checked={config.request.enable_itn} />{t("itn")}</label>
-          <label class="check"><input type="checkbox" bind:checked={config.request.enable_punc} />{t("punctuation")}</label>
-          <label class="check"><input type="checkbox" bind:checked={config.request.enable_ddc} />{t("ddc")}</label>
-        </div>
-      {/if}
-    </div>
+      </div>
+    {/if}
   </section>
   <section class="settings-group">
     <div class="settings-group-heading">
@@ -222,20 +214,20 @@
         <small>{t("llmApiOptionalUses")}</small>
       </div>
       <label class="check">
-        <input type="checkbox" bind:checked={config.llm_post_edit.enabled} />
+        <input
+          type="checkbox"
+          checked={config.llm_post_edit.enabled}
+          onchange={(event) => {
+            config.llm_post_edit.enabled = event.currentTarget.checked;
+            if (event.currentTarget.checked) llmApiConfigVisible = true;
+          }}
+        />
         <span class="check-copy">
           <span>{t("enablePolishing")}</span>
           {#if !hasLlmApiConfig}<small>{t("llmApiRequiredForPolishing")}</small>{/if}
         </span>
       </label>
-      <label class="check">
-        <input type="checkbox" bind:checked={config.llm_post_edit.enable_thinking} />
-        <span class="check-copy">
-          <span>{t("enableThinking")}</span>
-          <small>{t("enableThinkingHint")}</small>
-        </span>
-      </label>
-      {#if llmApiConfigVisible || advancedOpen}
+      {#if llmApiConfigVisible || config.llm_post_edit.enabled || !hasLlmApiConfig}
         <div class="form-grid">
           <label class:field-invalid={Boolean(fieldError("llm_post_edit.base_url"))}>
             <span>Base URL</span>
@@ -252,15 +244,34 @@
             <input bind:value={config.llm_post_edit.model} />
             {#if fieldError("llm_post_edit.model")}<small class="field-error">{fieldError("llm_post_edit.model")}</small>{/if}
           </label>
-          <label class:field-invalid={Boolean(fieldError("llm_post_edit.timeout_seconds"))}>
-            <span>{t("timeout")}</span>
-            <input type="number" bind:value={config.llm_post_edit.timeout_seconds} />
-            {#if fieldError("llm_post_edit.timeout_seconds")}<small class="field-error">{fieldError("llm_post_edit.timeout_seconds")}</small>{/if}
-          </label>
         </div>
         <button class="test-button" type="button" onclick={onTestLlmConfig} disabled={testingLlm}>
           <ShieldCheck size={16} />{testingLlm ? t("testingConnection") : t("testConnection")}
         </button>
+      {/if}
+      {#if advancedOpen}
+        <div class="advanced-subpanel">
+          <div class="section-heading">
+            <div class="section-heading-copy">
+              <h3>{t("llmAdvancedParams")}</h3>
+              <p>{t("llmAdvancedParamsDescription")}</p>
+            </div>
+          </div>
+          <div class="form-grid">
+            <label class:field-invalid={Boolean(fieldError("llm_post_edit.timeout_seconds"))}>
+              <span>{t("timeout")}</span>
+              <input type="number" bind:value={config.llm_post_edit.timeout_seconds} />
+              {#if fieldError("llm_post_edit.timeout_seconds")}<small class="field-error">{fieldError("llm_post_edit.timeout_seconds")}</small>{/if}
+            </label>
+          </div>
+          <label class="check">
+            <input type="checkbox" bind:checked={config.llm_post_edit.enable_thinking} />
+            <span class="check-copy">
+              <span>{t("enableThinking")}</span>
+              <small>{t("enableThinkingHint")}</small>
+            </span>
+          </label>
+        </div>
       {/if}
     </div>
   </section>
@@ -351,8 +362,7 @@
     flex: 1 1 320px;
   }
 
-  .form-grid,
-  .toggle-grid {
+  .form-grid {
     display: grid;
     align-items: start;
     gap: 16px 14px;
@@ -360,13 +370,6 @@
 
   .form-grid {
     grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
-  }
-
-  .toggle-grid {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 10px 18px;
   }
 
   .check {
@@ -509,6 +512,15 @@
     overflow-wrap: anywhere;
   }
 
+  .advanced-subpanel {
+    display: grid;
+    gap: 12px;
+    padding: 14px;
+    background: #fbfdff;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+  }
+
   .setup-note {
     margin: 8px 0 0;
     color: #8a4b00;
@@ -579,11 +591,6 @@
 
   @media (max-width: 720px) {
     .form-grid {
-      grid-template-columns: 1fr;
-    }
-
-    .toggle-grid {
-      display: grid;
       grid-template-columns: 1fr;
     }
 

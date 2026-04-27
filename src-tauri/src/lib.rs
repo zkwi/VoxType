@@ -157,14 +157,25 @@ fn load_app_config() -> Result<LoadedConfig, String> {
 
 #[tauri::command]
 fn save_app_config(app: AppHandle, config: AppConfig) -> Result<LoadedConfig, ConfigSaveError> {
-    if let Err(errors) = config::validate_config(&config) {
-        app_log::warn(format!("配置保存失败: validation_errors={}", errors.len()));
-        return Err(ConfigSaveError {
-            message: "配置存在不合法字段，请修改后再保存。".to_string(),
-            errors,
-        });
-    }
     let previous_config = config::load_config().ok().map(|loaded| loaded.data);
+    if let Err(errors) = config::validate_config(&config) {
+        let validation_error_count = errors.len();
+        let blocking_errors = blocking_validation_errors(errors, previous_config.as_ref(), &config);
+        if !blocking_errors.is_empty() {
+            app_log::warn(format!(
+                "配置保存失败: validation_errors={}",
+                blocking_errors.len()
+            ));
+            return Err(ConfigSaveError {
+                message: "配置存在不合法字段，请修改后再保存。".to_string(),
+                errors: blocking_errors,
+            });
+        }
+        app_log::warn(format!(
+            "配置存在未改动的隐藏高级字段错误，已保留原值并继续保存: validation_errors={}",
+            validation_error_count
+        ));
+    }
     let side_effects = config_side_effects(previous_config.as_ref(), &config);
     if hotkey_registration_test_needed(previous_config.as_ref(), &config) {
         if let Err(err) = hotkey::can_register_hotkey(&config.hotkey) {
@@ -206,6 +217,55 @@ fn save_app_config(app: AppHandle, config: AppConfig) -> Result<LoadedConfig, Co
                 errors: Vec::new(),
             })
         }
+    }
+}
+
+fn blocking_validation_errors(
+    errors: Vec<config::ConfigValidationError>,
+    previous_config: Option<&AppConfig>,
+    next_config: &AppConfig,
+) -> Vec<config::ConfigValidationError> {
+    errors
+        .into_iter()
+        .filter(|error| {
+            !unchanged_hidden_config_field(previous_config, next_config, error.field.as_str())
+        })
+        .collect()
+}
+
+fn unchanged_hidden_config_field(
+    previous_config: Option<&AppConfig>,
+    next_config: &AppConfig,
+    field: &str,
+) -> bool {
+    let Some(previous_config) = previous_config else {
+        return false;
+    };
+    match field {
+        "audio.sample_rate" => previous_config.audio.sample_rate == next_config.audio.sample_rate,
+        "audio.channels" => previous_config.audio.channels == next_config.audio.channels,
+        "audio.segment_ms" => previous_config.audio.segment_ms == next_config.audio.segment_ms,
+        "audio.stop_grace_ms" => {
+            previous_config.audio.stop_grace_ms == next_config.audio.stop_grace_ms
+        }
+        "typing.paste_delay_ms" => {
+            previous_config.typing.paste_delay_ms == next_config.typing.paste_delay_ms
+        }
+        "typing.clipboard_snapshot_max_bytes" => {
+            previous_config.typing.clipboard_snapshot_max_bytes
+                == next_config.typing.clipboard_snapshot_max_bytes
+        }
+        "update.github_repo" => {
+            previous_config.update.github_repo == next_config.update.github_repo
+        }
+        "auto_hotwords.max_history_chars" => {
+            previous_config.auto_hotwords.max_history_chars
+                == next_config.auto_hotwords.max_history_chars
+        }
+        "auto_hotwords.max_candidates" => {
+            previous_config.auto_hotwords.max_candidates == next_config.auto_hotwords.max_candidates
+        }
+        _ => false,
     }
 }
 
@@ -795,10 +855,11 @@ fn redact_path_with_profile(value: &str, profile: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        autostart_update_needed, build_setup_status, config_side_effects, enabled_trigger_summary,
-        hotkey_registration_test_needed, hotkey_runtime_update_needed, redact_path_with_profile,
-        AppConfig, ConfigSideEffects,
+        autostart_update_needed, blocking_validation_errors, build_setup_status,
+        config_side_effects, enabled_trigger_summary, hotkey_registration_test_needed,
+        hotkey_runtime_update_needed, redact_path_with_profile, AppConfig, ConfigSideEffects,
     };
+    use crate::config::ConfigValidationError;
 
     #[test]
     fn hotkey_registration_test_is_needed_when_enabled_with_same_text() {
@@ -892,6 +953,56 @@ mod tests {
                 apply_autostart: true,
             }
         );
+    }
+
+    #[test]
+    fn unchanged_hidden_config_validation_errors_do_not_block_visible_saves() {
+        let mut previous = AppConfig::default();
+        previous.audio.sample_rate = 0;
+
+        let mut next = previous.clone();
+        next.ui.width += 10;
+
+        let blocking = blocking_validation_errors(
+            vec![validation_error("audio.sample_rate")],
+            Some(&previous),
+            &next,
+        );
+
+        assert!(blocking.is_empty());
+    }
+
+    #[test]
+    fn changed_hidden_config_validation_errors_still_block_saves() {
+        let previous = AppConfig::default();
+        let mut next = previous.clone();
+        next.audio.sample_rate = 0;
+
+        let blocking = blocking_validation_errors(
+            vec![validation_error("audio.sample_rate")],
+            Some(&previous),
+            &next,
+        );
+
+        assert_eq!(blocking.len(), 1);
+        assert_eq!(blocking[0].field, "audio.sample_rate");
+    }
+
+    #[test]
+    fn visible_config_validation_errors_still_block_even_when_unchanged() {
+        let mut previous = AppConfig::default();
+        previous.request.ws_url = "http://example.com/asr".to_string();
+
+        let next = previous.clone();
+
+        let blocking = blocking_validation_errors(
+            vec![validation_error("request.ws_url")],
+            Some(&previous),
+            &next,
+        );
+
+        assert_eq!(blocking.len(), 1);
+        assert_eq!(blocking[0].field, "request.ws_url");
     }
 
     #[test]
@@ -1015,5 +1126,12 @@ mod tests {
             redact_path_with_profile("C:\\Users\\AliceBackup\\config.toml", "C:\\Users\\Alice"),
             "C:\\Users\\AliceBackup\\config.toml"
         );
+    }
+
+    fn validation_error(field: &str) -> ConfigValidationError {
+        ConfigValidationError {
+            field: field.to_string(),
+            message: "invalid".to_string(),
+        }
     }
 }

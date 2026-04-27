@@ -107,7 +107,7 @@ pub async fn download_and_install(config: &UpdateConfig) -> Result<InstallUpdate
     Ok(InstallUpdateResult {
         version: latest_version,
         asset_name: asset.name,
-        message: "已下载更新并开始自动安装。声写将退出以释放文件，安装完成后请重新打开。"
+        message: "已下载更新并开始自动安装。声写将退出以释放文件，安装完成后会自动打开新版本。"
             .to_string(),
     })
 }
@@ -120,8 +120,8 @@ fn launch_installer(installer_path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn silent_installer_args() -> [&'static str; 1] {
-    ["/S"]
+fn silent_installer_args() -> [&'static str; 2] {
+    ["/S", "/R"]
 }
 
 async fn fetch_latest_release(config: &UpdateConfig) -> Result<GitHubRelease, String> {
@@ -310,8 +310,8 @@ mod tests {
     }
 
     #[test]
-    fn launches_nsis_installer_in_silent_mode() {
-        assert_eq!(silent_installer_args(), ["/S"]);
+    fn launches_nsis_installer_in_silent_mode_and_reopens_app() {
+        assert_eq!(silent_installer_args(), ["/S", "/R"]);
     }
 
     fn asset(name: &str) -> GitHubAsset {

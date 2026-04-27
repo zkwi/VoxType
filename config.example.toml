@@ -11,6 +11,7 @@ access_key = ""
 resource_id = "volc.seedasr.sauc.duration"
 
 [audio]
+# 以下采样、声道、分片和尾音参数属于高级/内部参数；应用设置页不再展示，普通用户不需要修改
 # 录音采样率，豆包常用 16000；一般不建议改
 sample_rate = 16000
 # 单声道即可
@@ -30,6 +31,7 @@ mute_system_volume_while_recording = false
 # 豆包流式 ASR WebSocket 地址，通常保持默认
 ws_url = "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async"
 model_name = "bigmodel"
+# 以下为 ASR 请求内部参数；应用设置页不再展示，可按需手动编辑
 # 是否开启二遍识别；通常建议开启
 enable_nonstream = true
 enable_itn = true
@@ -57,6 +59,7 @@ hotwords = []
 enabled = false
 # 用户确认加入的自动识别热词；与 [context].hotwords 分开保存，调用 ASR/LLM 时自动合并
 accepted_hotwords = []
+# 以下为自动热词候选内部上限；应用设置页不再展示，可按需手动编辑
 # 本地历史文本总量上限
 max_history_chars = 10000
 # 单次生成候选数量上限
@@ -71,6 +74,7 @@ middle_mouse_enabled = false
 right_alt_enabled = false
 
 [typing]
+# 以下粘贴等待、快照和重试参数属于高级/内部参数；应用设置页不再展示，可按需手动编辑
 # 复制文本后、尝试切回原窗口前的等待时间
 paste_delay_ms = 120
 # 粘贴方式：ctrl_v / shift_insert / clipboard_only
@@ -96,7 +100,7 @@ launch_on_startup = false
 [update]
 # 启动后是否自动检查 GitHub Release 更新
 auto_check_on_startup = true
-# GitHub Release 所在仓库，普通使用不需要修改
+# GitHub Release 所在仓库，应用设置页不再展示，普通使用不需要修改
 github_repo = "zkwi/VoxType"
 
 [llm_post_edit]
@@ -151,10 +155,11 @@ opacity = 0.9
 # 悬浮字幕背景色和文字色
 background_color = "#176ee6"
 text_color = "#ffffff"
-# 长文本滚动刷新间隔
+# 长文本滚动刷新间隔，应用设置页不再展示
 scroll_interval_ms = 1200
 
 [tray]
+# 启动托盘提示属于内部体验参数；应用设置页不再展示
 # 启动后是否显示托盘提示
 show_startup_message = true
 startup_message_timeout_ms = 6000

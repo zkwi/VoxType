@@ -99,6 +99,23 @@
     onOpenLog,
     onCopyDiagnosticReport,
   }: Props = $props();
+
+  function basicPasteMode(pasteMethod: string) {
+    return pasteMethod === "clipboard_only" ? "clipboard_only" : "auto_paste";
+  }
+
+  function basicPasteLabel(pasteMethod: string) {
+    return pasteMethod === "shift_insert" ? t("basicPasteAutoCompat") : t("basicPasteAuto");
+  }
+
+  function setBasicPasteMode(mode: string) {
+    if (mode === "clipboard_only") {
+      config.typing.paste_method = "clipboard_only";
+      return;
+    }
+    if (config.typing.paste_method === "shift_insert") return;
+    config.typing.paste_method = "ctrl_v";
+  }
 </script>
 
 <section class="settings-stack">
@@ -125,7 +142,7 @@
       <p>{t("optionsPageDescription")}</p>
     </div>
     <div id="settings-output" class="form-panel">
-      <div class="section-heading"><h3>{t("startAndOutput")}</h3><p>{t("typingDescription")}</p></div>
+      <div class="section-heading"><h3>{t("usageModeTitle")}</h3><p>{t("usageModeDescription")}</p></div>
       <div class="form-grid">
         <label class:field-invalid={Boolean(fieldError("hotkey") || hotkeyValidationMessage)}>
           <span>{t("hotkey")}</span>
@@ -141,11 +158,6 @@
           </button>
           <small class="field-hint">{hotkeyValidationMessage || fieldError("hotkey") || t("hotkeyRecordHint")}</small>
         </label>
-        <label class:field-invalid={Boolean(fieldError("typing.paste_method"))}>
-          <span>{t("pasteMethod")}</span>
-          <select bind:value={config.typing.paste_method}><option value="ctrl_v">Ctrl + V</option><option value="shift_insert">Shift + Insert</option><option value="clipboard_only">{t("clipboardOnly")}</option></select>
-          {#if fieldError("typing.paste_method")}<small class="field-error">{fieldError("typing.paste_method")}</small>{/if}
-        </label>
         <label class:field-invalid={Boolean(fieldError("tray.close_behavior"))}>
           <span>{t("closeBehavior")}</span>
           <select bind:value={config.tray.close_behavior}>
@@ -155,43 +167,29 @@
           </select>
           {#if fieldError("tray.close_behavior")}<small class="field-error">{fieldError("tray.close_behavior")}</small>{/if}
         </label>
-        {#if advancedOpen}
-          <label class:field-invalid={Boolean(fieldError("typing.paste_delay_ms"))}>
-            <span>{t("pasteDelayMs")}</span>
-            <input type="number" bind:value={config.typing.paste_delay_ms} />
-            {#if fieldError("typing.paste_delay_ms")}<small class="field-error">{fieldError("typing.paste_delay_ms")}</small>{/if}
-          </label>
-          <label class:field-invalid={Boolean(fieldError("typing.clipboard_restore_delay_ms"))}>
-            <span>{t("clipboardRestoreDelay")}</span>
-            <input type="number" bind:value={config.typing.clipboard_restore_delay_ms} />
-            {#if fieldError("typing.clipboard_restore_delay_ms")}<small class="field-error">{fieldError("typing.clipboard_restore_delay_ms")}</small>{/if}
-          </label>
-          <label class:field-invalid={Boolean(fieldError("typing.clipboard_snapshot_max_bytes"))}>
-            <span>{t("clipboardSnapshotMaxBytes")}</span>
-            <input type="number" bind:value={config.typing.clipboard_snapshot_max_bytes} />
-            {#if fieldError("typing.clipboard_snapshot_max_bytes")}<small class="field-error">{fieldError("typing.clipboard_snapshot_max_bytes")}</small>{/if}
-          </label>
-          <label><span>{t("clipboardRetryCount")}</span><input type="number" bind:value={config.typing.clipboard_open_retry_count} /></label>
-          <label><span>{t("clipboardRetryInterval")}</span><input type="number" bind:value={config.typing.clipboard_open_retry_interval_ms} /></label>
-        {/if}
       </div>
       <div class="toggle-grid">
-        <label class="check"><input type="checkbox" bind:checked={config.triggers.hotkey_enabled} />{t("mainHotkey")}</label>
-        <label class="check"><input type="checkbox" bind:checked={config.triggers.middle_mouse_enabled} onchange={(event) => onOptionEnabledNotice("middle_mouse_enabled", event.currentTarget.checked)} /><span class="check-copy"><span>{t("middleMouse")}</span><small>{t("tagConflictRisk")}</small></span></label>
-        <label class="check"><input type="checkbox" bind:checked={config.triggers.right_alt_enabled} onchange={(event) => onOptionEnabledNotice("right_alt_enabled", event.currentTarget.checked)} /><span class="check-copy"><span>{t("rightAlt")}</span><small>{t("tagConflictRisk")}</small></span></label>
-        <label class="check"><input type="checkbox" bind:checked={config.typing.remove_trailing_period} />{t("removeTrailingPeriod")}</label>
-        {#if advancedOpen}
-          <label class="check"><input type="checkbox" bind:checked={config.typing.restore_clipboard_after_paste} />{t("restoreClipboardAfterPaste")}</label>
-        {/if}
         <label class="check"><input type="checkbox" bind:checked={config.startup.launch_on_startup} />{t("launchOnStartup")}</label>
+      </div>
+      <p class="field-hint">{t("closeBehaviorHint")}</p>
+    </div>
+    <div id="settings-basic-output" class="form-panel">
+      <div class="section-heading"><h3>{t("inputResultTitle")}</h3><p>{t("inputResultDescription")}</p></div>
+      <div class="form-grid">
+        <label class:field-invalid={Boolean(fieldError("typing.paste_method"))}>
+          <span>{t("pasteMethod")}</span>
+          <select value={basicPasteMode(config.typing.paste_method)} onchange={(event) => setBasicPasteMode(event.currentTarget.value)}>
+            <option value="auto_paste">{basicPasteLabel(config.typing.paste_method)}</option>
+            <option value="clipboard_only">{t("basicPasteClipboardOnly")}</option>
+          </select>
+          {#if fieldError("typing.paste_method")}<small class="field-error">{fieldError("typing.paste_method")}</small>{/if}
+        </label>
+      </div>
+      <div class="toggle-grid">
+        <label class="check"><input type="checkbox" bind:checked={config.typing.remove_trailing_period} />{t("removeTrailingPeriod")}</label>
       </div>
       <p class="field-hint">{t("removeTrailingPeriodHint")}</p>
       <p class="field-hint">{t("clipboardTextRestoreHint")}</p>
-      {#if advancedOpen}
-        <p class="field-hint">{t("clipboardRestoreDelayHint")}</p>
-        <p class="field-hint">{t("clipboardRetryHint")}</p>
-      {/if}
-      <p class="field-hint">{t("triggerConflictHint")}</p>
     </div>
     <div id="settings-overlay" class="form-panel">
       <div class="section-heading"><h3>{t("floatingCaptionAppearance")}</h3><p>{t("floatingCaptionAppearanceDescription")}</p></div>
@@ -237,23 +235,22 @@
           </div>
           {#if fieldError("ui.opacity")}<small class="field-error">{fieldError("ui.opacity")}</small>{/if}
         </div>
-        {#if advancedOpen}
-          <div class="form-grid color-grid">
-            <label class="color-field" class:field-invalid={Boolean(fieldError("ui.background_color"))}>
-              <span>{t("captionBackgroundColor")}</span>
-              <input type="color" value={overlayBackgroundColor()} oninput={(event) => (config.ui.background_color = event.currentTarget.value)} />
-              {#if fieldError("ui.background_color")}<small class="field-error">{fieldError("ui.background_color")}</small>{/if}
-            </label>
-            <label class="color-field" class:field-invalid={Boolean(fieldError("ui.text_color"))}>
-              <span>{t("captionTextColor")}</span>
-              <input type="color" value={overlayTextColor()} oninput={(event) => (config.ui.text_color = event.currentTarget.value)} />
-              {#if fieldError("ui.text_color")}<small class="field-error">{fieldError("ui.text_color")}</small>{/if}
-            </label>
-          </div>
-        {/if}
       </div>
-      {#if advancedOpen}
-        <div class="form-grid">
+    </div>
+    {#if advancedOpen}
+      <div id="settings-caption-fine-tune" class="form-panel">
+        <div class="section-heading"><h3>{t("captionFineTune")}</h3><p>{t("captionFineTuneDescription")}</p></div>
+        <div class="form-grid color-grid">
+          <label class="color-field" class:field-invalid={Boolean(fieldError("ui.background_color"))}>
+            <span>{t("captionBackgroundColor")}</span>
+            <input type="color" value={overlayBackgroundColor()} oninput={(event) => (config.ui.background_color = event.currentTarget.value)} />
+            {#if fieldError("ui.background_color")}<small class="field-error">{fieldError("ui.background_color")}</small>{/if}
+          </label>
+          <label class="color-field" class:field-invalid={Boolean(fieldError("ui.text_color"))}>
+            <span>{t("captionTextColor")}</span>
+            <input type="color" value={overlayTextColor()} oninput={(event) => (config.ui.text_color = event.currentTarget.value)} />
+            {#if fieldError("ui.text_color")}<small class="field-error">{fieldError("ui.text_color")}</small>{/if}
+          </label>
           <label class:field-invalid={Boolean(fieldError("ui.width"))}>
             <span>{t("width")}</span>
             <input type="number" bind:value={config.ui.width} />
@@ -265,17 +262,11 @@
             {#if fieldError("ui.height")}<small class="field-error">{fieldError("ui.height")}</small>{/if}
           </label>
           <label><span>{t("marginBottom")}</span><input type="number" bind:value={config.ui.margin_bottom} /></label>
-          <label><span>{t("scrollInterval")}</span><input type="number" bind:value={config.ui.scroll_interval_ms} /></label>
-          <label><span>{t("startupTimeout")}</span><input type="number" bind:value={config.tray.startup_message_timeout_ms} /></label>
         </div>
-        <div class="toggle-grid">
-          <label class="check"><input type="checkbox" bind:checked={config.tray.show_startup_message} />{t("showStartupMessage")}</label>
-        </div>
-        <p class="field-hint">{t("closeBehaviorHint")}</p>
-      {/if}
-    </div>
+      </div>
+    {/if}
     <div id="settings-audio" class="form-panel">
-      <div class="section-heading"><h3>{t("recordingParams")}</h3><p>{t("audioDescription")}</p></div>
+      <div class="section-heading"><h3>{t("microphoneTitle")}</h3><p>{t("microphoneDescription")}</p></div>
       <div class="form-grid">
         <label>
           <span>{t("inputDevice")}</span>
@@ -289,72 +280,76 @@
             {/each}
           </select>
         </label>
-        {#if advancedOpen}
-          <label class:field-invalid={Boolean(fieldError("audio.sample_rate"))}>
-            <span>{t("sampleRate")}</span>
-            <input type="number" bind:value={config.audio.sample_rate} />
-            {#if fieldError("audio.sample_rate")}<small class="field-error">{fieldError("audio.sample_rate")}</small>{/if}
+      </div>
+    </div>
+    {#if advancedOpen}
+      <div id="settings-triggers" class="form-panel">
+        <div class="section-heading"><h3>{t("backupTriggers")}</h3><p>{t("backupTriggersDescription")}</p></div>
+        <div class="toggle-grid">
+          <label class="check"><input type="checkbox" bind:checked={config.triggers.hotkey_enabled} />{t("mainHotkey")}</label>
+          <label class="check"><input type="checkbox" bind:checked={config.triggers.middle_mouse_enabled} onchange={(event) => onOptionEnabledNotice("middle_mouse_enabled", event.currentTarget.checked)} /><span class="check-copy"><span>{t("middleMouse")}</span><small>{t("tagConflictRisk")}</small></span></label>
+          <label class="check"><input type="checkbox" bind:checked={config.triggers.right_alt_enabled} onchange={(event) => onOptionEnabledNotice("right_alt_enabled", event.currentTarget.checked)} /><span class="check-copy"><span>{t("rightAlt")}</span><small>{t("tagConflictRisk")}</small></span></label>
+        </div>
+        <p class="field-hint">{t("triggerConflictHint")}</p>
+      </div>
+      <div id="settings-paste-compatibility" class="form-panel">
+        <div class="section-heading"><h3>{t("pasteCompatibility")}</h3><p>{t("pasteCompatibilityDescription")}</p></div>
+        <div class="form-grid">
+          <label class:field-invalid={Boolean(fieldError("typing.paste_method"))}>
+            <span>{t("pasteMethod")}</span>
+            <select bind:value={config.typing.paste_method}><option value="ctrl_v">Ctrl + V</option><option value="shift_insert">Shift + Insert</option><option value="clipboard_only">{t("clipboardOnly")}</option></select>
+            {#if fieldError("typing.paste_method")}<small class="field-error">{fieldError("typing.paste_method")}</small>{/if}
           </label>
-          <label class:field-invalid={Boolean(fieldError("audio.channels"))}>
-            <span>{t("channels")}</span>
-            <input type="number" bind:value={config.audio.channels} />
-            {#if fieldError("audio.channels")}<small class="field-error">{fieldError("audio.channels")}</small>{/if}
+          <label class:field-invalid={Boolean(fieldError("typing.clipboard_restore_delay_ms"))}>
+            <span>{t("clipboardRestoreDelay")}</span>
+            <input type="number" bind:value={config.typing.clipboard_restore_delay_ms} />
+            {#if fieldError("typing.clipboard_restore_delay_ms")}<small class="field-error">{fieldError("typing.clipboard_restore_delay_ms")}</small>{/if}
           </label>
-          <label class:field-invalid={Boolean(fieldError("audio.segment_ms"))}>
-            <span>{t("segmentMs")}</span>
-            <input type="number" bind:value={config.audio.segment_ms} />
-            {#if fieldError("audio.segment_ms")}<small class="field-error">{fieldError("audio.segment_ms")}</small>{/if}
-          </label>
+        </div>
+        <div class="toggle-grid">
+          <label class="check"><input type="checkbox" bind:checked={config.typing.restore_clipboard_after_paste} />{t("restoreClipboardAfterPaste")}</label>
+        </div>
+        <p class="field-hint">{t("clipboardRestoreDelayHint")}</p>
+      </div>
+    {/if}
+    {#if advancedOpen}
+      <div id="settings-recording-troubleshooting" class="form-panel">
+        <div class="section-heading"><h3>{t("recordingTroubleshooting")}</h3><p>{t("recordingTroubleshootingDescription")}</p></div>
+        <div class="form-grid">
           <label class:field-invalid={Boolean(fieldError("audio.max_record_seconds"))}>
             <span>{t("maxSeconds")}</span>
             <input type="number" bind:value={config.audio.max_record_seconds} />
             {#if fieldError("audio.max_record_seconds")}<small class="field-error">{fieldError("audio.max_record_seconds")}</small>{/if}
           </label>
-          <label class:field-invalid={Boolean(fieldError("audio.stop_grace_ms"))}>
-            <span>{t("stopGraceMs")}</span>
-            <input type="number" bind:value={config.audio.stop_grace_ms} />
-            {#if fieldError("audio.stop_grace_ms")}<small class="field-error">{fieldError("audio.stop_grace_ms")}</small>{/if}
-          </label>
-        {/if}
-      </div>
-      {#if advancedOpen}
+        </div>
         <div class="toggle-grid">
           <label class="check"><input type="checkbox" bind:checked={config.audio.mute_system_volume_while_recording} onchange={(event) => onOptionEnabledNotice("mute_system_volume_while_recording", event.currentTarget.checked)} /><span class="check-copy"><span>{t("muteSystemAudio")}</span><small>{t("tagAdvanced")}</small></span></label>
         </div>
         <p class="field-hint">{t("muteSystemAudioHint")}</p>
-      {/if}
-    </div>
-    <div id="settings-update" class="form-panel update-panel">
-      <div class="section-heading"><h3>{t("softwareUpdate")}</h3><p>{t("softwareUpdateDescription")}</p></div>
-      <div class:available={updateStatus?.update_available} class="update-card">
-        <div>
-          <strong>{updatePanelTitle()}</strong>
-          <p>{updatePanelDescription()}</p>
-          <small>{updateMetaText()}</small>
-        </div>
-        <div class="update-actions">
-          <button type="button" onclick={() => onCheckUpdate(true)} disabled={checkingUpdate}>
-            <ShieldCheck size={16} />{checkingUpdate ? t("checkingUpdates") : t("checkUpdates")}
-          </button>
-          {#if updateStatus?.update_available && updateStatus.asset_name}
-            <button type="button" class="primary" onclick={onDownloadLatestUpdate} disabled={installingUpdate}>
-              <Download size={16} />{installingUpdate ? t("downloadingInstall") : t("downloadInstall")}
+      </div>
+      <div id="settings-update" class="form-panel update-panel">
+        <div class="section-heading"><h3>{t("updatesAndDiagnostics")}</h3><p>{t("updatesAndDiagnosticsDescription")}</p></div>
+        <div class:available={updateStatus?.update_available} class="update-card">
+          <div>
+            <strong>{updatePanelTitle()}</strong>
+            <p>{updatePanelDescription()}</p>
+            <small>{updateMetaText()}</small>
+          </div>
+          <div class="update-actions">
+            <button type="button" onclick={() => onCheckUpdate(true)} disabled={checkingUpdate}>
+              <ShieldCheck size={16} />{checkingUpdate ? t("checkingUpdates") : t("checkUpdates")}
             </button>
-          {/if}
+            {#if updateStatus?.update_available && updateStatus.asset_name}
+              <button type="button" class="primary" onclick={onDownloadLatestUpdate} disabled={installingUpdate}>
+                <Download size={16} />{installingUpdate ? t("downloadingInstall") : t("downloadInstall")}
+              </button>
+            {/if}
+          </div>
+        </div>
+        <div class="toggle-grid">
+          <label class="check"><input type="checkbox" bind:checked={config.update.auto_check_on_startup} />{t("autoCheckUpdates")}</label>
         </div>
       </div>
-      <div class="toggle-grid">
-        <label class="check"><input type="checkbox" bind:checked={config.update.auto_check_on_startup} />{t("autoCheckUpdates")}</label>
-      </div>
-      {#if advancedOpen}
-        <label class:field-invalid={Boolean(fieldError("update.github_repo"))}>
-          <span>GitHub Release Repo</span>
-          <input bind:value={config.update.github_repo} />
-          {#if fieldError("update.github_repo")}<small class="field-error">{fieldError("update.github_repo")}</small>{/if}
-        </label>
-      {/if}
-    </div>
-    {#if advancedOpen}
       <div id="settings-diagnostics" class="form-panel">
         <div class="section-heading"><h3>{t("diagnosticsAndLogs")}</h3><p>{t("diagnosticsDescription")}</p></div>
         <div class="update-card">
