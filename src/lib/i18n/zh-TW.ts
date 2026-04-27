@@ -343,6 +343,7 @@ export const zhTW = {
   "checkingUpdates": "檢查中",
   "downloadInstall": "下載並自動安裝",
   "downloadingInstall": "下載中",
+  "updateNow": "立即更新",
   "updateNotChecked": "尚未檢查更新",
   "updateIdleDescription": "可手動檢查，或開啟啟動時自動檢查。",
   "updateAvailable": "發現新版本",

@@ -342,6 +342,7 @@ export const zhCN = {
   "checkingUpdates": "检查中",
   "downloadInstall": "下载并自动安装",
   "downloadingInstall": "下载中",
+  "updateNow": "立即更新",
   "updateNotChecked": "尚未检查更新",
   "updateIdleDescription": "可手动检查，或开启启动时自动检查。",
   "updateAvailable": "发现新版本",

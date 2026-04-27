@@ -10,11 +10,23 @@
   import StartupToast from "$lib/components/overlay/StartupToast.svelte";
 
   const app = createVoxTypeController();
+
+  function suppressAppContextMenu(event: MouseEvent) {
+    const target = event.target;
+    if (!(target instanceof Element)) {
+      event.preventDefault();
+      return;
+    }
+    if (target.closest("input, textarea, select, [contenteditable]")) return;
+    event.preventDefault();
+  }
 </script>
 
 <svelte:head>
   <title>VoxType</title>
 </svelte:head>
+
+<svelte:window oncontextmenu={suppressAppContextMenu} />
 
 <AppGlobalStyles />
 
@@ -42,7 +54,14 @@
     />
   </AppShell>
 
-  <ActionNotice message={app.actionNotice} kind={app.actionNoticeKind} />
+  <ActionNotice
+    message={app.actionNotice}
+    kind={app.actionNoticeKind}
+    actionLabel={app.actionNoticeActionLabel}
+    actionBusyLabel={app.actionNoticeActionBusyLabel}
+    actionBusy={app.actionNoticeActionBusy}
+    onAction={app.runActionNoticeAction}
+  />
   <CloseToTrayDialog
     visible={app.closePromptVisible}
     title={app.closePromptTitle}

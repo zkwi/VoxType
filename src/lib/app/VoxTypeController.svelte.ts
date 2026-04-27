@@ -115,6 +115,12 @@ import type {
 } from "$lib/types/app";
 
 const copyRecentInputCommand = "copy_recent_input_text_to_clipboard";
+type ActionNoticeAction = {
+  label: string;
+  busyLabel?: string;
+  isBusy?: () => boolean;
+  onClick: () => void | Promise<void>;
+};
 
 export function createVoxTypeController() {
 
@@ -151,6 +157,7 @@ export function createVoxTypeController() {
   let uiCompact = $state(false);
   let actionNotice = $state("");
   let actionNoticeKind = $state<"success" | "info" | "warning" | "error">("success");
+  let actionNoticeAction = $state<ActionNoticeAction | null>(null);
   let actionNoticeTimer: number | undefined;
   let setupStatus = $state<SetupStatus | null>(readCachedSetupStatus(browser));
   let testingAsr = $state(false);
@@ -720,16 +727,34 @@ export function createVoxTypeController() {
       testingLlm = false;
     }
   }
-  function showActionNotice(message: string, kind: "success" | "info" | "warning" | "error") {
+  function showActionNotice(
+    message: string,
+    kind: "success" | "info" | "warning" | "error",
+    action: ActionNoticeAction | undefined = undefined,
+  ) {
     actionNotice = message;
     actionNoticeKind = kind;
+    actionNoticeAction = action ?? null;
     if (actionNoticeTimer !== undefined) window.clearTimeout(actionNoticeTimer);
-    const baseDuration = kind === "error" ? 6400 : kind === "warning" ? 5200 : 3200;
+    const baseDuration = action ? 12_000 : kind === "error" ? 6400 : kind === "warning" ? 5200 : 3200;
     const extraDuration = message.length > 80 ? 1800 : 0;
     actionNoticeTimer = window.setTimeout(() => {
       actionNotice = "";
+      actionNoticeAction = null;
       actionNoticeTimer = undefined;
     }, baseDuration + extraDuration);
+  }
+
+  async function runActionNoticeAction() {
+    const action = actionNoticeAction;
+    if (!action || action.isBusy?.()) return;
+    try {
+      await action.onClick();
+    } catch (error) {
+      logFrontendError(`action notice handler failed: ${formatFrontendError(error)}`);
+      statusMessage = t("operationFailedGeneric");
+      showActionNotice(statusMessage, "error");
+    }
   }
 
   function optionEnabledNotice(key: SoftConfigNoticeKey, enabled: boolean) {
@@ -1212,6 +1237,9 @@ export function createVoxTypeController() {
     get toastHint() { return t("startupToastHint").replace("{hotkey}", formatHotkey(toastHotkey)); },
     get actionNotice() { return actionNotice; },
     get actionNoticeKind() { return actionNoticeKind; },
+    get actionNoticeActionLabel() { return actionNoticeAction?.label ?? ""; },
+    get actionNoticeActionBusyLabel() { return actionNoticeAction?.busyLabel ?? ""; },
+    get actionNoticeActionBusy() { return actionNoticeAction?.isBusy?.() ?? false; },
     get closePromptVisible() { return windows.closePromptVisible; },
     get closePromptTitle() { return t("closePromptTitle"); },
     get closePromptBody() { return t("closePromptBody"); },
@@ -1226,6 +1254,7 @@ export function createVoxTypeController() {
     set llmApiConfigVisible(value: boolean) { settingsNav.llmApiConfigVisible = value; },
     appShellProps,
     appContentProps,
+    runActionNoticeAction,
     overlayMeterBarHeight: overlay.meterBarHeight,
     overlayMeterBarOpacity: overlay.meterBarOpacity,
     closeWindowWithoutFuturePrompt: windows.closeWithoutFuturePrompt,

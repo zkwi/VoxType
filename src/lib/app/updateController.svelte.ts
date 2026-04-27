@@ -8,6 +8,12 @@ type SafeInvoke = <T>(
 ) => Promise<T | null>;
 
 type NoticeKind = "success" | "info" | "warning" | "error";
+type NoticeAction = {
+  label: string;
+  busyLabel?: string;
+  isBusy?: () => boolean;
+  onClick: () => void | Promise<void>;
+};
 
 type UpdateControllerOptions = {
   t: (key: CopyKey, values?: Record<string, string>) => string;
@@ -16,7 +22,7 @@ type UpdateControllerOptions = {
   currentVersion: () => string;
   getStatusMessage: () => string;
   setStatusMessage: (message: string) => void;
-  showActionNotice: (message: string, kind: NoticeKind) => void;
+  showActionNotice: (message: string, kind: NoticeKind, action?: NoticeAction) => void;
 };
 
 export function createUpdateController(options: UpdateControllerOptions) {
@@ -38,7 +44,16 @@ export function createUpdateController(options: UpdateControllerOptions) {
       if (result) {
         status = result;
         if (manual || result.update_available) {
-          options.showActionNotice(result.message, result.update_available ? "warning" : "success");
+          const updateAction =
+            result.update_available && result.asset_name
+              ? {
+                  label: options.t("updateNow"),
+                  busyLabel: options.t("downloadingInstall"),
+                  isBusy: () => installing,
+                  onClick: downloadLatest,
+                }
+              : undefined;
+          options.showActionNotice(result.message, result.update_available ? "warning" : "success", updateAction);
         } else {
           options.setStatusMessage(previousStatus);
         }

@@ -343,6 +343,7 @@ export const en = {
   "checkingUpdates": "Checking",
   "downloadInstall": "Download and auto install",
   "downloadingInstall": "Downloading",
+  "updateNow": "Update now",
   "updateNotChecked": "Not checked yet",
   "updateIdleDescription": "Check manually, or enable startup update checks.",
   "updateAvailable": "Update available",

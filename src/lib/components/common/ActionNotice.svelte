@@ -1,14 +1,25 @@
 <script lang="ts">
-  import { AlertCircle, Check, Info } from "lucide-svelte";
+  import { AlertCircle, Check, Download, Info } from "lucide-svelte";
 
   export type ActionNoticeKind = "success" | "info" | "warning" | "error";
 
   type Props = {
     message?: string | null;
     kind?: ActionNoticeKind;
+    actionLabel?: string;
+    actionBusyLabel?: string;
+    actionBusy?: boolean;
+    onAction?: () => void | Promise<void>;
   };
 
-  let { message = null, kind = "info" }: Props = $props();
+  let {
+    message = null,
+    kind = "info",
+    actionLabel = "",
+    actionBusyLabel = "",
+    actionBusy = false,
+    onAction,
+  }: Props = $props();
 </script>
 
 {#if message}
@@ -20,14 +31,22 @@
     role="status"
     aria-live="polite"
   >
-    {#if kind === "success"}
-      <Check size={16} />
-    {:else if kind === "info"}
-      <Info size={16} />
-    {:else}
-      <AlertCircle size={16} />
+    <div class="notice-main">
+      {#if kind === "success"}
+        <Check size={16} />
+      {:else if kind === "info"}
+        <Info size={16} />
+      {:else}
+        <AlertCircle size={16} />
+      {/if}
+      <span>{message}</span>
+    </div>
+    {#if actionLabel && onAction}
+      <button type="button" disabled={actionBusy} onclick={onAction}>
+        <Download size={14} />
+        <span>{actionBusy ? actionBusyLabel || actionLabel : actionLabel}</span>
+      </button>
     {/if}
-    <span>{message}</span>
   </div>
 {/if}
 
@@ -38,10 +57,11 @@
     bottom: 20px;
     z-index: 20;
     display: inline-flex;
-    align-items: flex-start;
-    max-width: min(460px, calc(100vw - 44px));
+    align-items: center;
+    flex-wrap: wrap;
+    max-width: min(620px, calc(100vw - 44px));
     min-height: 40px;
-    gap: 8px;
+    gap: 10px;
     padding: 10px 14px;
     color: #0f5132;
     background: rgba(240, 253, 244, 0.98);
@@ -52,11 +72,52 @@
     font-weight: 700;
   }
 
-  .action-notice span {
+  .notice-main {
+    display: inline-flex;
+    align-items: flex-start;
+    flex: 1 1 280px;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .notice-main :global(svg) {
+    flex: 0 0 auto;
+    margin-top: 2px;
+  }
+
+  .notice-main span {
     min-width: 0;
     line-height: 1.4;
     overflow-wrap: anywhere;
     white-space: normal;
+  }
+
+  .action-notice button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    min-height: 32px;
+    gap: 6px;
+    padding: 0 12px;
+    color: #ffffff;
+    background: #d97706;
+    border: 1px solid rgba(180, 83, 9, 0.22);
+    border-radius: 999px;
+    box-shadow: 0 8px 20px rgba(217, 119, 6, 0.18);
+    font-size: 13px;
+    font-weight: 800;
+    transition: transform 140ms ease, box-shadow 140ms ease, opacity 140ms ease;
+  }
+
+  .action-notice button:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 10px 24px rgba(217, 119, 6, 0.24);
+  }
+
+  .action-notice button:disabled {
+    cursor: wait;
+    opacity: 0.7;
   }
 
   .action-notice.info {
