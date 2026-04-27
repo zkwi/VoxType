@@ -38,7 +38,8 @@ export function settingsPanelForField(field: string) {
   if (field.startsWith("auto_hotwords.")) return "settings-auto-hotwords";
   if (field.startsWith("context.") && field !== "context.hotwords") return "settings-prompt-context";
   if (field.startsWith("context.")) return "settings-context";
-  if (field.startsWith("audio.")) return "settings-audio";
+  if (field === "audio.input_device") return "settings-audio";
+  if (field.startsWith("audio.")) return "settings-recording-troubleshooting";
   if (field.startsWith("ui.")) return "settings-overlay";
   if (field.startsWith("update.")) return "settings-update";
   if (field === "tray.show_startup_message" || field === "tray.startup_message_timeout_ms") return "settings-overlay";

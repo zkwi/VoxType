@@ -321,10 +321,16 @@
             <input type="number" bind:value={config.audio.max_record_seconds} />
             {#if fieldError("audio.max_record_seconds")}<small class="field-error">{fieldError("audio.max_record_seconds")}</small>{/if}
           </label>
+          <label class:field-invalid={Boolean(fieldError("audio.silence_auto_stop_seconds"))}>
+            <span>{t("silenceAutoStopSeconds")}</span>
+            <input type="number" min="0" max="300" step="1" bind:value={config.audio.silence_auto_stop_seconds} />
+            {#if fieldError("audio.silence_auto_stop_seconds")}<small class="field-error">{fieldError("audio.silence_auto_stop_seconds")}</small>{/if}
+          </label>
         </div>
         <div class="toggle-grid">
           <label class="check"><input type="checkbox" bind:checked={config.audio.mute_system_volume_while_recording} onchange={(event) => onOptionEnabledNotice("mute_system_volume_while_recording", event.currentTarget.checked)} /><span class="check-copy"><span>{t("muteSystemAudio")}</span><small>{t("tagAdvanced")}</small></span></label>
         </div>
+        <p class="field-hint">{t("silenceAutoStopHint")}</p>
         <p class="field-hint">{t("muteSystemAudioHint")}</p>
       </div>
       <div id="settings-update" class="form-panel update-panel">
@@ -341,7 +347,7 @@
             </button>
             {#if updateStatus?.update_available && updateStatus.asset_name}
               <button type="button" class="primary" onclick={onDownloadLatestUpdate} disabled={installingUpdate}>
-                <Download size={16} />{installingUpdate ? t("downloadingInstall") : t("downloadInstall")}
+                <Download size={16} />{installingUpdate ? t("downloadingInstall") : t("updateNow")}
               </button>
             {/if}
           </div>

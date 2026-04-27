@@ -775,6 +775,10 @@
     cursor: pointer;
   }
 
+  .trigger-item > div {
+    min-width: 0;
+  }
+
   .trigger-item.active {
     background: #edf6ff;
     border-color: rgba(47, 128, 237, 0.28);
@@ -825,6 +829,54 @@
     font-size: 12px;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .home-detail-grid.with-outcome .launch-card {
+    padding: 12px;
+  }
+
+  .home-detail-grid.with-outcome .launch-card .section-title-row {
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+
+  .home-detail-grid.with-outcome .launch-card .section-title-row h3 {
+    font-size: 15px;
+  }
+
+  .home-detail-grid.with-outcome .launch-card .link-action {
+    min-height: 28px;
+    padding: 0 8px;
+    font-size: 11px;
+  }
+
+  .home-detail-grid.with-outcome .launch-card .trigger-grid {
+    gap: 6px;
+  }
+
+  .home-detail-grid.with-outcome .trigger-item {
+    grid-template-columns: 24px minmax(0, 1fr);
+    gap: 6px;
+    min-height: 64px;
+    padding: 8px;
+    border-radius: 13px;
+  }
+
+  .home-detail-grid.with-outcome .trigger-check {
+    width: 24px;
+    height: 24px;
+    border-radius: 9px;
+  }
+
+  .home-detail-grid.with-outcome .trigger-item strong {
+    font-size: 11px;
+    line-height: 1.2;
+  }
+
+  .home-detail-grid.with-outcome .trigger-item p {
+    margin-top: 2px;
+    font-size: 10px;
+    line-height: 1.25;
   }
 
   .stats-row {

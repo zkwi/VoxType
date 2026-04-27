@@ -8,6 +8,8 @@ use std::sync::{mpsc, Arc};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
+const SILENCE_LEVEL_THRESHOLD: f32 = 0.01;
+
 #[derive(Debug, Clone, Serialize)]
 pub struct AudioCaptureInfo {
     pub device_name: String,
@@ -28,6 +30,13 @@ pub struct AudioDeviceInfo {
 struct CaptureCounters {
     chunks: Arc<AtomicUsize>,
     pcm_bytes: Arc<AtomicUsize>,
+}
+
+struct CaptureOutputs {
+    chunk_tx: Option<mpsc::Sender<Vec<u8>>>,
+    level_tx: Option<mpsc::Sender<f32>>,
+    silence_tx: Option<mpsc::Sender<()>>,
+    silence_auto_stop_seconds: u64,
 }
 
 pub struct AudioCapture {
@@ -55,6 +64,7 @@ pub fn start_capture(
     audio: &AudioConfig,
     chunk_tx: Option<mpsc::Sender<Vec<u8>>>,
     level_tx: Option<mpsc::Sender<f32>>,
+    silence_tx: Option<mpsc::Sender<()>>,
 ) -> Result<AudioCapture, String> {
     let audio = audio.clone();
     let counters = CaptureCounters {
@@ -66,8 +76,14 @@ pub fn start_capture(
     let (stop_tx, stop_rx) = mpsc::channel();
 
     let join_handle = thread::spawn(move || {
+        let outputs = CaptureOutputs {
+            chunk_tx,
+            level_tx,
+            silence_tx,
+            silence_auto_stop_seconds: audio.silence_auto_stop_seconds,
+        };
         let (stream, device_name, sample_rate, channels) =
-            match start_capture_in_thread(&audio, worker_counters, chunk_tx, level_tx) {
+            match start_capture_in_thread(&audio, worker_counters, outputs) {
                 Ok(result) => result,
                 Err(err) => {
                     let _ = ready_tx.send(Err(err));
@@ -133,8 +149,7 @@ impl Drop for AudioCapture {
 fn start_capture_in_thread(
     audio: &AudioConfig,
     counters: CaptureCounters,
-    chunk_tx: Option<mpsc::Sender<Vec<u8>>>,
-    level_tx: Option<mpsc::Sender<f32>>,
+    outputs: CaptureOutputs,
 ) -> Result<(Stream, String, u32, u16), String> {
     let host = cpal::default_host();
     let device = select_input_device(&host, audio.input_device)?;
@@ -156,8 +171,7 @@ fn start_capture_in_thread(
             &stream_config,
             target_chunk_bytes,
             counters.clone(),
-            chunk_tx,
-            level_tx,
+            outputs,
             err_fn,
         )?,
         SampleFormat::U16 => build_u16_stream(
@@ -165,8 +179,7 @@ fn start_capture_in_thread(
             &stream_config,
             target_chunk_bytes,
             counters.clone(),
-            chunk_tx,
-            level_tx,
+            outputs,
             err_fn,
         )?,
         SampleFormat::U8 => build_u8_stream(
@@ -174,8 +187,7 @@ fn start_capture_in_thread(
             &stream_config,
             target_chunk_bytes,
             counters.clone(),
-            chunk_tx,
-            level_tx,
+            outputs,
             err_fn,
         )?,
         SampleFormat::F32 => build_f32_stream(
@@ -183,8 +195,7 @@ fn start_capture_in_thread(
             &stream_config,
             target_chunk_bytes,
             counters.clone(),
-            chunk_tx,
-            level_tx,
+            outputs,
             err_fn,
         )?,
         other => return Err(format!("暂不支持的输入采样格式: {:?}", other)),
@@ -255,6 +266,52 @@ fn send_level(tx: &Option<mpsc::Sender<f32>>, level: f32) {
     }
 }
 
+fn send_silence_auto_stop(
+    tx: &Option<mpsc::Sender<()>>,
+    silence: &mut SilenceAutoStopper,
+    level: f32,
+    frame_count: usize,
+) {
+    if let Some(tx) = tx {
+        if silence.observe(level, frame_count) {
+            let _ = tx.send(());
+        }
+    }
+}
+
+struct SilenceAutoStopper {
+    silence_frames: u64,
+    limit_frames: u64,
+    triggered: bool,
+}
+
+impl SilenceAutoStopper {
+    fn new(sample_rate: u32, seconds: u64) -> Self {
+        Self {
+            silence_frames: 0,
+            limit_frames: sample_rate as u64 * seconds,
+            triggered: seconds == 0,
+        }
+    }
+
+    fn observe(&mut self, level: f32, frame_count: usize) -> bool {
+        if self.triggered || self.limit_frames == 0 || frame_count == 0 {
+            return false;
+        }
+        if level <= SILENCE_LEVEL_THRESHOLD {
+            self.silence_frames = self.silence_frames.saturating_add(frame_count as u64);
+        } else {
+            self.silence_frames = 0;
+        }
+        if self.silence_frames >= self.limit_frames {
+            self.triggered = true;
+            true
+        } else {
+            false
+        }
+    }
+}
+
 fn rms_i16(data: &[i16]) -> f32 {
     if data.is_empty() {
         return 0.0;
@@ -316,12 +373,19 @@ fn build_i16_stream(
     config: &StreamConfig,
     target_chunk_bytes: usize,
     counters: CaptureCounters,
-    chunk_tx: Option<mpsc::Sender<Vec<u8>>>,
-    level_tx: Option<mpsc::Sender<f32>>,
+    outputs: CaptureOutputs,
     err_fn: impl FnMut(cpal::StreamError) + Send + 'static,
 ) -> Result<Stream, String> {
     let channels = config.channels.max(1) as usize;
     let mut pending = Vec::new();
+    let mut silence =
+        SilenceAutoStopper::new(config.sample_rate.0, outputs.silence_auto_stop_seconds);
+    let CaptureOutputs {
+        chunk_tx,
+        level_tx,
+        silence_tx,
+        ..
+    } = outputs;
     device
         .build_input_stream(
             config,
@@ -331,7 +395,9 @@ fn build_i16_stream(
                 counters
                     .pcm_bytes
                     .fetch_add(frame_count * channels * 2, Ordering::Relaxed);
-                send_level(&level_tx, rms_i16(data));
+                let level = rms_i16(data);
+                send_level(&level_tx, level);
+                send_silence_auto_stop(&silence_tx, &mut silence, level, frame_count);
                 if let Some(tx) = &chunk_tx {
                     for sample in data {
                         pending.extend(sample.to_le_bytes());
@@ -350,12 +416,19 @@ fn build_u16_stream(
     config: &StreamConfig,
     target_chunk_bytes: usize,
     counters: CaptureCounters,
-    chunk_tx: Option<mpsc::Sender<Vec<u8>>>,
-    level_tx: Option<mpsc::Sender<f32>>,
+    outputs: CaptureOutputs,
     err_fn: impl FnMut(cpal::StreamError) + Send + 'static,
 ) -> Result<Stream, String> {
     let channels = config.channels.max(1) as usize;
     let mut pending = Vec::new();
+    let mut silence =
+        SilenceAutoStopper::new(config.sample_rate.0, outputs.silence_auto_stop_seconds);
+    let CaptureOutputs {
+        chunk_tx,
+        level_tx,
+        silence_tx,
+        ..
+    } = outputs;
     device
         .build_input_stream(
             config,
@@ -365,7 +438,9 @@ fn build_u16_stream(
                 counters
                     .pcm_bytes
                     .fetch_add(frame_count * channels * 2, Ordering::Relaxed);
-                send_level(&level_tx, rms_u16(data));
+                let level = rms_u16(data);
+                send_level(&level_tx, level);
+                send_silence_auto_stop(&silence_tx, &mut silence, level, frame_count);
                 if let Some(tx) = &chunk_tx {
                     for sample in data {
                         let value = (*sample as i32 - 32768) as i16;
@@ -385,12 +460,19 @@ fn build_u8_stream(
     config: &StreamConfig,
     target_chunk_bytes: usize,
     counters: CaptureCounters,
-    chunk_tx: Option<mpsc::Sender<Vec<u8>>>,
-    level_tx: Option<mpsc::Sender<f32>>,
+    outputs: CaptureOutputs,
     err_fn: impl FnMut(cpal::StreamError) + Send + 'static,
 ) -> Result<Stream, String> {
     let channels = config.channels.max(1) as usize;
     let mut pending = Vec::new();
+    let mut silence =
+        SilenceAutoStopper::new(config.sample_rate.0, outputs.silence_auto_stop_seconds);
+    let CaptureOutputs {
+        chunk_tx,
+        level_tx,
+        silence_tx,
+        ..
+    } = outputs;
     device
         .build_input_stream(
             config,
@@ -400,7 +482,9 @@ fn build_u8_stream(
                 counters
                     .pcm_bytes
                     .fetch_add(frame_count * channels * 2, Ordering::Relaxed);
-                send_level(&level_tx, rms_u8(data));
+                let level = rms_u8(data);
+                send_level(&level_tx, level);
+                send_silence_auto_stop(&silence_tx, &mut silence, level, frame_count);
                 if let Some(tx) = &chunk_tx {
                     for sample in data {
                         let value = (*sample as i16 - 128) << 8;
@@ -420,12 +504,19 @@ fn build_f32_stream(
     config: &StreamConfig,
     target_chunk_bytes: usize,
     counters: CaptureCounters,
-    chunk_tx: Option<mpsc::Sender<Vec<u8>>>,
-    level_tx: Option<mpsc::Sender<f32>>,
+    outputs: CaptureOutputs,
     err_fn: impl FnMut(cpal::StreamError) + Send + 'static,
 ) -> Result<Stream, String> {
     let channels = config.channels.max(1) as usize;
     let mut pending = Vec::new();
+    let mut silence =
+        SilenceAutoStopper::new(config.sample_rate.0, outputs.silence_auto_stop_seconds);
+    let CaptureOutputs {
+        chunk_tx,
+        level_tx,
+        silence_tx,
+        ..
+    } = outputs;
     device
         .build_input_stream(
             config,
@@ -435,7 +526,9 @@ fn build_f32_stream(
                 counters
                     .pcm_bytes
                     .fetch_add(frame_count * channels * 2, Ordering::Relaxed);
-                send_level(&level_tx, rms_f32(data));
+                let level = rms_f32(data);
+                send_level(&level_tx, level);
+                send_silence_auto_stop(&silence_tx, &mut silence, level, frame_count);
                 if let Some(tx) = &chunk_tx {
                     for sample in data {
                         let value = (sample.clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
@@ -448,4 +541,35 @@ fn build_f32_stream(
             None,
         )
         .map_err(|err| format!("创建麦克风采集流失败: {}", err))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SilenceAutoStopper;
+
+    #[test]
+    fn silence_auto_stop_fires_after_configured_silent_audio_duration() {
+        let mut stopper = SilenceAutoStopper::new(16_000, 10);
+
+        assert!(!stopper.observe(0.0, 16_000 * 9));
+        assert!(stopper.observe(0.0, 16_000));
+        assert!(!stopper.observe(0.0, 16_000));
+    }
+
+    #[test]
+    fn silence_auto_stop_resets_when_voice_is_detected() {
+        let mut stopper = SilenceAutoStopper::new(16_000, 10);
+
+        assert!(!stopper.observe(0.0, 16_000 * 8));
+        assert!(!stopper.observe(0.08, 16_000));
+        assert!(!stopper.observe(0.0, 16_000 * 9));
+        assert!(stopper.observe(0.0, 16_000));
+    }
+
+    #[test]
+    fn silence_auto_stop_can_be_disabled() {
+        let mut stopper = SilenceAutoStopper::new(16_000, 0);
+
+        assert!(!stopper.observe(0.0, 16_000 * 600));
+    }
 }

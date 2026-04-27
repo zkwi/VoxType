@@ -50,6 +50,14 @@ pub fn validate_config(config: &AppConfig) -> Result<(), Vec<ConfigValidationErr
     );
     validate_u64_range(
         &mut errors,
+        "audio.silence_auto_stop_seconds",
+        config.audio.silence_auto_stop_seconds,
+        0,
+        300,
+        "静音自动停止秒数需在 0 到 300 之间。",
+    );
+    validate_u64_range(
+        &mut errors,
         "typing.paste_delay_ms",
         config.typing.paste_delay_ms,
         0,

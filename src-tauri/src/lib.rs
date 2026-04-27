@@ -248,6 +248,10 @@ fn unchanged_hidden_config_field(
         "audio.stop_grace_ms" => {
             previous_config.audio.stop_grace_ms == next_config.audio.stop_grace_ms
         }
+        "audio.silence_auto_stop_seconds" => {
+            previous_config.audio.silence_auto_stop_seconds
+                == next_config.audio.silence_auto_stop_seconds
+        }
         "typing.paste_delay_ms" => {
             previous_config.typing.paste_delay_ms == next_config.typing.paste_delay_ms
         }

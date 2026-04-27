@@ -60,6 +60,8 @@ pub struct AudioConfig {
     pub max_record_seconds: u64,
     #[serde(default = "default_stop_grace_ms")]
     pub stop_grace_ms: u64,
+    #[serde(default = "default_silence_auto_stop_seconds")]
+    pub silence_auto_stop_seconds: u64,
     #[serde(default)]
     pub mute_system_volume_while_recording: bool,
     #[serde(default)]
@@ -88,7 +90,7 @@ pub struct RequestConfig {
     pub enable_accelerate_text: Option<bool>,
     #[serde(default)]
     pub accelerate_score: Option<i64>,
-    #[serde(default)]
+    #[serde(default = "default_end_window_size")]
     pub end_window_size: Option<u64>,
     #[serde(default)]
     pub force_to_speech_time: Option<u64>,
@@ -284,6 +286,7 @@ impl Default for AudioConfig {
             segment_ms: default_segment_ms(),
             max_record_seconds: default_max_record_seconds(),
             stop_grace_ms: default_stop_grace_ms(),
+            silence_auto_stop_seconds: default_silence_auto_stop_seconds(),
             mute_system_volume_while_recording: false,
             input_device: None,
         }
@@ -303,7 +306,7 @@ impl Default for RequestConfig {
             result_type: default_result_type(),
             enable_accelerate_text: None,
             accelerate_score: None,
-            end_window_size: None,
+            end_window_size: default_end_window_size(),
             force_to_speech_time: None,
             final_result_timeout_seconds: default_final_timeout(),
         }
@@ -681,6 +684,12 @@ fn default_max_record_seconds() -> u64 {
 fn default_stop_grace_ms() -> u64 {
     500
 }
+fn default_silence_auto_stop_seconds() -> u64 {
+    10
+}
+fn default_end_window_size() -> Option<u64> {
+    Some(800)
+}
 fn default_true() -> bool {
     true
 }
@@ -809,6 +818,8 @@ mod tests {
         assert!(!config.triggers.middle_mouse_enabled);
         assert!(!config.triggers.right_alt_enabled);
         assert!(!config.audio.mute_system_volume_while_recording);
+        assert_eq!(config.audio.silence_auto_stop_seconds, 10);
+        assert_eq!(config.request.end_window_size, Some(800));
         assert!(!config.context.enable_recent_context);
         assert!(!config.auto_hotwords.enabled);
         assert!(config.auto_hotwords.accepted_hotwords.is_empty());
@@ -862,6 +873,7 @@ mod tests {
         let mut config = AppConfig::default();
         config.audio.sample_rate = 0;
         config.audio.channels = 0;
+        config.audio.silence_auto_stop_seconds = 301;
         config.typing.paste_delay_ms = 9_999;
         config.request.final_result_timeout_seconds = 0.0;
         config.ui.opacity = 2.0;
@@ -883,6 +895,7 @@ mod tests {
 
         assert!(fields.contains(&"audio.sample_rate"));
         assert!(fields.contains(&"audio.channels"));
+        assert!(fields.contains(&"audio.silence_auto_stop_seconds"));
         assert!(fields.contains(&"typing.paste_delay_ms"));
         assert!(fields.contains(&"request.final_result_timeout_seconds"));
         assert!(fields.contains(&"ui.opacity"));

@@ -22,6 +22,8 @@ segment_ms = 200
 max_record_seconds = 300
 # 松开热键后额外保留一点尾音
 stop_grace_ms = 500
+# 连续静音达到该秒数后，本地自动结束本次录音；0 表示关闭
+silence_auto_stop_seconds = 10
 # 录音时是否自动静音系统音量；可减少回声，但可能影响会议、视频或系统提示音
 mute_system_volume_while_recording = false
 # 指定麦克风设备；不用时保持注释掉或留空
@@ -41,7 +43,7 @@ show_utterances = true
 result_type = "full"
 enable_accelerate_text = false
 accelerate_score = 0
-end_window_size = 1200
+end_window_size = 800
 # force_to_speech_time = 800
 # 停录后等待最终结果的超时时间
 final_result_timeout_seconds = 15
