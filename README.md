@@ -1,10 +1,19 @@
 # 声写 VoxType
 
+[English](README.en.md) | 简体中文
+
 声写（VoxType）是一个 Windows 桌面语音输入工具。把光标放到任意输入框后，按下全局热键开始说话，程序会录制麦克风音频，通过豆包流式 ASR WebSocket 识别语音，并将最终文本写入剪贴板后粘贴到当前输入位置。
 
 当前代码已迁移为根目录 Tauri 项目：Rust 负责全局热键、输入钩子、音频采集、ASR 会话、剪贴板、系统托盘、悬浮字幕窗和系统音量；Svelte 负责主窗口 GUI。
 
 > 这是个人项目，目标是实用、轻量、易修改。请勿把真实密钥、个人热词、上下文或本地日志提交到仓库。
+
+## 文档
+
+- Wiki 首页：<https://github.com/zkwi/VoxType/wiki>
+- 用户配置指南：<https://github.com/zkwi/VoxType/wiki/Setup-Guide>
+- 功能特性与使用优化：<https://github.com/zkwi/VoxType/wiki/Feature-Guide>
+- 常见问题与排障：<https://github.com/zkwi/VoxType/wiki/Troubleshooting>
 
 ## 界面预览
 

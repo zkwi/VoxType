@@ -1,0 +1,243 @@
+# VoxType
+
+[简体中文](README.md) | English
+
+VoxType is a lightweight Windows desktop voice input tool. Put the cursor in any input box, press the global shortcut, speak, and VoxType will record microphone audio, transcribe it with Doubao streaming ASR, optionally polish the result with an OpenAI-compatible LLM, copy it to the clipboard, paste it into the active input field, and restore the previous clipboard when possible.
+
+The current project is a root-level Tauri app. Rust handles global shortcuts, input hooks, audio capture, ASR sessions, clipboard output, tray behavior, floating captions, updates, and system audio. Svelte handles the main window UI.
+
+This is a personal project. The priority is practicality, simplicity, and maintainability. Do not commit real API keys, personal hotwords, local context files, logs, or stats files.
+
+## Documentation
+
+- Wiki home: <https://github.com/zkwi/VoxType/wiki>
+- User configuration guide: <https://github.com/zkwi/VoxType/wiki/Setup-Guide-English>
+- Features and usage optimization: <https://github.com/zkwi/VoxType/wiki/Feature-Guide-English>
+- Troubleshooting: <https://github.com/zkwi/VoxType/wiki/Troubleshooting-English>
+
+## Main Features
+
+- Global trigger: `Ctrl + Q` is enabled by default. Right Alt and middle mouse can be enabled manually.
+- Microphone capture: PCM audio capture through Rust `cpal`; input device can be selected.
+- Streaming ASR: Doubao `bigmodel_async` WebSocket with real-time partial text and final text.
+- Local silence fallback: continuous silence for 10 seconds ends the current recording by default, so an empty recording does not wait until the 300-second maximum duration.
+- Floating captions: real-time transcription feedback near the bottom of the screen. Captions show text, processing state, and errors only.
+- Automatic output: final text is copied to the clipboard and pasted with `Ctrl+V` or `Shift+Insert`. VoxType then tries to restore the previous clipboard.
+- Recent input card: after a successful input, the Home page can temporarily show and copy the latest recognized text. It is kept only in the current window memory and is cleared when the window closes or a new recording starts.
+- Optional LLM polishing: OpenAI-compatible API support for light text cleanup and style control.
+- Hotwords and prompts: maintain custom hotwords, scene notes, and polishing prompts.
+- Automatic hotword candidates: optional local history and manual LLM candidate generation; candidates must be confirmed before joining hotwords.
+- Tray resident mode: closing the main window hides it to the tray by default. During input and processing, the tray icon switches to an active state.
+- Updates: the advanced Options page can check GitHub Releases. When a new version is found, the UI shows an "Update now" action.
+- Diagnostics: logs and redacted diagnostic reports help troubleshoot ASR, paste, network, and update issues.
+- Languages: Simplified Chinese, Traditional Chinese, and English.
+
+## Main Workflow Guarantees
+
+These rules protect user trust in the core voice input flow:
+
+- Empty recognition becomes a failure. It does not show "pasted", does not run LLM polishing, does not paste, and does not record successful stats.
+- The UI only shows "polishing text" when LLM polishing is enabled, text length reaches `min_chars`, and Base URL, API Key, and model are complete.
+- Floating captions do not show paste-state noise such as "pasting" or "pasted".
+- Usage stats never store recognized text. They store duration, character count, speed, and time estimates only.
+- Logs and diagnostic reports should not include real API keys, recognized text, hotwords, prompts, recent context text, automatic hotword history text, or Windows username paths.
+
+## Requirements
+
+VoxType targets Windows 10/11.
+
+Normal users should download the Windows installer from GitHub Releases:
+
+<https://github.com/zkwi/VoxType/releases>
+
+The installer includes the Microsoft Edge WebView2 Bootstrapper. If WebView2 Runtime is missing, the installer installs it automatically.
+
+VoxType also needs Windows microphone permission:
+
+```text
+Windows Settings -> Privacy & security -> Microphone -> Let desktop apps access your microphone
+```
+
+Development requires:
+
+- Node.js and npm
+- Rust toolchain
+
+If Rust is installed but `cargo` is not found in the current terminal:
+
+```powershell
+$env:PATH="$env:USERPROFILE\.cargo\bin;$env:PATH"
+```
+
+## Configuration
+
+The minimum required configuration is Doubao ASR authentication:
+
+```toml
+[auth]
+app_key = ""
+access_key = ""
+resource_id = "volc.seedasr.sauc.duration"
+```
+
+Without `app_key` and `access_key`, recording, recognition, and paste actions are locked.
+
+Optional LLM polishing:
+
+```toml
+[llm_post_edit]
+enabled = false
+base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+api_key = ""
+model = "qwen3.5-plus"
+min_chars = 40
+enable_thinking = false
+```
+
+Recommended trigger defaults:
+
+```toml
+[triggers]
+hotkey_enabled = true
+middle_mouse_enabled = false
+right_alt_enabled = false
+```
+
+Recommended output defaults:
+
+```toml
+[typing]
+paste_method = "ctrl_v"
+remove_trailing_period = true
+restore_clipboard_after_paste = true
+clipboard_restore_delay_ms = 1800
+```
+
+Recording defaults:
+
+```toml
+[audio]
+max_record_seconds = 300
+silence_auto_stop_seconds = 10
+mute_system_volume_while_recording = false
+```
+
+`config.toml`, local logs, local context files, and stats files are ignored by Git. Example config and docs should contain placeholders only.
+
+## First Use
+
+1. Install and start VoxType.
+2. Open API Config.
+3. Fill in Doubao ASR App Key, Access Key, and Resource ID.
+4. Click the ASR test button.
+5. Return to Home.
+6. Put the cursor in a target input field.
+7. Press `Ctrl + Q` to start recording.
+8. Press `Ctrl + Q` again to stop, or stay silent for the local silence fallback.
+9. Wait for final recognition and optional polishing.
+10. If text does not appear in the target field, press `Ctrl + V` manually.
+
+## Development
+
+Install dependencies and start the Tauri development app:
+
+```powershell
+npm install
+npm run tauri dev
+```
+
+The development server uses:
+
+```text
+http://127.0.0.1:18080
+```
+
+## Build
+
+Debug build:
+
+```powershell
+npx tauri build --debug --no-bundle
+```
+
+Release build:
+
+```powershell
+npx tauri build
+```
+
+The release executable is usually at:
+
+```text
+src-tauri\target\release\voxtype-desktop.exe
+```
+
+Do not use `cargo build --release` as the desktop release artifact. It does not build frontend resources first.
+
+## Checks
+
+Common local checks:
+
+```powershell
+npm run check
+npm run build
+npm run scan:secrets
+Set-Location .\src-tauri
+cargo fmt --check
+cargo check
+cargo test
+cargo clippy --all-targets -- -D warnings
+```
+
+AI-maintenance local check:
+
+```powershell
+npm run ai:check
+```
+
+Release check:
+
+```powershell
+npm run ai:release-check
+```
+
+## Project Layout
+
+```text
+VoxType/
+├── src/                         # Svelte main window UI
+├── src-tauri/                   # Tauri/Rust desktop backend
+│   ├── src/
+│   │   ├── audio.rs             # Microphone capture
+│   │   ├── asr.rs               # ASR request and result parsing
+│   │   ├── asr_ws.rs            # Doubao WebSocket session
+│   │   ├── autostart.rs         # Windows startup integration
+│   │   ├── config.rs            # TOML config model and IO
+│   │   ├── hotkey.rs            # Global hotkey and input hooks
+│   │   ├── llm_post_edit.rs     # LLM post-editing
+│   │   ├── overlay.rs           # Floating captions
+│   │   ├── session.rs           # Recording session state machine
+│   │   ├── stats.rs             # Usage stats without transcript text
+│   │   ├── system_audio.rs      # System volume control
+│   │   ├── text_output.rs       # Clipboard and paste
+│   │   ├── tray.rs              # System tray
+│   │   └── update.rs            # GitHub Release update checks
+│   └── tauri.conf.json
+├── docs/                        # Engineering and reference docs
+├── scripts/                     # Checks, hooks, and secret scanning
+├── config.example.toml          # Placeholder config template
+├── README.md                    # Simplified Chinese README
+└── README.en.md                 # English README
+```
+
+## Local Files Not To Commit
+
+- `config.toml`
+- `*.local.toml`
+- `context/recent_context.jsonl`
+- `context/hotword_history.jsonl`
+- `voice_input.log`
+- `voice_input_stats.jsonl`
+- `src-tauri/target/`
+- `node_modules/`
+- `build/`

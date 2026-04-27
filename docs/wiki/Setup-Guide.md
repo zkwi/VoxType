@@ -1,83 +1,238 @@
-# 声写 VoxType 配置指南
+# 声写 VoxType 用户配置指南
 
-本页用于第一次运行声写（VoxType）时完成基础配置。安装后如果没有 `config.toml`，程序会自动打开本指南，并在主窗口切换到配置页。
+本页面是 GitHub Wiki `Setup-Guide` 的仓库内草稿镜像，用于避免线上 Wiki 与仓库文档长期漂移。更新线上 Wiki 时，应同步检查本文件。
 
-## 1. 打开配置页
+English version: [User Configuration Guide](Setup-Guide-English)
 
-启动声写（VoxType）后，进入左侧的“配置”页面。
+## 1. 安装与运行环境
 
-如果程序提示“未找到配置文件”，可以直接在配置页填写信息并点击“保存配置”。程序会自动创建 `config.toml`。
+VoxType 仅面向 Windows 10/11。
 
-也可以从托盘图标右键菜单选择“打开配置文件”，手动编辑 `config.toml`。
+推荐从 GitHub Release 下载 Windows 安装包：
 
-## 2. 干净电脑运行环境
+<https://github.com/zkwi/VoxType/releases>
 
-请在新电脑上使用 `VoxType-*-setup.exe` 安装包。安装包会内置 Microsoft Edge WebView2 Bootstrapper，如果系统缺少 WebView2 Runtime，会在安装时自动安装。
+安装版会内置 Microsoft Edge WebView2 Bootstrapper。干净电脑缺少 WebView2 Runtime 时，安装器会自动安装运行时。
 
-项目不再发布绿色版 ZIP。绿色版不会安装系统运行时，容易在干净电脑上出现缺少 WebView2 Runtime 的问题。
+运行前请确认 Windows 允许桌面应用访问麦克风：
 
-声写还需要麦克风权限。如果录音失败，请在 Windows “设置 → 隐私和安全性 → 麦克风”中开启麦克风访问权限，并允许桌面应用访问麦克风。
+```text
+Windows 设置 → 隐私和安全性 → 麦克风 → 允许桌面应用访问麦克风
+```
 
-## 3. 填写豆包 ASR 信息
+## 2. 首次打开后的页面分工
 
-声写（VoxType）使用豆包流式语音识别服务。请先打开豆包官方文档查看接入说明，并在火山引擎控制台获取对应的认证信息：
+VoxType 保留五个主页面：
 
-https://www.volcengine.com/docs/6561/1354869?lang=zh
+| 页面 | 用途 |
+| --- | --- |
+| 首页 | 查看当前状态、开始/停止语音输入、查看启动方式和输入表现 |
+| 热词与提示词 | 管理常用热词、常用场景说明、润色提示词和自动热词候选 |
+| API配置 | 配置豆包 ASR 必填认证和可选大模型 API |
+| 选项 | 设置快捷键、粘贴方式、麦克风、悬浮字幕、开机启动和关闭行为 |
+| 统计分析 | 查看最近 24 小时、最近 7 日和按日统计 |
 
-在配置页的认证区域填写：
+设置页按三层组织：
 
-- `App Key`
-- `Access Key`
-- `Resource ID`
+- 默认展示：普通用户必须知道、经常修改的设置。
+- 高级设置：排障或低频调整项。
+- `config.toml` only：底层实现参数，界面不展示，但仍可手动编辑。
 
-其中 `App Key` 和 `Access Key` 需要按豆包文档和控制台实际信息填写。没有这两个值时，程序可以启动，但无法开始语音识别。
+## 3. 必填：配置豆包 ASR
 
-`Resource ID` 默认使用 `volc.seedasr.sauc.duration`，通常不需要修改。
+VoxType 的主链路依赖豆包流式 ASR。没有 ASR 认证时，录音、识别和粘贴入口会被锁定。
+
+进入 **API配置 → 豆包认证**，填写：
+
+| 字段 | 是否必填 | 说明 |
+| --- | --- | --- |
+| App Key | 是 | 火山引擎控制台获取 |
+| Access Key | 是 | 火山引擎控制台获取 |
+| Resource ID | 是 | 默认通常使用 `volc.seedasr.sauc.duration` |
+
+填写后点击 **测试**。测试通过后即可返回首页使用语音输入。
+
+豆包官方接入说明：
+
+<https://www.volcengine.com/docs/6561/1354869?lang=zh>
 
 请不要把真实密钥提交到 GitHub，也不要把本地 `config.toml` 分享给他人。
 
-## 4. 检查常用设置
+## 4. 可选：配置大模型润色 API
 
-首次使用建议保留默认值：
+大模型 API 用于：
 
-- 热键：`CTRL+Q`
-- 触发方式：`CTRL+Q`、右 Alt、鼠标中键、托盘菜单
-- 采样率：`16000`
-- 声道：`1`
-- 粘贴方式：`Ctrl+V`
+- 轻度润色识别文本。
+- 按常用场景整理长文本。
+- 为自动热词候选生成候选词。
 
-如果有多个麦克风，可以在“音频”区域选择输入设备。
+进入 **API配置 → 大模型 API**：
 
-## 5. 保存并测试
+| 字段 | 说明 |
+| --- | --- |
+| 启用润色 | 关闭时只使用 ASR，不调用 LLM |
+| Base URL | OpenAI 兼容接口地址，例如 `https://dashscope.aliyuncs.com/compatible-mode/v1` |
+| API Key | 对应服务商的 Key |
+| 模型 | 例如 `qwen3.5-plus` |
 
-点击“保存配置”后，回到“输入”页面。
+建议配置后点击 **测试**。如果只是语音识别，不需要开启大模型润色。
 
-在任意输入框中按 `CTRL+Q`、右 Alt 或鼠标中键开始录音，再次触发即可停止录音。识别完成后，文本会自动写入剪贴板并粘贴到当前焦点输入框。
+性能建议：
 
-## 6. 常见问题
+- 语音输入润色通常不需要 thinking，默认关闭更快。
+- 短文本默认低于 `min_chars = 40` 不润色，减少延迟。
+- 网络不稳定时，再到高级设置调整 LLM 超时时间。
 
-### 按快捷键没有反应
+## 5. 热词与提示词
 
-确认配置页已经填写 `App Key` 和 `Access Key`，并保存配置。
+进入 **热词与提示词** 页面。
 
-如果热键被其他程序占用，可以在配置页修改热键。
+### 常用热词
 
-### 识别结束后没有粘贴
+每行一个词，适合填写：
 
-确认当前光标在可输入的文本框内。部分软件会拦截粘贴快捷键，可以尝试切换到普通文本编辑器测试。
+- 人名、公司名、产品名
+- 项目名、缩写、代码名
+- ASR 容易识别错的技术词
 
-### 不想显示启动提示
+这些热词会用于提升识别和润色准确性。不要填写密码、证件号、手机号或客户敏感信息。
 
-在配置页关闭“显示启动提示”，保存后下次启动生效。
+### 润色提示词
 
-## 7. 配置文件位置
+页面默认提供润色提示词入口。即使没有开启 LLM，也可以先编辑并保存提示词；只有开启大模型润色后才会生效。
 
-程序会优先读取当前运行目录或安装目录下的 `config.toml`。
+可做的事情：
 
-打包安装版本通常位于：
+- 恢复默认提示词。
+- 预览最终 Prompt。
+- 编辑 User Prompt 模板。
 
-```text
-C:\Users\<你的用户名>\AppData\Local\VoxType
+System Prompt 和最小润色字数位于高级设置。
+
+### 最近上下文
+
+最近上下文默认关闭。开启后，VoxType 会把最近几轮识别片段保存到本地 `context/recent_context.jsonl`，用于改善连续输入的上下文效果。
+
+注意：
+
+- 只保存 VoxType 识别片段，不记录键盘输入。
+- 不写回 `config.toml`。
+- 可在热词页高级设置中清空。
+
+### 自动热词候选
+
+自动热词候选默认关闭。开启后，VoxType 会本地保存最终语音输入文本；只有用户点击“生成候选”时，才会把摘要发送到已配置的大模型服务。
+
+候选词不会自动加入热词列表，必须由用户勾选确认。
+
+## 6. 选项页日常设置
+
+默认页保留日常高频项：
+
+| 模块 | 默认展示 |
+| --- | --- |
+| 使用方式 | 主快捷键、开机启动、关闭窗口行为 |
+| 输入结果 | 自动粘贴 / 仅复制到剪贴板、自动去掉句尾句号 |
+| 麦克风 | 输入设备 |
+| 悬浮字幕外观 | 字幕预览、配色预设、透明度预设 |
+
+高级设置包含：
+
+- 备用触发方式：主热键开关、鼠标中键、右 Alt。
+- 粘贴兼容性：完整粘贴方式、恢复剪贴板、恢复延迟。
+- 字幕精细调整：背景色、文字色、宽度、高度、底部边距。
+- 录音与排障：最长录音时间、连续静音自动停止、录音时静音系统音量。
+- 软件更新与诊断：检查更新、立即更新、打开日志、复制诊断报告。
+
+## 7. 推荐默认值
+
+建议首次使用保持这些默认值：
+
+| 配置 | 推荐值 | 原因 |
+| --- | --- | --- |
+| 主快捷键 | `Ctrl + Q` | 低冲突、易记 |
+| 鼠标中键 | 关闭 | 可能与浏览器或编辑器冲突 |
+| 右 Alt | 关闭 | 可能与输入法或快捷键冲突 |
+| 粘贴方式 | 自动粘贴 | 适合大多数输入框 |
+| 剪贴板恢复 | 开启 | 粘贴后尽量恢复原剪贴板 |
+| 连续静音自动停止 | 10 秒 | 防止服务端未判停时录到最长上限 |
+| 最近上下文 | 关闭 | 默认更保守 |
+| 自动热词候选 | 关闭 | 默认不保存正文历史 |
+| 录音时静音系统音量 | 关闭 | 避免影响会议、视频和系统提示 |
+| thinking | 关闭 | 语音润色通常更快 |
+
+## 8. `config.toml` 关键字段
+
+界面会自动保存配置。需要手动编辑时，可参考 `config.example.toml`。
+
+最小 ASR 配置：
+
+```toml
+[auth]
+app_key = ""
+access_key = ""
+resource_id = "volc.seedasr.sauc.duration"
 ```
 
-请只在本机保存真实配置，不要提交或上传包含密钥的配置文件。
+可选 LLM 配置：
+
+```toml
+[llm_post_edit]
+enabled = false
+base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+api_key = ""
+model = "qwen3.5-plus"
+min_chars = 40
+enable_thinking = false
+```
+
+录音：
+
+```toml
+[audio]
+max_record_seconds = 300
+silence_auto_stop_seconds = 10
+mute_system_volume_while_recording = false
+```
+
+触发方式：
+
+```toml
+[triggers]
+hotkey_enabled = true
+middle_mouse_enabled = false
+right_alt_enabled = false
+```
+
+输出方式：
+
+```toml
+[typing]
+paste_method = "ctrl_v"
+remove_trailing_period = true
+restore_clipboard_after_paste = true
+clipboard_restore_delay_ms = 1800
+```
+
+更新：
+
+```toml
+[update]
+auto_check_on_startup = true
+github_repo = "zkwi/VoxType"
+```
+
+## 9. 第一次使用流程
+
+1. 安装并启动 VoxType。
+2. 进入 API配置，填写豆包 ASR 的 App Key、Access Key 和 Resource ID。
+3. 点击豆包 ASR 的 **测试**。
+4. 回到首页，把光标放到目标输入框。
+5. 按 `Ctrl + Q` 开始录音，再按一次停止录音；如果持续静音，默认 10 秒后会自动停止。
+6. 等待最终识别和可选润色完成。
+7. 如果目标输入框没有出现文字，按 `Ctrl + V` 手动粘贴。
+
+## 10. 下一步
+
+- 想提升识别准确率：阅读 [功能特性与使用优化](Feature-Guide) 的“热词与提示词”部分。
+- 粘贴失败、快捷键无反应、更新异常：阅读 [常见问题与排障](Troubleshooting)。
