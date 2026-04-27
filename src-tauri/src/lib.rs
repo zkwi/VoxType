@@ -342,6 +342,14 @@ fn copy_diagnostic_report_to_clipboard(
     Ok(report)
 }
 
+#[tauri::command]
+fn copy_recent_input_text_to_clipboard(text: String) -> Result<(), String> {
+    if text.trim().is_empty() {
+        return Err("没有可复制的识别文本。".to_string());
+    }
+    text_output::copy_text_to_clipboard(&text)
+}
+
 fn build_diagnostic_report(
     session: &State<'_, SessionController>,
 ) -> Result<DiagnosticReport, String> {
@@ -608,6 +616,7 @@ pub fn run() {
             open_log_file,
             get_diagnostic_report,
             copy_diagnostic_report_to_clipboard,
+            copy_recent_input_text_to_clipboard,
             hide_main_window,
             exit_application,
             update_close_preference,

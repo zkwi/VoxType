@@ -6,6 +6,7 @@
     Check,
     ChevronRight,
     Clock3,
+    Copy,
     Globe2,
     Keyboard,
     MessageSquareText,
@@ -46,6 +47,7 @@
     onOpenSettings: () => void;
     onOpenSetupGuide: () => void;
     onUserErrorAction: (action: UserErrorAction) => void;
+    onCopyLastOutcomeText: (text: string) => Promise<boolean>;
     onToggleRecording: () => void;
     onSelectSection: (section: "Options") => void;
     onToggleTrigger: (key: TriggerKey) => void;
@@ -79,6 +81,7 @@
     onOpenSettings,
     onOpenSetupGuide,
     onUserErrorAction,
+    onCopyLastOutcomeText,
     onToggleRecording,
     onSelectSection,
     onToggleTrigger,
@@ -86,6 +89,8 @@
 
   const outcomePreviewLimit = 500;
   let lastOutcomeExpanded = $state(false);
+  let lastOutcomeCopied = $state(false);
+  let copyingLastOutcome = $state(false);
   let lastOutcomeCreatedAt = $state<number | null>(null);
 
   $effect(() => {
@@ -93,6 +98,8 @@
     if (createdAt !== lastOutcomeCreatedAt) {
       lastOutcomeCreatedAt = createdAt;
       lastOutcomeExpanded = false;
+      lastOutcomeCopied = false;
+      copyingLastOutcome = false;
     }
   });
 
@@ -116,12 +123,23 @@
   function outcomeTextPreview(text: string) {
     return text.length > outcomePreviewLimit ? text.slice(0, outcomePreviewLimit) : text;
   }
+
+  async function copyLastOutcome() {
+    const outcome = lastSessionOutcome;
+    if (!outcome || copyingLastOutcome) return;
+    copyingLastOutcome = true;
+    try {
+      const copied = await onCopyLastOutcomeText(outcome.text);
+      if (copied && lastSessionOutcome?.createdAt === outcome.createdAt) {
+        lastOutcomeCopied = true;
+      }
+    } finally {
+      copyingLastOutcome = false;
+    }
+  }
 </script>
 
 <section class="voice-card">
-  <div class="section-title-row">
-    <h3>{t("voiceInputTitle")}</h3>
-  </div>
   {#if requiresAsrAuth}
     <div class="setup-alert">
       <div>
@@ -184,9 +202,15 @@
           <strong>{t("lastOutcomeSuccessTitle")}</strong>
           <p>{t("lastOutcomeSuccessDescription")}</p>
         </div>
-        <button type="button" class="link-action compact" onclick={() => (lastOutcomeExpanded = !lastOutcomeExpanded)}>
-          {lastOutcomeExpanded ? t("lastOutcomeHideText") : t("lastOutcomeViewText")}
-        </button>
+        <div class="last-outcome-actions">
+          <button type="button" class="link-action compact copy-action" disabled={copyingLastOutcome} onclick={copyLastOutcome}>
+            <Copy size={14} />
+            {copyingLastOutcome ? t("lastOutcomeCopying") : lastOutcomeCopied ? t("lastOutcomeCopiedShort") : t("lastOutcomeCopyText")}
+          </button>
+          <button type="button" class="link-action compact" onclick={() => (lastOutcomeExpanded = !lastOutcomeExpanded)}>
+            {lastOutcomeExpanded ? t("lastOutcomeHideText") : t("lastOutcomeViewText")}
+          </button>
+        </div>
       </div>
       {#if lastSessionOutcome.warning}
         <p class="last-outcome-warning">
@@ -206,10 +230,7 @@
   {/if}
   <section class="launch-card">
     <div class="section-title-row">
-      <div>
-        <Keyboard size={20} />
-        <h3>{t("desktopControl")}</h3>
-      </div>
+      <h3>{t("desktopControl")}</h3>
       <button class="link-action" type="button" onclick={() => onSelectSection("Options")}>
         {t("shortcutSettings")} <ChevronRight size={16} />
       </button>
@@ -318,13 +339,6 @@
     justify-content: space-between;
     gap: 16px;
     margin-bottom: 8px;
-    min-width: 0;
-  }
-
-  .section-title-row > div {
-    display: flex;
-    align-items: center;
-    gap: 12px;
     min-width: 0;
   }
 
@@ -448,6 +462,15 @@
     min-width: 0;
   }
 
+  .last-outcome-actions {
+    display: flex;
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 8px;
+    min-width: 0;
+  }
+
   .last-outcome-copy {
     display: grid;
     gap: 4px;
@@ -490,6 +513,16 @@
 
   .link-action.compact {
     justify-self: end;
+  }
+
+  .link-action.copy-action {
+    color: #047857;
+    background: rgba(16, 185, 129, 0.12);
+  }
+
+  .link-action:disabled {
+    cursor: wait;
+    opacity: 0.64;
   }
 
   .last-outcome-text {
@@ -936,6 +969,14 @@
   @media (max-width: 920px) {
     .home-detail-grid.with-outcome {
       grid-template-columns: minmax(0, 1fr);
+    }
+
+    .last-outcome-header {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .last-outcome-actions {
+      justify-content: flex-start;
     }
 
     .trigger-grid,

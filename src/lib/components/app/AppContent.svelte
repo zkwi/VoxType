@@ -103,6 +103,7 @@
     onOpenSettings: () => void;
     onOpenSetupGuide: () => void;
     onUserErrorAction: (action: UserErrorAction) => void;
+    onCopyLastOutcomeText: (text: string) => Promise<boolean>;
     onToggleRecording: () => void;
     onSelectSection: (section: Section) => void;
     onToggleTrigger: (key: keyof AppConfig["triggers"]) => void;
@@ -220,6 +221,7 @@
     onOpenSettings,
     onOpenSetupGuide,
     onUserErrorAction,
+    onCopyLastOutcomeText,
     onToggleRecording,
     onSelectSection,
     onToggleTrigger,
@@ -274,6 +276,7 @@
     {activeErrorDetail}
     {activeErrorActions}
     {lastSessionOutcome}
+    {onCopyLastOutcomeText}
     {sessionBusy}
     {snapshotHotkey}
     {chineseTypingCharsPerMinute}

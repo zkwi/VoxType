@@ -114,6 +114,8 @@ import type {
   UserErrorAction,
 } from "$lib/types/app";
 
+const copyRecentInputCommand = "copy_recent_input_text_to_clipboard";
+
 export function createVoxTypeController() {
 
   let snapshot = $state<AppSnapshot>(fallbackSnapshot);
@@ -425,6 +427,27 @@ export function createVoxTypeController() {
     const result = await safeInvoke<SessionState>("toggle_recording");
     if (result) applySessionState(result);
   }
+
+  async function copyLastOutcomeText(text: string) {
+    if (!text) return false;
+    if (!hasTauriApi()) {
+      statusMessage = t("browserPreview");
+      showActionNotice(statusMessage, "error");
+      return false;
+    }
+    try {
+      await invoke(copyRecentInputCommand, { text });
+      statusMessage = t("lastOutcomeCopied");
+      showActionNotice(statusMessage, "success");
+      return true;
+    } catch (error) {
+      statusMessage = userFacingInvokeFailure(copyRecentInputCommand, error, t("operationFailedGeneric"));
+      logFrontendError(`copy last outcome text failed: ${formatFrontendError(error)}`);
+      showActionNotice(statusMessage, "error");
+      return false;
+    }
+  }
+
   function isSessionBusy() {
     return isBlockingSessionPhase(sessionPhase);
   }
@@ -1130,6 +1153,7 @@ export function createVoxTypeController() {
       onOpenSettings: openSettings,
       onOpenSetupGuide: openSetupGuide,
       onUserErrorAction: handleUserErrorAction,
+      onCopyLastOutcomeText: copyLastOutcomeText,
       onToggleRecording: toggleRecordingFromUi,
       onSelectSection: settingsNav.selectSection,
       onToggleTrigger: toggleTrigger,
