@@ -110,6 +110,7 @@ fn sanitize_message(message: &str) -> String {
         redacted = redact_key_values(&redacted, key);
     }
     redacted = redact_openai_style_keys(&redacted);
+    redacted = redact_current_user_profile_path(&redacted);
 
     let mut limited = redacted.chars().take(MAX_MESSAGE_CHARS).collect::<String>();
     if redacted.chars().count() > MAX_MESSAGE_CHARS {
@@ -223,9 +224,48 @@ fn redact_openai_style_keys(message: &str) -> String {
     output
 }
 
+fn redact_current_user_profile_path(message: &str) -> String {
+    let Ok(profile) = std::env::var("USERPROFILE") else {
+        return message.to_string();
+    };
+    redact_path_with_profile(message, &profile)
+}
+
+fn redact_path_with_profile(message: &str, profile: &str) -> String {
+    if profile.is_empty() {
+        return message.to_string();
+    }
+    let profile_lower = profile.to_ascii_lowercase();
+    let mut output = message.to_string();
+    let mut search_start = 0;
+    loop {
+        let lower = output.to_ascii_lowercase();
+        let Some(relative_pos) = lower[search_start..].find(&profile_lower) else {
+            break;
+        };
+        let value_start = search_start + relative_pos;
+        let value_end = value_start + profile.len();
+        if !is_path_boundary(output[value_end..].chars().next()) {
+            search_start = value_end;
+            continue;
+        }
+        output.replace_range(value_start..value_end, "%USERPROFILE%");
+        search_start = value_start + "%USERPROFILE%".len();
+    }
+    output
+}
+
+fn is_path_boundary(next: Option<char>) -> bool {
+    match next {
+        None => true,
+        Some('\\' | '/' | '"' | '\'' | ',' | ';' | ')' | ']' | '}') => true,
+        Some(ch) => ch.is_whitespace(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::sanitize_message;
+    use super::{redact_path_with_profile, sanitize_message};
 
     #[test]
     fn redacts_common_secret_shapes() {
@@ -243,5 +283,20 @@ mod tests {
     fn flattens_multiline_messages() {
         let message = sanitize_message("first\nsecond\r\nthird");
         assert_eq!(message, "first second  third");
+    }
+
+    #[test]
+    fn redacts_user_profile_paths_without_matching_similar_prefixes() {
+        assert_eq!(
+            redact_path_with_profile(
+                "config at C:\\Users\\Alice\\AppData\\VoxType\\config.toml",
+                "c:\\users\\alice",
+            ),
+            "config at %USERPROFILE%\\AppData\\VoxType\\config.toml"
+        );
+        assert_eq!(
+            redact_path_with_profile("C:\\Users\\AliceBackup\\config.toml", "C:\\Users\\Alice"),
+            "C:\\Users\\AliceBackup\\config.toml"
+        );
     }
 }

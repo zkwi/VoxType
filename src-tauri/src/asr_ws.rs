@@ -119,19 +119,6 @@ pub fn spawn_asr_worker(
                 if !text.trim().is_empty() {
                     overlay::update_text(&app, &text);
                     let duration = started_at.elapsed().as_secs_f64();
-                    if let Err(err) = config::remember_recent_context(&text) {
-                        app_log::warn(format!("写入 recent context 失败: {}", err));
-                    }
-                    if let Err(err) = hotword_history::append_transcript(&text) {
-                        app_log::warn(format!("写入自动热词历史失败: {}", err));
-                    }
-                    if let Err(err) = stats::append_event(&text, duration) {
-                        app_log::warn(err);
-                    } else if let Err(err) =
-                        app.emit("usage-stats-updated", stats::load_stats_snapshot())
-                    {
-                        app_log::warn(format!("刷新统计事件发送失败: {}", err));
-                    }
                     if session
                         .set_phase_for_generation(
                             generation,
@@ -163,6 +150,7 @@ pub fn spawn_asr_worker(
                             return;
                         }
                     };
+                    record_successful_transcript_side_effects(&app, &text, duration);
                     if output_warning.is_some() {
                         app_log::warn(format!(
                             "输出文本完成但存在提示: {}",
@@ -538,6 +526,20 @@ fn emit_partial_text(app: &AppHandle, text: &str) {
         return;
     }
     overlay::update_text(app, text.to_string());
+}
+
+fn record_successful_transcript_side_effects(app: &AppHandle, text: &str, duration: f64) {
+    if let Err(err) = config::remember_recent_context(text) {
+        app_log::warn(format!("写入 recent context 失败: {}", err));
+    }
+    if let Err(err) = hotword_history::append_transcript(text) {
+        app_log::warn(format!("写入自动热词历史失败: {}", err));
+    }
+    if let Err(err) = stats::append_event(text, duration) {
+        app_log::warn(err);
+    } else if let Err(err) = app.emit("usage-stats-updated", stats::load_stats_snapshot()) {
+        app_log::warn(format!("刷新统计事件发送失败: {}", err));
+    }
 }
 
 struct PartialTextLimiter {
