@@ -30,17 +30,24 @@ pub fn create_overlay_window(app: &AppHandle) -> Result<(), String> {
     if app.get_webview_window(OVERLAY_LABEL).is_some() {
         return Ok(());
     }
-    WebviewWindowBuilder::new(app, OVERLAY_LABEL, WebviewUrl::App("/?overlay=1".into()))
-        .title("ASR Caption")
-        .inner_size(350.0, 64.0)
-        .resizable(false)
-        .decorations(false)
-        .always_on_top(true)
-        .skip_taskbar(true)
-        .transparent(true)
-        .visible(false)
-        .build()
-        .map_err(|err| format!("创建悬浮字幕窗失败: {}", err))?;
+    let window =
+        WebviewWindowBuilder::new(app, OVERLAY_LABEL, WebviewUrl::App("/?overlay=1".into()))
+            .title("ASR Caption")
+            .inner_size(350.0, 64.0)
+            .resizable(false)
+            .decorations(false)
+            .always_on_top(true)
+            .skip_taskbar(true)
+            .transparent(true)
+            .focused(false)
+            .visible(false)
+            .build()
+            .map_err(|err| format!("创建悬浮字幕窗失败: {}", err))?;
+
+    if let Err(err) = window.set_focusable(false) {
+        crate::app_log::warn(format!("设置悬浮字幕窗不可聚焦失败: {}", err));
+    }
+
     crate::app_log::info("悬浮字幕窗已创建");
     Ok(())
 }
@@ -69,9 +76,14 @@ pub fn show_for_recording(app: &AppHandle, ui: &UiConfig) {
     }
     update_config(app, ui);
     update_text(app, DEFAULT_TEXT);
+    if let Err(err) = window.set_focusable(false) {
+        crate::app_log::warn(format!("显示前设置悬浮字幕窗不可聚焦失败: {}", err));
+    }
+
     if let Err(err) = window.show() {
         crate::app_log::warn(format!("显示悬浮字幕窗失败: {}", err));
     } else {
+        let _ = window.set_focusable(false);
         crate::app_log::info("悬浮字幕窗已显示");
     }
 }
