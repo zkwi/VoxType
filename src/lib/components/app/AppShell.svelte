@@ -148,6 +148,7 @@
     <section
       class:overview-content={selectedSection === "Home"}
       class:setup-required={requiresAsrAuth}
+      class:session-error={inputStatus === "error"}
       class="content"
     >
       {#if selectedSection !== "Home"}
@@ -590,14 +591,15 @@
     grid-auto-rows: max-content;
     gap: 14px;
     align-content: start;
-    overflow: auto;
+    overflow: hidden;
   }
 
   .ui-compact .content.overview-content {
     gap: 12px;
   }
 
-  .content.overview-content.setup-required {
+  .content.overview-content.setup-required,
+  .content.overview-content.session-error {
     overflow: auto;
   }
 

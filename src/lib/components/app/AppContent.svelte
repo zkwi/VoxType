@@ -12,6 +12,7 @@
   import type {
     AppConfig,
     AudioDeviceInfo,
+    LastSessionOutcome,
     Section,
     SelectableHotwordCandidate,
     SoftConfigNoticeKey,
@@ -41,6 +42,7 @@
     setupRequiredMessage: () => string;
     activeErrorDetail: UserErrorDetail | null;
     activeErrorActions: UserErrorAction[];
+    lastSessionOutcome: LastSessionOutcome;
     sessionBusy: boolean;
     snapshotHotkey: string;
     chineseTypingCharsPerMinute: number;
@@ -157,6 +159,7 @@
     setupRequiredMessage,
     activeErrorDetail,
     activeErrorActions,
+    lastSessionOutcome,
     sessionBusy,
     snapshotHotkey,
     chineseTypingCharsPerMinute,
@@ -270,6 +273,7 @@
     setupRequiredMessage={setupRequiredMessage()}
     {activeErrorDetail}
     {activeErrorActions}
+    {lastSessionOutcome}
     {sessionBusy}
     {snapshotHotkey}
     {chineseTypingCharsPerMinute}

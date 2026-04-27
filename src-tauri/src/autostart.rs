@@ -2,6 +2,9 @@ use crate::{app_log, config::StartupConfig};
 
 const APP_NAME: &str = "VoxType";
 
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
 pub fn apply(config: &StartupConfig) -> Result<(), String> {
     if config.launch_on_startup {
         enable()
@@ -14,7 +17,7 @@ pub fn apply(config: &StartupConfig) -> Result<(), String> {
 fn enable() -> Result<(), String> {
     let exe = std::env::current_exe().map_err(|err| format!("获取程序路径失败: {}", err))?;
     let command = format!("\"{}\"", exe.display());
-    let output = std::process::Command::new("reg")
+    let output = reg_command()
         .args([
             "add",
             run_key(),
@@ -38,7 +41,7 @@ fn enable() -> Result<(), String> {
 
 #[cfg(windows)]
 fn disable() -> Result<(), String> {
-    let exists = std::process::Command::new("reg")
+    let exists = reg_command()
         .args(["query", run_key(), "/v", APP_NAME])
         .output()
         .map_err(|err| format!("读取开机启动状态失败: {}", err))?;
@@ -47,7 +50,7 @@ fn disable() -> Result<(), String> {
         return Ok(());
     }
 
-    let output = std::process::Command::new("reg")
+    let output = reg_command()
         .args(["delete", run_key(), "/v", APP_NAME, "/f"])
         .output()
         .map_err(|err| format!("关闭开机启动失败: {}", err))?;
@@ -62,6 +65,16 @@ fn disable() -> Result<(), String> {
 #[cfg(windows)]
 fn run_key() -> &'static str {
     r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run"
+}
+
+#[cfg(windows)]
+fn reg_command() -> std::process::Command {
+    use std::os::windows::process::CommandExt;
+
+    let mut command = std::process::Command::new("reg");
+    // GUI 应用启动控制台程序时会闪黑框；注册表同步应完全后台执行。
+    command.creation_flags(CREATE_NO_WINDOW);
+    command
 }
 
 #[cfg(windows)]

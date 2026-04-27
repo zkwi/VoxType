@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { AppConfig, StatsSnapshot, TriggerKey, UserErrorAction } from "$lib/types/app";
+  import type { AppConfig, LastSessionOutcome, StatsSnapshot, TriggerKey, UserErrorAction } from "$lib/types/app";
   import type { CopyKey, UserErrorDetail } from "$lib/i18n";
   import {
     CalendarDays,
@@ -32,6 +32,7 @@
     setupRequiredMessage: string;
     activeErrorDetail: UserErrorDetail | null;
     activeErrorActions: UserErrorAction[];
+    lastSessionOutcome: LastSessionOutcome;
     sessionBusy: boolean;
     snapshotHotkey: string;
     chineseTypingCharsPerMinute: number;
@@ -64,6 +65,7 @@
     setupRequiredMessage,
     activeErrorDetail,
     activeErrorActions,
+    lastSessionOutcome,
     sessionBusy,
     snapshotHotkey,
     chineseTypingCharsPerMinute,
@@ -82,6 +84,18 @@
     onToggleTrigger,
   }: Props = $props();
 
+  const outcomePreviewLimit = 500;
+  let lastOutcomeExpanded = $state(false);
+  let lastOutcomeCreatedAt = $state<number | null>(null);
+
+  $effect(() => {
+    const createdAt = lastSessionOutcome?.createdAt ?? null;
+    if (createdAt !== lastOutcomeCreatedAt) {
+      lastOutcomeCreatedAt = createdAt;
+      lastOutcomeExpanded = false;
+    }
+  });
+
   function actionLabel(action: UserErrorAction) {
     switch (action) {
       case "retry_recording":
@@ -99,6 +113,9 @@
     }
   }
 
+  function outcomeTextPreview(text: string) {
+    return text.length > outcomePreviewLimit ? text.slice(0, outcomePreviewLimit) : text;
+  }
 </script>
 
 <section class="voice-card">
@@ -159,7 +176,34 @@
     </button>
   </div>
 </section>
-<div class="home-secondary-grid">
+<div class:with-outcome={lastSessionOutcome?.kind === "success"} class="home-detail-grid">
+  {#if lastSessionOutcome?.kind === "success"}
+    <section class="last-outcome-card">
+      <div class="last-outcome-header">
+        <div class="last-outcome-copy">
+          <strong>{t("lastOutcomeSuccessTitle")}</strong>
+          <p>{t("lastOutcomeSuccessDescription")}</p>
+        </div>
+        <button type="button" class="link-action compact" onclick={() => (lastOutcomeExpanded = !lastOutcomeExpanded)}>
+          {lastOutcomeExpanded ? t("lastOutcomeHideText") : t("lastOutcomeViewText")}
+        </button>
+      </div>
+      {#if lastSessionOutcome.warning}
+        <p class="last-outcome-warning">
+          <span>{t("lastOutcomeWarningLabel")}：</span>{lastSessionOutcome.warning}
+        </p>
+      {/if}
+      <p class="last-outcome-memory">{t("lastOutcomeTextMemoryHint")}</p>
+      {#if lastOutcomeExpanded}
+        <div class="last-outcome-text">
+          <p>{outcomeTextPreview(lastSessionOutcome.text)}</p>
+          {#if lastSessionOutcome.text.length > outcomePreviewLimit}
+            <small>{t("lastOutcomeTextTruncated")}</small>
+          {/if}
+        </div>
+      {/if}
+    </section>
+  {/if}
   <section class="launch-card">
     <div class="section-title-row">
       <div>
@@ -203,42 +247,43 @@
       </label>
     </div>
   </section>
-  <section class="performance-card">
-    <div class="section-title-row">
-      <h3>{t("recentUsage")}</h3>
-    </div>
-    <div class="stats-row" aria-label="Usage summary">
-      <article class="stat-card blue">
-        <span class="stat-icon"><PenLine size={uiCompact ? 16 : 20} /></span>
-        <p>{t("todayInput")}</p>
-        <strong>{formatNumber(stats.recent_24h.total_chars)} {t("chars")}</strong>
-        <small>{t("savedToday", { hours: formatHours(stats.recent_24h.total_chars / chineseTypingCharsPerMinute / 60).replace(" h", "") })}</small>
-      </article>
-      <article class="stat-card purple">
-        <span class="stat-icon"><CalendarDays size={uiCompact ? 16 : 20} /></span>
-        <p>{t("recent7d")}</p>
-        <strong>{formatNumber(stats.recent_7d.total_chars)} {t("chars")}</strong>
-        <small>{t("savedToday", { hours: formatHours(stats.recent_7d.total_chars / chineseTypingCharsPerMinute / 60).replace(" h", "") })}</small>
-      </article>
-      <article class="stat-card green">
-        <span class="stat-icon"><Zap size={uiCompact ? 16 : 20} /></span>
-        <p>{t("inputSpeed")}</p>
-        <strong>{stats.recent_7d.avg_chars_per_minute.toFixed(0)} {t("perMinute")}</strong>
-        <small>{t("avgCpm")}</small>
-      </article>
-      <article class="stat-card orange">
-        <span class="stat-icon"><Clock3 size={uiCompact ? 16 : 20} /></span>
-        <p>{t("savedTime")}</p>
-        <strong>{formatSavedHours(weeklySavedHours())}</strong>
-        <small>{t("weeklySavedShort")}</small>
-      </article>
-    </div>
-    <p class="usage-tip"><Sparkles size={15} />{usageTipText()}</p>
-  </section>
 </div>
+<section class="performance-card">
+  <div class="section-title-row">
+    <h3>{t("recentUsage")}</h3>
+  </div>
+  <div class="stats-row" aria-label="Usage summary">
+    <article class="stat-card blue">
+      <span class="stat-icon"><PenLine size={uiCompact ? 16 : 20} /></span>
+      <p>{t("todayInput")}</p>
+      <strong>{formatNumber(stats.recent_24h.total_chars)} {t("chars")}</strong>
+      <small>{t("savedToday", { hours: formatHours(stats.recent_24h.total_chars / chineseTypingCharsPerMinute / 60).replace(" h", "") })}</small>
+    </article>
+    <article class="stat-card purple">
+      <span class="stat-icon"><CalendarDays size={uiCompact ? 16 : 20} /></span>
+      <p>{t("recent7d")}</p>
+      <strong>{formatNumber(stats.recent_7d.total_chars)} {t("chars")}</strong>
+      <small>{t("savedToday", { hours: formatHours(stats.recent_7d.total_chars / chineseTypingCharsPerMinute / 60).replace(" h", "") })}</small>
+    </article>
+    <article class="stat-card green">
+      <span class="stat-icon"><Zap size={uiCompact ? 16 : 20} /></span>
+      <p>{t("inputSpeed")}</p>
+      <strong>{stats.recent_7d.avg_chars_per_minute.toFixed(0)} {t("perMinute")}</strong>
+      <small>{t("avgCpm")}</small>
+    </article>
+    <article class="stat-card orange">
+      <span class="stat-icon"><Clock3 size={uiCompact ? 16 : 20} /></span>
+      <p>{t("savedTime")}</p>
+      <strong>{formatSavedHours(weeklySavedHours())}</strong>
+      <small>{t("weeklySavedShort")}</small>
+    </article>
+  </div>
+  <p class="usage-tip"><Sparkles size={15} />{usageTipText()}</p>
+</section>
 
 <style>
   .voice-card,
+  .last-outcome-card,
   .launch-card,
   .performance-card {
     min-width: 0;
@@ -255,11 +300,16 @@
     margin-top: 0;
   }
 
-  .home-secondary-grid {
+  .home-detail-grid {
     display: grid;
-    grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr);
+    grid-template-columns: minmax(0, 1fr);
     gap: 14px;
     min-width: 0;
+  }
+
+  .home-detail-grid.with-outcome {
+    grid-template-columns: minmax(0, 1fr) minmax(360px, 0.92fr);
+    align-items: stretch;
   }
 
   .section-title-row {
@@ -380,6 +430,92 @@
   .error-action-row button:disabled {
     cursor: not-allowed;
     opacity: 0.55;
+  }
+
+  .last-outcome-card {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    background: #f7fffb;
+    border-color: rgba(16, 185, 129, 0.24);
+  }
+
+  .last-outcome-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 10px;
+    min-width: 0;
+  }
+
+  .last-outcome-copy {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  .last-outcome-copy strong {
+    color: var(--text-main);
+    font-size: 15px;
+    font-weight: 800;
+  }
+
+  .last-outcome-copy p {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+  }
+
+  .last-outcome-warning {
+    margin: 0;
+    color: #92400e !important;
+    font-size: 12px;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+  }
+
+  .last-outcome-warning span {
+    font-weight: 800;
+  }
+
+  .last-outcome-memory {
+    margin: 0;
+    color: var(--text-muted) !important;
+    font-size: 12px;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+  }
+
+  .link-action.compact {
+    justify-self: end;
+  }
+
+  .last-outcome-text {
+    display: grid;
+    gap: 6px;
+    min-width: 0;
+    max-height: 108px;
+    padding: 10px 12px;
+    overflow: auto;
+    background: #ffffff;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+  }
+
+  .last-outcome-text p {
+    margin: 0;
+    color: var(--text-main);
+    font-size: 13px;
+    line-height: 1.55;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .last-outcome-text small {
+    color: var(--text-secondary);
+    font-size: 12px;
   }
 
   .voice-hero {
@@ -736,6 +872,7 @@
   }
 
   :global(.ui-compact) .voice-card,
+  :global(.ui-compact) .last-outcome-card,
   :global(.ui-compact) .launch-card,
   :global(.ui-compact) .performance-card {
     padding: 12px;
@@ -767,6 +904,10 @@
     gap: 7px;
   }
 
+  :global(.ui-compact) .home-detail-grid {
+    gap: 12px;
+  }
+
   :global(.ui-compact) .trigger-item {
     min-height: 64px;
     padding: 9px;
@@ -793,7 +934,7 @@
   }
 
   @media (max-width: 920px) {
-    .home-secondary-grid {
+    .home-detail-grid.with-outcome {
       grid-template-columns: minmax(0, 1fr);
     }
 
