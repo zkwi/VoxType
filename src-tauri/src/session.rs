@@ -10,6 +10,7 @@ use crate::audio::{self, AudioCapture};
 use crate::config;
 use crate::overlay;
 use crate::system_audio::{self, VolumeState};
+use crate::tray;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct SessionState {
@@ -573,6 +574,7 @@ impl SessionController {
 
 pub fn emit_state(app: Option<&AppHandle>, state: &SessionState) {
     if let Some(app) = app {
+        tray::set_input_active(app, is_tray_input_active_phase(state.phase));
         let _ = app.emit("session-state-changed", state);
     }
 }
@@ -602,6 +604,18 @@ fn is_processing_phase(phase: SessionPhase) -> bool {
     matches!(
         phase,
         SessionPhase::WaitingFinalResult | SessionPhase::PostEditing | SessionPhase::Pasting
+    )
+}
+
+fn is_tray_input_active_phase(phase: SessionPhase) -> bool {
+    matches!(
+        phase,
+        SessionPhase::Starting
+            | SessionPhase::Recording
+            | SessionPhase::Stopping
+            | SessionPhase::WaitingFinalResult
+            | SessionPhase::PostEditing
+            | SessionPhase::Pasting
     )
 }
 
@@ -694,6 +708,28 @@ mod tests {
         assert!(super::is_processing_phase(SessionPhase::Pasting));
         assert!(!super::is_processing_phase(SessionPhase::Idle));
         assert!(!super::is_processing_phase(SessionPhase::Recording));
+    }
+
+    #[test]
+    fn tray_icon_marks_input_and_processing_phases_active() {
+        for phase in [
+            SessionPhase::Starting,
+            SessionPhase::Recording,
+            SessionPhase::Stopping,
+            SessionPhase::WaitingFinalResult,
+            SessionPhase::PostEditing,
+            SessionPhase::Pasting,
+        ] {
+            assert!(super::is_tray_input_active_phase(phase));
+        }
+
+        for phase in [
+            SessionPhase::Idle,
+            SessionPhase::Succeeded,
+            SessionPhase::Failed,
+        ] {
+            assert!(!super::is_tray_input_active_phase(phase));
+        }
     }
 
     #[test]
