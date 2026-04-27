@@ -148,10 +148,11 @@ impl SessionController {
         };
         let started_at = Instant::now();
         app_log::info(format!(
-            "录音启动请求: max_seconds={}, stop_grace_ms={}, silence_auto_stop_seconds={}, mute_system_volume={}",
+            "录音启动请求: max_seconds={}, stop_grace_ms={}, silence_auto_stop_seconds={}, silence_level_threshold={}, mute_system_volume={}",
             max_seconds,
             loaded.data.audio.stop_grace_ms,
             loaded.data.audio.silence_auto_stop_seconds,
+            loaded.data.audio.silence_level_threshold,
             loaded.data.audio.mute_system_volume_while_recording
         ));
         if let Some(app) = app.as_ref() {
@@ -214,7 +215,13 @@ impl SessionController {
             spawn_audio_level_emitter(app_for_level, level_rx);
         }
         if silence_auto_stop_enabled {
-            spawn_silence_auto_stop_listener(self.clone(), app.clone(), generation, silence_rx);
+            spawn_silence_auto_stop_listener(
+                self.clone(),
+                app.clone(),
+                generation,
+                silence_rx,
+                loaded.data.audio.stop_grace_ms,
+            );
         }
         let mut runtime_config = loaded.data.clone();
         runtime_config.audio.sample_rate = audio_info.sample_rate;
@@ -296,13 +303,6 @@ impl SessionController {
     pub fn stop(&self, app: Option<AppHandle>) -> Result<SessionState, String> {
         let loaded = config::load_config()?;
         let grace_ms = loaded.data.audio.stop_grace_ms;
-        if grace_ms == 0 {
-            let state =
-                self.force_stop(SessionPhase::WaitingFinalResult, "Recording stopped.", None);
-            emit_state(app.as_ref(), &state);
-            return Ok(state);
-        }
-
         let generation = {
             let inner = self
                 .inner
@@ -316,41 +316,20 @@ impl SessionController {
                     error_code: inner.error_code.clone(),
                 });
             }
-            drop(inner);
-            self.set_phase(
-                app.as_ref(),
-                SessionPhase::Stopping,
-                "Recording is stopping.",
-                None,
-            );
-            let inner = self
-                .inner
-                .lock()
-                .map_err(|_| "session mutex poisoned".to_string())?;
             inner.generation
         };
-        app_log::info(format!("收到停止录音请求，等待 {} ms 收尾", grace_ms));
+        let Some(state) = self.stop_generation_with_grace(
+            app,
+            generation,
+            grace_ms,
+            "Recording stopped.",
+            "Recording stopped after grace period.",
+            "收到停止录音请求",
+        ) else {
+            return Ok(self.current_state());
+        };
 
-        let controller = self.clone();
-        thread::spawn(move || {
-            thread::sleep(Duration::from_millis(grace_ms));
-            let stopped = controller.force_stop_generation(
-                generation,
-                SessionPhase::WaitingFinalResult,
-                "Recording stopped after grace period.",
-                None,
-            );
-            if let (Some(app), Some(state)) = (app, stopped) {
-                emit_state(Some(&app), &state);
-            }
-        });
-
-        Ok(SessionState {
-            recording: true,
-            phase: SessionPhase::Stopping,
-            message: "Recording will stop after the configured grace period.".to_string(),
-            error_code: None,
-        })
+        Ok(state)
     }
 
     pub fn toggle(&self, app: Option<AppHandle>) -> Result<SessionState, String> {
@@ -428,6 +407,63 @@ impl SessionController {
             message: message.to_string(),
             error_code: error_code.map(str::to_string),
         })
+    }
+
+    fn begin_stopping_generation(&self, generation: u64, message: &str) -> Option<SessionState> {
+        let Ok(mut inner) = self.inner.lock() else {
+            app_log::warn("停止指定会话失败：session mutex poisoned");
+            return None;
+        };
+        if !inner.recording || inner.generation != generation {
+            return None;
+        }
+        inner.phase = SessionPhase::Stopping;
+        inner.message = message.to_string();
+        inner.error_code = None;
+        Some(state_from_inner(&inner))
+    }
+
+    fn stop_generation_with_grace(
+        &self,
+        app: Option<AppHandle>,
+        generation: u64,
+        grace_ms: u64,
+        immediate_message: &'static str,
+        grace_message: &'static str,
+        log_source: &'static str,
+    ) -> Option<SessionState> {
+        if grace_ms == 0 {
+            let state = self.force_stop_generation(
+                generation,
+                SessionPhase::WaitingFinalResult,
+                immediate_message,
+                None,
+            );
+            if let (Some(app), Some(state)) = (app, state.as_ref()) {
+                emit_state(Some(&app), state);
+            }
+            return state;
+        }
+
+        let state = self.begin_stopping_generation(generation, "Recording is stopping.")?;
+        emit_state(app.as_ref(), &state);
+        app_log::info(format!("{}，等待 {} ms 收尾", log_source, grace_ms));
+
+        let controller = self.clone();
+        thread::spawn(move || {
+            thread::sleep(Duration::from_millis(grace_ms));
+            let stopped = controller.force_stop_generation(
+                generation,
+                SessionPhase::WaitingFinalResult,
+                grace_message,
+                None,
+            );
+            if let (Some(app), Some(state)) = (app, stopped) {
+                emit_state(Some(&app), &state);
+            }
+        });
+
+        Some(state)
     }
 
     pub fn abort_from_worker(&self, app: &AppHandle, message: &str) {
@@ -520,28 +556,6 @@ impl SessionController {
         Some(state)
     }
 
-    pub fn set_phase(
-        &self,
-        app: Option<&AppHandle>,
-        phase: SessionPhase,
-        message: &str,
-        error_code: Option<&str>,
-    ) -> SessionState {
-        let recording = matches!(
-            phase,
-            SessionPhase::Starting | SessionPhase::Recording | SessionPhase::Stopping
-        );
-        self.set_state_values(recording, phase, message, error_code);
-        let state = SessionState {
-            recording,
-            phase,
-            message: message.to_string(),
-            error_code: error_code.map(str::to_string),
-        };
-        emit_state(app, &state);
-        state
-    }
-
     fn set_state_values(
         &self,
         recording: bool,
@@ -617,19 +631,22 @@ fn spawn_silence_auto_stop_listener(
     app: Option<AppHandle>,
     generation: u64,
     silence_rx: Receiver<()>,
+    stop_grace_ms: u64,
 ) {
     thread::spawn(move || {
         if silence_rx.recv().is_err() {
             return;
         }
-        let stopped = controller.force_stop_generation(
+        let stopped = controller.stop_generation_with_grace(
+            app,
             generation,
-            SessionPhase::WaitingFinalResult,
+            stop_grace_ms,
             "Recording stopped after local silence timeout.",
-            None,
+            "Recording stopped after local silence timeout.",
+            "本地静音超时触发停止录音",
         );
-        if let (Some(app), Some(state)) = (app, stopped) {
-            emit_state(Some(&app), &state);
+        if stopped.is_some() {
+            app_log::info("本地静音超时已按手动停止流程结束录音。");
         }
     });
 }
@@ -819,5 +836,37 @@ mod tests {
             state.phase,
             SessionPhase::Stopping | SessionPhase::WaitingFinalResult
         ));
+    }
+
+    #[test]
+    fn generation_stop_with_grace_uses_stopping_phase_before_final_stop() {
+        let controller = SessionController::default();
+        {
+            let mut inner = controller.inner.lock().unwrap();
+            inner.recording = true;
+            inner.phase = SessionPhase::Recording;
+            inner.message = "Recording started.".to_string();
+            inner.generation = 12;
+        }
+
+        let state = controller
+            .stop_generation_with_grace(
+                None,
+                12,
+                1,
+                "Recording stopped.",
+                "Recording stopped after grace period.",
+                "测试停止录音",
+            )
+            .unwrap();
+
+        assert!(state.recording);
+        assert_eq!(state.phase, SessionPhase::Stopping);
+        assert!(controller.is_current_generation(12));
+
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        let state = controller.current_state();
+        assert!(!state.recording);
+        assert_eq!(state.phase, SessionPhase::WaitingFinalResult);
     }
 }

@@ -8,8 +8,6 @@ use std::sync::{mpsc, Arc};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-const SILENCE_LEVEL_THRESHOLD: f32 = 0.01;
-
 #[derive(Debug, Clone, Serialize)]
 pub struct AudioCaptureInfo {
     pub device_name: String,
@@ -37,6 +35,7 @@ struct CaptureOutputs {
     level_tx: Option<mpsc::Sender<f32>>,
     silence_tx: Option<mpsc::Sender<()>>,
     silence_auto_stop_seconds: u64,
+    silence_level_threshold: f32,
 }
 
 pub struct AudioCapture {
@@ -81,6 +80,7 @@ pub fn start_capture(
             level_tx,
             silence_tx,
             silence_auto_stop_seconds: audio.silence_auto_stop_seconds,
+            silence_level_threshold: audio.silence_level_threshold,
         };
         let (stream, device_name, sample_rate, channels) =
             match start_capture_in_thread(&audio, worker_counters, outputs) {
@@ -282,14 +282,16 @@ fn send_silence_auto_stop(
 struct SilenceAutoStopper {
     silence_frames: u64,
     limit_frames: u64,
+    level_threshold: f32,
     triggered: bool,
 }
 
 impl SilenceAutoStopper {
-    fn new(sample_rate: u32, seconds: u64) -> Self {
+    fn new(sample_rate: u32, seconds: u64, level_threshold: f32) -> Self {
         Self {
             silence_frames: 0,
             limit_frames: sample_rate as u64 * seconds,
+            level_threshold: level_threshold.clamp(0.001, 0.5),
             triggered: seconds == 0,
         }
     }
@@ -298,7 +300,7 @@ impl SilenceAutoStopper {
         if self.triggered || self.limit_frames == 0 || frame_count == 0 {
             return false;
         }
-        if level <= SILENCE_LEVEL_THRESHOLD {
+        if level <= self.level_threshold {
             self.silence_frames = self.silence_frames.saturating_add(frame_count as u64);
         } else {
             self.silence_frames = 0;
@@ -378,8 +380,11 @@ fn build_i16_stream(
 ) -> Result<Stream, String> {
     let channels = config.channels.max(1) as usize;
     let mut pending = Vec::new();
-    let mut silence =
-        SilenceAutoStopper::new(config.sample_rate.0, outputs.silence_auto_stop_seconds);
+    let mut silence = SilenceAutoStopper::new(
+        config.sample_rate.0,
+        outputs.silence_auto_stop_seconds,
+        outputs.silence_level_threshold,
+    );
     let CaptureOutputs {
         chunk_tx,
         level_tx,
@@ -421,8 +426,11 @@ fn build_u16_stream(
 ) -> Result<Stream, String> {
     let channels = config.channels.max(1) as usize;
     let mut pending = Vec::new();
-    let mut silence =
-        SilenceAutoStopper::new(config.sample_rate.0, outputs.silence_auto_stop_seconds);
+    let mut silence = SilenceAutoStopper::new(
+        config.sample_rate.0,
+        outputs.silence_auto_stop_seconds,
+        outputs.silence_level_threshold,
+    );
     let CaptureOutputs {
         chunk_tx,
         level_tx,
@@ -465,8 +473,11 @@ fn build_u8_stream(
 ) -> Result<Stream, String> {
     let channels = config.channels.max(1) as usize;
     let mut pending = Vec::new();
-    let mut silence =
-        SilenceAutoStopper::new(config.sample_rate.0, outputs.silence_auto_stop_seconds);
+    let mut silence = SilenceAutoStopper::new(
+        config.sample_rate.0,
+        outputs.silence_auto_stop_seconds,
+        outputs.silence_level_threshold,
+    );
     let CaptureOutputs {
         chunk_tx,
         level_tx,
@@ -509,8 +520,11 @@ fn build_f32_stream(
 ) -> Result<Stream, String> {
     let channels = config.channels.max(1) as usize;
     let mut pending = Vec::new();
-    let mut silence =
-        SilenceAutoStopper::new(config.sample_rate.0, outputs.silence_auto_stop_seconds);
+    let mut silence = SilenceAutoStopper::new(
+        config.sample_rate.0,
+        outputs.silence_auto_stop_seconds,
+        outputs.silence_level_threshold,
+    );
     let CaptureOutputs {
         chunk_tx,
         level_tx,
@@ -549,7 +563,7 @@ mod tests {
 
     #[test]
     fn silence_auto_stop_fires_after_configured_silent_audio_duration() {
-        let mut stopper = SilenceAutoStopper::new(16_000, 10);
+        let mut stopper = SilenceAutoStopper::new(16_000, 10, 0.04);
 
         assert!(!stopper.observe(0.0, 16_000 * 9));
         assert!(stopper.observe(0.0, 16_000));
@@ -557,18 +571,26 @@ mod tests {
     }
 
     #[test]
-    fn silence_auto_stop_resets_when_voice_is_detected() {
-        let mut stopper = SilenceAutoStopper::new(16_000, 10);
+    fn silence_auto_stop_counts_low_background_noise_as_silence() {
+        let mut stopper = SilenceAutoStopper::new(16_000, 10, 0.04);
+
+        assert!(!stopper.observe(0.03, 16_000 * 9));
+        assert!(stopper.observe(0.03, 16_000));
+    }
+
+    #[test]
+    fn silence_auto_stop_resets_when_level_exceeds_threshold() {
+        let mut stopper = SilenceAutoStopper::new(16_000, 10, 0.04);
 
         assert!(!stopper.observe(0.0, 16_000 * 8));
-        assert!(!stopper.observe(0.08, 16_000));
+        assert!(!stopper.observe(0.05, 16_000));
         assert!(!stopper.observe(0.0, 16_000 * 9));
         assert!(stopper.observe(0.0, 16_000));
     }
 
     #[test]
     fn silence_auto_stop_can_be_disabled() {
-        let mut stopper = SilenceAutoStopper::new(16_000, 0);
+        let mut stopper = SilenceAutoStopper::new(16_000, 0, 0.04);
 
         assert!(!stopper.observe(0.0, 16_000 * 600));
     }

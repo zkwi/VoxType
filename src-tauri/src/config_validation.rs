@@ -56,6 +56,14 @@ pub fn validate_config(config: &AppConfig) -> Result<(), Vec<ConfigValidationErr
         300,
         "静音自动停止秒数需在 0 到 300 之间。",
     );
+    validate_f32_range(
+        &mut errors,
+        "audio.silence_level_threshold",
+        config.audio.silence_level_threshold,
+        0.001,
+        0.5,
+        "静音音量阈值需在 0.001 到 0.5 之间。",
+    );
     validate_u64_range(
         &mut errors,
         "typing.paste_delay_ms",
@@ -320,6 +328,19 @@ fn validate_f64_range(
     value: f64,
     min: f64,
     max: f64,
+    message: &str,
+) {
+    if !value.is_finite() || value < min || value > max {
+        push_validation_error(errors, field, message);
+    }
+}
+
+fn validate_f32_range(
+    errors: &mut Vec<ConfigValidationError>,
+    field: &str,
+    value: f32,
+    min: f32,
+    max: f32,
     message: &str,
 ) {
     if !value.is_finite() || value < min || value > max {

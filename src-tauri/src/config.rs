@@ -62,6 +62,8 @@ pub struct AudioConfig {
     pub stop_grace_ms: u64,
     #[serde(default = "default_silence_auto_stop_seconds")]
     pub silence_auto_stop_seconds: u64,
+    #[serde(default = "default_silence_level_threshold")]
+    pub silence_level_threshold: f32,
     #[serde(default)]
     pub mute_system_volume_while_recording: bool,
     #[serde(default)]
@@ -287,6 +289,7 @@ impl Default for AudioConfig {
             max_record_seconds: default_max_record_seconds(),
             stop_grace_ms: default_stop_grace_ms(),
             silence_auto_stop_seconds: default_silence_auto_stop_seconds(),
+            silence_level_threshold: default_silence_level_threshold(),
             mute_system_volume_while_recording: false,
             input_device: None,
         }
@@ -687,6 +690,9 @@ fn default_stop_grace_ms() -> u64 {
 fn default_silence_auto_stop_seconds() -> u64 {
     10
 }
+fn default_silence_level_threshold() -> f32 {
+    0.04
+}
 fn default_end_window_size() -> Option<u64> {
     Some(800)
 }
@@ -819,6 +825,7 @@ mod tests {
         assert!(!config.triggers.right_alt_enabled);
         assert!(!config.audio.mute_system_volume_while_recording);
         assert_eq!(config.audio.silence_auto_stop_seconds, 10);
+        assert_eq!(config.audio.silence_level_threshold, 0.04);
         assert_eq!(config.request.end_window_size, Some(800));
         assert!(!config.context.enable_recent_context);
         assert!(!config.auto_hotwords.enabled);
@@ -874,6 +881,7 @@ mod tests {
         config.audio.sample_rate = 0;
         config.audio.channels = 0;
         config.audio.silence_auto_stop_seconds = 301;
+        config.audio.silence_level_threshold = 2.0;
         config.typing.paste_delay_ms = 9_999;
         config.request.final_result_timeout_seconds = 0.0;
         config.ui.opacity = 2.0;
@@ -896,6 +904,7 @@ mod tests {
         assert!(fields.contains(&"audio.sample_rate"));
         assert!(fields.contains(&"audio.channels"));
         assert!(fields.contains(&"audio.silence_auto_stop_seconds"));
+        assert!(fields.contains(&"audio.silence_level_threshold"));
         assert!(fields.contains(&"typing.paste_delay_ms"));
         assert!(fields.contains(&"request.final_result_timeout_seconds"));
         assert!(fields.contains(&"ui.opacity"));

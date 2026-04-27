@@ -252,6 +252,10 @@ fn unchanged_hidden_config_field(
             previous_config.audio.silence_auto_stop_seconds
                 == next_config.audio.silence_auto_stop_seconds
         }
+        "audio.silence_level_threshold" => {
+            previous_config.audio.silence_level_threshold
+                == next_config.audio.silence_level_threshold
+        }
         "typing.paste_delay_ms" => {
             previous_config.typing.paste_delay_ms == next_config.typing.paste_delay_ms
         }
@@ -605,7 +609,7 @@ pub fn run() {
     if let Err(err) = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             app_log::info("检测到重复启动，已唤起现有主窗口。");
-            main_window::show_centered(app, "重复启动");
+            main_window::show_existing(app, "重复启动");
         }))
         .plugin(tauri_plugin_opener::init())
         .manage(SessionController::default())
@@ -645,7 +649,6 @@ pub fn run() {
                 "VoxType Tauri client started. version={}",
                 env!("CARGO_PKG_VERSION")
             ));
-            main_window::center_existing(app.handle(), "启动时");
             app_log::info("startup stage: create overlay begin");
             let _ = overlay::create_overlay_window(app.handle());
             app_log::info("startup stage: create overlay done");

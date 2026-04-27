@@ -159,7 +159,7 @@ fn open_log_file_with_source(app: &AppHandle, source: &str) -> Result<(), String
 }
 
 fn show_main_window(app: &AppHandle) {
-    main_window::show_centered(app, "托盘菜单");
+    main_window::show_existing(app, "托盘菜单");
 }
 
 fn normal_tray_icon() -> Image<'static> {

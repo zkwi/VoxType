@@ -326,7 +326,7 @@ export const en = {
   "hotkeyNeedsModifier": "Hotkey needs at least one modifier: Ctrl, Alt, Shift, or Win.",
   "hotkeyUnsupported": "Unsupported key. Use A-Z, 0-9, Space, F1-F12, or Enter.",
   "triggerConflictHint": "Middle mouse takes over middle-click actions in browsers, editors, and file managers. Right Alt may also conflict with IMEs or shortcuts.",
-  "silenceAutoStopHint": "When silence lasts this long, VoxType automatically ends the recording as a local fallback beyond Doubao server-side endpointing. Set 0 to disable.",
+  "silenceAutoStopHint": "When low input volume lasts this long, VoxType ends the recording through the same path as manual stop. This is a local fallback beyond Doubao server-side endpointing. Set 0 to disable.",
   "muteSystemAudioHint": "This can reduce echo, but may affect meetings, videos, or system notifications.",
   "recentContextHint": "Recent context stores recent recognized snippets in a separate local file to improve continuous dictation. It is off by default.",
   "clearRecentContext": "Clear recent context",

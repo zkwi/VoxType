@@ -378,7 +378,7 @@ fn dispatch_toggle(app: AppHandle, source: &'static str) {
         let controller = app.state::<SessionController>().inner().clone();
         if let Err(err) = controller.toggle(Some(app.clone())) {
             if is_config_error(&err) {
-                main_window::show_centered(&app, "配置错误");
+                main_window::show_existing(&app, "配置错误");
                 if err.contains("config.toml") {
                     crate::setup_guide::open_if_config_missing(&app);
                 }

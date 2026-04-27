@@ -167,6 +167,7 @@ export type AppConfig = {
     max_record_seconds: number;
     stop_grace_ms: number;
     silence_auto_stop_seconds: number;
+    silence_level_threshold: number;
     mute_system_volume_while_recording: boolean;
     input_device: number | null;
   };
