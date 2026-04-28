@@ -101,8 +101,6 @@ pub fn spawn_asr_worker(
             Ok(outcome) => {
                 let text = asr::normalize_final_text(&outcome.text, remove_trailing_period);
                 let llm_warning = outcome.warning;
-                let mut output_warning = None;
-                let mut output_warning_code = None;
                 let mut should_hold_overlay = false;
                 if !session.is_current_generation(generation) {
                     app_log::info(format!(
@@ -132,29 +130,54 @@ pub fn spawn_asr_worker(
                     {
                         return;
                     }
-                    output_warning = match text_output::output_text(&text, &typing, || {
-                        if session.is_current_generation(generation) {
-                            overlay::hide(&app);
-                        }
-                    }) {
-                        Ok(result) => {
-                            output_warning_code = result.warning_code;
-                            result.warning
-                        }
-                        Err(err) => {
-                            let error_code = if err.contains("剪贴板") {
-                                "CLIPBOARD_WRITE_FAILED"
-                            } else {
-                                "PASTE_FAILED"
-                            };
-                            if session.abort_generation_from_worker_with_code(
-                                &app, generation, &err, error_code,
-                            ) {
-                                emit_error(&app, &session, generation, error_code, err);
+                    let llm_warning_for_final = llm_warning.clone();
+                    let mut output_sent_finalized = false;
+                    let (output_warning, output_warning_code) =
+                        match text_output::output_text(&text, &typing, || {
+                            if !output_sent_finalized {
+                                output_sent_finalized =
+                                    finish_output_sent_session(&session, generation, Some(&app));
+                                if output_sent_finalized {
+                                    overlay::hide(&app);
+                                    record_successful_transcript_side_effects(
+                                        &app, &text, duration,
+                                    );
+                                    emit_successful_final_text(
+                                        &app,
+                                        &text,
+                                        llm_warning_for_final.clone(),
+                                        None,
+                                    );
+                                    app_log::info(format!(
+                                        "ASR session output sent: chars={}",
+                                        text.chars().count()
+                                    ));
+                                }
                             }
-                            return;
+                        }) {
+                            Ok(result) => (result.warning, result.warning_code),
+                            Err(err) => {
+                                let error_code = if err.contains("剪贴板") {
+                                    "CLIPBOARD_WRITE_FAILED"
+                                } else {
+                                    "PASTE_FAILED"
+                                };
+                                if session.abort_generation_from_worker_with_code(
+                                    &app, generation, &err, error_code,
+                                ) {
+                                    emit_error(&app, &session, generation, error_code, err);
+                                }
+                                return;
+                            }
+                        };
+                    if !output_sent_finalized {
+                        output_sent_finalized =
+                            finish_output_sent_session(&session, generation, Some(&app));
+                        if output_sent_finalized {
+                            record_successful_transcript_side_effects(&app, &text, duration);
+                            emit_successful_final_text(&app, &text, llm_warning.clone(), None);
                         }
-                    };
+                    }
                     should_hold_overlay = should_hold_overlay_for_output_warning(
                         output_warning.as_deref(),
                         output_warning_code.as_deref(),
@@ -164,11 +187,18 @@ pub fn spawn_asr_worker(
                             if let Some(warning) = output_warning.as_deref() {
                                 overlay::show_message(&app, &config.ui, warning);
                             }
+                            if llm_warning.is_none() {
+                                emit_successful_final_text(
+                                    &app,
+                                    &text,
+                                    output_warning.clone(),
+                                    output_warning_code.clone(),
+                                );
+                            }
                         } else {
                             overlay::hide(&app);
                         }
                     }
-                    record_successful_transcript_side_effects(&app, &text, duration);
                     if output_warning.is_some() {
                         app_log::warn(format!(
                             "输出文本完成但存在提示: {}",
@@ -180,32 +210,6 @@ pub fn spawn_asr_worker(
                         text.chars().count()
                     ));
                 }
-                if session
-                    .finish_generation(
-                        generation,
-                        Some(&app),
-                        SessionPhase::Succeeded,
-                        "Transcript output completed.",
-                        None,
-                    )
-                    .is_none()
-                {
-                    return;
-                }
-                let _ = app.emit(
-                    "asr-final-text",
-                    AsrFinalText {
-                        text,
-                        error: None,
-                        error_code: None,
-                        warning_code: if llm_warning.is_none() {
-                            output_warning_code
-                        } else {
-                            None
-                        },
-                        warning: llm_warning.or(output_warning),
-                    },
-                );
                 if should_hold_overlay {
                     thread::sleep(ATTENTION_OVERLAY_HOLD);
                 }
@@ -548,6 +552,40 @@ fn record_successful_transcript_side_effects(app: &AppHandle, text: &str, durati
     }
 }
 
+fn finish_output_sent_session(
+    session: &SessionController,
+    generation: u64,
+    app: Option<&AppHandle>,
+) -> bool {
+    session
+        .finish_generation(
+            generation,
+            app,
+            SessionPhase::Succeeded,
+            "Transcript output completed.",
+            None,
+        )
+        .is_some()
+}
+
+fn emit_successful_final_text(
+    app: &AppHandle,
+    text: &str,
+    warning: Option<String>,
+    warning_code: Option<String>,
+) {
+    let _ = app.emit(
+        "asr-final-text",
+        AsrFinalText {
+            text: text.to_string(),
+            error: None,
+            error_code: None,
+            warning,
+            warning_code,
+        },
+    );
+}
+
 fn should_hold_overlay_for_output_warning(
     warning: Option<&str>,
     warning_code: Option<&str>,
@@ -714,8 +752,8 @@ fn friendly_asr_service_error(code: i32) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        friendly_asr_connection_error, friendly_asr_service_error, is_success_code,
-        should_hold_overlay_for_output_warning, silent_test_audio,
+        finish_output_sent_session, friendly_asr_connection_error, friendly_asr_service_error,
+        is_success_code, should_hold_overlay_for_output_warning, silent_test_audio,
     };
     use crate::config::AppConfig;
     use crate::text_output::WARNING_CLIPBOARD_PARTIAL_RESTORE;
@@ -755,5 +793,25 @@ mod tests {
             Some("visible"),
             Some("CLIPBOARD_RESTORE_FAILED"),
         ));
+    }
+
+    #[test]
+    fn output_sent_finishes_pasting_before_clipboard_cleanup() {
+        let session = crate::session::SessionController::default();
+        assert!(session
+            .set_phase_for_generation(
+                0,
+                None,
+                crate::session::SessionPhase::Pasting,
+                "Pasting.",
+                None
+            )
+            .is_some());
+
+        assert!(finish_output_sent_session(&session, 0, None));
+
+        let state = session.current_state();
+        assert!(!state.recording);
+        assert_eq!(state.phase, crate::session::SessionPhase::Succeeded);
     }
 }
