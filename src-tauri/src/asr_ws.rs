@@ -132,7 +132,11 @@ pub fn spawn_asr_worker(
                     {
                         return;
                     }
-                    output_warning = match text_output::output_text(&text, &typing) {
+                    output_warning = match text_output::output_text(&text, &typing, || {
+                        if session.is_current_generation(generation) {
+                            overlay::hide(&app);
+                        }
+                    }) {
                         Ok(result) => {
                             output_warning_code = result.warning_code;
                             result.warning
@@ -158,7 +162,7 @@ pub fn spawn_asr_worker(
                     if session.is_current_generation(generation) {
                         if should_hold_overlay {
                             if let Some(warning) = output_warning.as_deref() {
-                                overlay::update_text(&app, warning);
+                                overlay::show_message(&app, &config.ui, warning);
                             }
                         } else {
                             overlay::hide(&app);

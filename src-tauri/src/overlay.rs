@@ -53,6 +53,14 @@ pub fn create_overlay_window(app: &AppHandle) -> Result<(), String> {
 }
 
 pub fn show_for_recording(app: &AppHandle, ui: &UiConfig) {
+    show_with_text(app, ui, DEFAULT_TEXT);
+}
+
+pub fn show_message(app: &AppHandle, ui: &UiConfig, text: impl Into<String>) {
+    show_with_text(app, ui, text.into());
+}
+
+fn show_with_text(app: &AppHandle, ui: &UiConfig, text: impl Into<String>) {
     if let Err(err) = create_overlay_window(app) {
         crate::app_log::warn(err);
         return;
@@ -75,7 +83,7 @@ pub fn show_for_recording(app: &AppHandle, ui: &UiConfig) {
         let _ = window.set_position(LogicalPosition::new(x, y));
     }
     update_config(app, ui);
-    update_text(app, DEFAULT_TEXT);
+    update_text(app, text);
     if let Err(err) = window.set_focusable(false) {
         crate::app_log::warn(format!("显示前设置悬浮字幕窗不可聚焦失败: {}", err));
     }

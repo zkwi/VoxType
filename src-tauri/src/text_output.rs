@@ -79,7 +79,11 @@ enum ClipboardFormatSnapshotAction {
 ///
 /// 该函数会短暂占用系统剪贴板。调用方必须保留最终文本的用户兜底提示：
 /// 如果自动粘贴失败或原剪贴板无法完整恢复，用户仍应知道文本已经复制，可手动粘贴。
-pub fn output_text(text: &str, typing: &TypingConfig) -> Result<OutputResult, String> {
+pub fn output_text(
+    text: &str,
+    typing: &TypingConfig,
+    mut on_output_sent: impl FnMut(),
+) -> Result<OutputResult, String> {
     if text.trim().is_empty() {
         return Ok(OutputResult::ok());
     }
@@ -117,6 +121,7 @@ pub fn output_text(text: &str, typing: &TypingConfig) -> Result<OutputResult, St
     write_clipboard_text_with_retry(text, typing)?;
     if typing.paste_method == "clipboard_only" {
         app_log::info("文本已写入剪贴板: method=clipboard_only");
+        on_output_sent();
         return Ok(OutputResult::ok());
     }
     thread::sleep(Duration::from_millis(typing.paste_delay_ms));
@@ -130,6 +135,7 @@ pub fn output_text(text: &str, typing: &TypingConfig) -> Result<OutputResult, St
         "粘贴快捷键已发送: method={}, delay_ms={}",
         typing.paste_method, typing.paste_delay_ms
     ));
+    on_output_sent();
     if let ClipboardBackup::Snapshot(original) = original_clipboard {
         thread::sleep(clipboard_restore_delay(typing));
         match write_clipboard_snapshot_with_retry(&original, typing) {
@@ -537,7 +543,7 @@ mod tests {
     use super::{
         clipboard_format_snapshot_action, clipboard_restore_delay, clipboard_text_ready_for_paste,
         effective_clipboard_restore_delay_ms, is_known_non_memory_clipboard_format,
-        is_quiet_output_warning_code, ClipboardFormatSnapshotAction,
+        is_quiet_output_warning_code, output_text, ClipboardFormatSnapshotAction,
         MIN_RESTORE_DELAY_AFTER_PASTE_MS, WARNING_CLIPBOARD_NON_RESTORABLE,
         WARNING_CLIPBOARD_PARTIAL_RESTORE,
     };
@@ -582,6 +588,15 @@ mod tests {
     fn clipboard_text_must_still_match_before_paste() {
         assert!(clipboard_text_ready_for_paste("识别文本", "识别文本"));
         assert!(!clipboard_text_ready_for_paste("识别文本", "旧剪贴板文本"));
+    }
+
+    #[test]
+    fn empty_output_does_not_signal_output_sent() {
+        let mut called = false;
+        let result = output_text("", &TypingConfig::default(), || called = true);
+
+        assert!(result.is_ok());
+        assert!(!called);
     }
 
     #[test]
