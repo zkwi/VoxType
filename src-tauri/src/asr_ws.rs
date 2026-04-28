@@ -103,6 +103,7 @@ pub fn spawn_asr_worker(
                 let llm_warning = outcome.warning;
                 let mut output_warning = None;
                 let mut output_warning_code = None;
+                let mut should_hold_overlay = false;
                 if !session.is_current_generation(generation) {
                     app_log::info(format!(
                         "忽略过期 ASR worker 输出: generation={}, chars={}",
@@ -150,6 +151,19 @@ pub fn spawn_asr_worker(
                             return;
                         }
                     };
+                    should_hold_overlay = should_hold_overlay_for_output_warning(
+                        output_warning.as_deref(),
+                        output_warning_code.as_deref(),
+                    );
+                    if session.is_current_generation(generation) {
+                        if should_hold_overlay {
+                            if let Some(warning) = output_warning.as_deref() {
+                                overlay::update_text(&app, warning);
+                            }
+                        } else {
+                            overlay::hide(&app);
+                        }
+                    }
                     record_successful_transcript_side_effects(&app, &text, duration);
                     if output_warning.is_some() {
                         app_log::warn(format!(
@@ -162,18 +176,6 @@ pub fn spawn_asr_worker(
                         text.chars().count()
                     ));
                 }
-                if let Some(warning) = output_warning.as_deref() {
-                    if session.is_current_generation(generation)
-                        && !text_output::is_quiet_output_warning_code(
-                            output_warning_code.as_deref(),
-                        )
-                    {
-                        overlay::update_text(&app, warning);
-                    }
-                }
-                let should_hold_overlay = output_warning.as_deref().is_some_and(|_| {
-                    !text_output::is_quiet_output_warning_code(output_warning_code.as_deref())
-                });
                 if session
                     .finish_generation(
                         generation,
@@ -542,6 +544,13 @@ fn record_successful_transcript_side_effects(app: &AppHandle, text: &str, durati
     }
 }
 
+fn should_hold_overlay_for_output_warning(
+    warning: Option<&str>,
+    warning_code: Option<&str>,
+) -> bool {
+    warning.is_some() && !text_output::is_quiet_output_warning_code(warning_code)
+}
+
 struct PartialTextLimiter {
     last_emit_at: Option<Instant>,
     last_text: String,
@@ -702,9 +711,10 @@ fn friendly_asr_service_error(code: i32) -> String {
 mod tests {
     use super::{
         friendly_asr_connection_error, friendly_asr_service_error, is_success_code,
-        silent_test_audio,
+        should_hold_overlay_for_output_warning, silent_test_audio,
     };
     use crate::config::AppConfig;
+    use crate::text_output::WARNING_CLIPBOARD_PARTIAL_RESTORE;
 
     #[test]
     fn accepts_doubao_success_codes() {
@@ -728,5 +738,18 @@ mod tests {
         assert!(audio.len() >= 3_200);
         assert!(audio.len() <= 32_000);
         assert!(audio.iter().all(|value| *value == 0));
+    }
+
+    #[test]
+    fn holds_overlay_only_for_visible_output_warnings() {
+        assert!(!should_hold_overlay_for_output_warning(None, None));
+        assert!(!should_hold_overlay_for_output_warning(
+            Some("quiet"),
+            Some(WARNING_CLIPBOARD_PARTIAL_RESTORE),
+        ));
+        assert!(should_hold_overlay_for_output_warning(
+            Some("visible"),
+            Some("CLIPBOARD_RESTORE_FAILED"),
+        ));
     }
 }
