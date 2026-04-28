@@ -1,6 +1,6 @@
 [package]
 name = "voxtype-desktop"
-version = "0.1.40"
+version = "0.1.41"
 description = "Tauri prototype for VoxType"
 authors = ["VoxType contributors"]
 edition = "2021"
@@ -34,6 +34,7 @@ toml = "0.8"
 uuid = { version = "1", features = ["v4"] }
 windows = { version = "0.61", features = [
     "Win32_Foundation",
+    "Win32_Graphics_Gdi",
     "Win32_Media_Audio",
     "Win32_Media_Audio_Endpoints",
     "Win32_System_Com",

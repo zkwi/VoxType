@@ -2,7 +2,7 @@ use crate::config::UiConfig;
 use serde::Serialize;
 use std::sync::{Mutex, OnceLock};
 use tauri::{
-    AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Monitor, WebviewUrl,
+    AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Monitor, WebviewUrl, WebviewWindow,
     WebviewWindowBuilder,
 };
 use windows::Win32::Foundation::POINT;
@@ -84,9 +84,57 @@ pub fn show_for_recording(app: &AppHandle, ui: &UiConfig) {
         crate::app_log::warn(format!("显示悬浮字幕窗失败: {}", err));
     } else {
         let _ = window.set_focusable(false);
+        refresh_visible_window(&window);
         crate::app_log::info("悬浮字幕窗已显示");
     }
 }
+
+fn refresh_visible_window(window: &WebviewWindow) {
+    if let Err(err) = window.set_always_on_top(true) {
+        crate::app_log::warn(format!("刷新悬浮字幕置顶状态失败: {}", err));
+    }
+
+    platform_refresh_visible_window(window);
+}
+
+#[cfg(windows)]
+fn platform_refresh_visible_window(window: &WebviewWindow) {
+    use windows::Win32::Graphics::Gdi::{
+        RedrawWindow, RDW_ALLCHILDREN, RDW_INVALIDATE, RDW_UPDATENOW,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::{
+        SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW,
+    };
+
+    let Ok(hwnd) = window.hwnd() else {
+        return;
+    };
+
+    unsafe {
+        if let Err(err) = SetWindowPos(
+            hwnd,
+            Some(HWND_TOPMOST),
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW,
+        ) {
+            crate::app_log::warn(format!("刷新悬浮字幕窗口层级失败: {}", err));
+        }
+
+        // 长时间隐藏/显示后，透明 WebView 偶发会处于可见但不重绘的状态。
+        let _ = RedrawWindow(
+            Some(hwnd),
+            None,
+            None,
+            RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN,
+        );
+    }
+}
+
+#[cfg(not(windows))]
+fn platform_refresh_visible_window(_window: &WebviewWindow) {}
 
 fn current_monitor(app: &AppHandle) -> Option<Monitor> {
     let cursor = cursor_position()?;
