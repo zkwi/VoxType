@@ -9,6 +9,12 @@ export function formatSeconds(seconds: number) {
   return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
 }
 
+export function formatMinutes(seconds: number, language: Language) {
+  const minutes = seconds <= 0 ? 0 : Math.max(1, Math.round(seconds / 60));
+  if (language === "en") return `${minutes} min`;
+  return `${minutes} ${language === "zh-TW" ? "分鐘" : "分钟"}`;
+}
+
 export function formatNumber(value: number, language: Language) {
   return new Intl.NumberFormat(language).format(Math.round(value || 0));
 }
@@ -91,7 +97,7 @@ export function recentSevenDayDisplayRows(
     return {
       day,
       chars: `${formatNumber(usage.total_chars, language)} ${t("chars")}`,
-      duration: formatSeconds(usage.total_seconds),
+      duration: formatMinutes(usage.total_seconds, language),
       speed: `${usage.avg_chars_per_minute.toFixed(0)} ${t("perMinute")}`,
       saved: formatSavedHours(savedHoursForUsage(usage, charsPerMinute), language),
     };

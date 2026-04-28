@@ -200,7 +200,6 @@
       <div class="last-outcome-header">
         <div class="last-outcome-copy">
           <strong>{t("lastOutcomeSuccessTitle")}</strong>
-          <p>{t("lastOutcomeSuccessDescription")}</p>
         </div>
         <div class="last-outcome-actions">
           <button type="button" class="link-action compact copy-action" disabled={copyingLastOutcome} onclick={copyLastOutcome}>
@@ -212,6 +211,7 @@
           </button>
         </div>
       </div>
+      <p class="last-outcome-description">{t("lastOutcomeSuccessDescription")}</p>
       {#if lastSessionOutcome.warning}
         <p class="last-outcome-warning">
           <span>{t("lastOutcomeWarningLabel")}：</span>{lastSessionOutcome.warning}
@@ -473,7 +473,6 @@
 
   .last-outcome-copy {
     display: grid;
-    gap: 4px;
     min-width: 0;
   }
 
@@ -483,11 +482,11 @@
     font-weight: 800;
   }
 
-  .last-outcome-copy p {
+  .last-outcome-description {
     margin: 0;
     color: var(--text-secondary);
     font-size: 13px;
-    line-height: 1.45;
+    line-height: 1.4;
     overflow-wrap: anywhere;
   }
 
@@ -684,14 +683,15 @@
 
   .hero-features {
     display: flex;
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
     gap: 10px;
     margin-top: 14px;
-    overflow: hidden;
+    overflow: visible;
   }
 
   .hero-features span {
     display: inline-flex;
+    flex: 0 1 auto;
     align-items: center;
     gap: 6px;
     min-width: 0;

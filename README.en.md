@@ -27,8 +27,8 @@ This is a personal project. The priority is practicality, simplicity, and mainta
 - Optional LLM polishing: OpenAI-compatible API support for light text cleanup and style control.
 - Hotwords and prompts: maintain custom hotwords, scene notes, and polishing prompts.
 - Automatic hotword candidates: optional local history and manual LLM candidate generation; candidates must be confirmed before joining hotwords.
-- Tray resident mode: closing the main window hides it to the tray by default. During input and processing, the tray icon switches to an active state.
-- Updates: the advanced Options page can check GitHub Releases. When a new version is found, the UI shows an "Update now" action.
+- Tray resident mode: closing the main window hides it to the tray by default. During input and processing, the tray icon switches to an active state. The tray menu can open config, open logs, check updates, or exit.
+- Updates: the advanced Options page and tray menu can check GitHub Releases. When a new version is found, the UI shows an "Update now" action.
 - Diagnostics: logs and redacted diagnostic reports help troubleshoot ASR, paste, network, and update issues.
 - Languages: Simplified Chinese, Traditional Chinese, and English.
 

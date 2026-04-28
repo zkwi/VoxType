@@ -2,7 +2,7 @@ use crate::session::SessionController;
 use crate::{app_log, config, main_window};
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, TrayIconBuilder, TrayIconEvent};
-use tauri::{image::Image, AppHandle, Manager};
+use tauri::{image::Image, AppHandle, Emitter, Manager};
 use tauri_plugin_opener::OpenerExt;
 
 const TRAY_ID: &str = "voxtype";
@@ -14,7 +14,9 @@ const TRAY_ICON_RGBA: &[u8] = include_bytes!("../icons/32x32.rgba");
 const OPEN_CONFIG_ID: &str = "open_config";
 const OPEN_LOG_ID: &str = "open_log";
 const OPEN_SETUP_GUIDE_ID: &str = "open_setup_guide";
+const CHECK_UPDATE_ID: &str = "check_update";
 const EXIT_ID: &str = "exit";
+const CHECK_UPDATE_EVENT: &str = "check-update-requested";
 
 pub fn setup_tray(app: &AppHandle) -> Result<(), String> {
     let open_config = MenuItem::with_id(app, OPEN_CONFIG_ID, "打开配置文件", true, None::<&str>)
@@ -24,6 +26,8 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), String> {
     let open_setup_guide =
         MenuItem::with_id(app, OPEN_SETUP_GUIDE_ID, "配置指南", true, None::<&str>)
             .map_err(|err| format!("创建托盘菜单失败: {}", err))?;
+    let check_update = MenuItem::with_id(app, CHECK_UPDATE_ID, "检查更新", true, None::<&str>)
+        .map_err(|err| format!("创建托盘菜单失败: {}", err))?;
     let separator = PredefinedMenuItem::separator(app)
         .map_err(|err| format!("创建托盘菜单分隔线失败: {}", err))?;
     let exit = MenuItem::with_id(app, EXIT_ID, "退出", true, None::<&str>)
@@ -34,6 +38,7 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), String> {
             &open_config,
             &open_log,
             &open_setup_guide,
+            &check_update,
             &separator,
             &exit,
         ],
@@ -57,6 +62,7 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), String> {
                     app_log::warn(err);
                 }
             }
+            CHECK_UPDATE_ID => request_update_check(app),
             EXIT_ID => exit_app(app),
             _ => {}
         })
@@ -162,6 +168,13 @@ fn show_main_window(app: &AppHandle) {
     main_window::show_existing(app, "托盘菜单");
 }
 
+fn request_update_check(app: &AppHandle) {
+    show_main_window(app);
+    if let Err(err) = app.emit(CHECK_UPDATE_EVENT, ()) {
+        app_log::warn(format!("发送托盘检查更新事件失败: {}", err));
+    }
+}
+
 fn normal_tray_icon() -> Image<'static> {
     Image::new(TRAY_ICON_RGBA, TRAY_ICON_SIZE as u32, TRAY_ICON_SIZE as u32)
 }
@@ -173,10 +186,10 @@ fn active_tray_icon() -> Image<'static> {
 }
 
 fn paint_status_dot(rgba: &mut [u8]) {
-    let center_x = 23_i32;
-    let center_y = 23_i32;
-    let border_radius_sq = 81_i32;
-    let dot_radius_sq = 49_i32;
+    let center_x = 24_i32;
+    let center_y = 24_i32;
+    let border_radius_sq = 64_i32;
+    let dot_radius_sq = 36_i32;
     for y in 0..TRAY_ICON_SIZE {
         for x in 0..TRAY_ICON_SIZE {
             let dx = x as i32 - center_x;
@@ -187,7 +200,7 @@ fn paint_status_dot(rgba: &mut [u8]) {
             }
             let offset = (y * TRAY_ICON_SIZE + x) * 4;
             let color = if distance_sq <= dot_radius_sq {
-                [239, 68, 68, 255]
+                [34, 197, 94, 255]
             } else {
                 [255, 255, 255, 255]
             };

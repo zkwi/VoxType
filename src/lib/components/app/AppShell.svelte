@@ -444,6 +444,7 @@
   .bridge-top {
     display: flex;
     align-items: center;
+    justify-content: space-between;
     gap: 10px;
     margin: 0;
     min-width: 0;
@@ -453,6 +454,7 @@
   }
 
   .bridge-top span:last-child {
+    order: 1;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -474,21 +476,23 @@
   }
 
   .pulse {
-    width: 10px;
-    height: 10px;
-    flex: 0 0 auto;
+    order: 2;
+    width: 8px;
+    height: 8px;
+    flex: 0 0 8px;
+    margin-right: 5px;
     background: var(--success);
     border-radius: 999px;
   }
 
   .pulse.recording {
     background: var(--primary);
-    box-shadow: 0 0 0 8px rgba(47, 128, 237, 0.14);
+    box-shadow: 0 0 0 6px rgba(47, 128, 237, 0.14);
   }
 
   .pulse.error {
     background: var(--danger);
-    box-shadow: 0 0 0 8px rgba(239, 68, 68, 0.12);
+    box-shadow: 0 0 0 6px rgba(239, 68, 68, 0.12);
   }
 
   .mic-line {

@@ -68,10 +68,10 @@
       {#each dayRows as day}
         <article>
           <span>{day.day}</span>
-          <strong>{day.chars}</strong>
-          <span>{day.duration}</span>
-          <span>{day.speed}</span>
-          <strong>{day.saved}</strong>
+          <strong class="metric-cell">{day.chars}</strong>
+          <span class="duration-cell">{day.duration}</span>
+          <span class="metric-cell muted">{day.speed}</span>
+          <strong class="metric-cell">{day.saved}</strong>
         </article>
       {/each}
     </div>
@@ -179,9 +179,9 @@
   .day-list-head,
   .day-list article {
     display: grid;
-    grid-template-columns: minmax(120px, 1.05fr) repeat(4, minmax(92px, 1fr));
+    grid-template-columns: minmax(128px, 1.05fr) minmax(116px, 0.9fr) minmax(92px, 0.62fr) minmax(136px, 0.9fr) minmax(106px, 0.76fr);
     align-items: center;
-    gap: 12px;
+    column-gap: 22px;
     min-height: 48px;
     padding: 10px 0;
     border-bottom: 1px solid var(--border);
@@ -193,6 +193,10 @@
     color: var(--text-muted);
     font-size: 12px;
     font-weight: 700;
+  }
+
+  .day-list-head span {
+    white-space: nowrap;
   }
 
   .day-list article:last-child {
@@ -214,9 +218,29 @@
     overflow-wrap: anywhere;
   }
 
-  .day-list-head span:nth-child(n + 2),
-  .day-list article span:nth-child(n + 3),
-  .day-list article strong {
+  .metric-cell {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+    text-align: right;
+  }
+
+  .metric-cell.muted {
+    color: var(--text-secondary);
+    font-weight: 500;
+  }
+
+  .duration-cell {
+    justify-self: end;
+    min-width: 72px;
+    color: var(--text-main);
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+    font-weight: 700;
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  .day-list-head span:nth-child(n + 2) {
     text-align: right;
   }
 
@@ -227,8 +251,8 @@
   @media (max-width: 1180px) {
     .day-list-head,
     .day-list article {
-      grid-template-columns: minmax(104px, 1fr) repeat(4, minmax(78px, 0.82fr));
-      gap: 8px;
+      grid-template-columns: minmax(104px, 1fr) minmax(94px, 0.8fr) minmax(82px, 0.62fr) minmax(112px, 0.86fr) minmax(86px, 0.72fr);
+      column-gap: 10px;
     }
   }
 </style>

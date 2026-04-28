@@ -302,6 +302,9 @@ export function createVoxTypeController() {
       const unlistenClosePrompt = listen<CloseToTrayRequest>("close-to-tray-requested", (event) => {
         windows.showClosePrompt(event.payload);
       });
+      const unlistenTrayUpdateCheck = listen("check-update-requested", () => {
+        void updates.check(true);
+      });
       unlisteners = [
         unlistenSession,
         unlistenAsr,
@@ -310,6 +313,7 @@ export function createVoxTypeController() {
         unlistenStats,
         unlistenAudioLevel,
         unlistenClosePrompt,
+        unlistenTrayUpdateCheck,
       ];
       logFrontendEvent(`listeners registered mode=${frontendMode()}`);
     }
