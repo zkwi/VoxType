@@ -26,7 +26,7 @@ This is a personal project. The priority is practicality, simplicity, and mainta
 - Recent input card: after a successful input, the Home page can temporarily show and copy the latest recognized text. It is kept only in the current window memory and is cleared when the window closes or a new recording starts.
 - Optional LLM polishing: OpenAI-compatible API support for light text cleanup and style control.
 - Hotwords and prompts: maintain custom hotwords, scene notes, and polishing prompts.
-- Automatic hotword candidates: optional local history and manual LLM candidate generation; candidates must be confirmed before joining hotwords. If candidate JSON comes back incomplete, reduce the history text limit or candidate count and retry.
+- Automatic hotword candidates: optional local history and manual LLM candidate generation; candidates must be confirmed before joining hotwords. The default history limit is 5000 characters; the old 10000-character default is migrated to 5000 on config load. Candidate generation uses a larger output and timeout budget than normal polishing; if the full history response is incomplete or times out, VoxType retries once with a smaller recent-history window and fewer candidates. If it still fails, reduce the history text limit or candidate count and retry.
 - Tray resident mode: closing the main window hides it to the tray by default. During input and processing, the tray icon switches to an active state. The tray menu can open config, open logs, check updates, or exit.
 - Updates: the advanced Options page and tray menu can check GitHub Releases. When a new version is found, the UI shows an "Update now" action.
 - Diagnostics: logs and redacted diagnostic reports help troubleshoot ASR, paste, network, and update issues.

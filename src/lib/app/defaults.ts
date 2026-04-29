@@ -89,7 +89,7 @@ export const fallbackConfig: AppConfig = {
   auto_hotwords: {
     enabled: false,
     accepted_hotwords: [],
-    max_history_chars: 10000,
+    max_history_chars: 5000,
     max_candidates: 30,
     ignored_hotwords: [],
   },

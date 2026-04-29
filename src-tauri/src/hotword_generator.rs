@@ -8,6 +8,12 @@ use serde_json::{json, Value};
 use std::collections::HashSet;
 use std::time::Duration;
 
+const HOTWORD_GENERATION_MIN_TIMEOUT_SECONDS: f64 = 60.0;
+const HOTWORD_GENERATION_FALLBACK_HISTORY_CHARS: usize = 3_000;
+const HOTWORD_GENERATION_FALLBACK_CANDIDATES: usize = 15;
+const HOTWORD_GENERATION_MIN_MAX_TOKENS: u32 = 1_024;
+const HOTWORD_GENERATION_MAX_MAX_TOKENS: u32 = 6_000;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HotwordCandidate {
     pub word: String,
@@ -29,6 +35,12 @@ struct HotwordCandidateEnvelope {
     candidates: Vec<HotwordCandidate>,
 }
 
+struct HotwordGenerationAttempt {
+    history_text: String,
+    max_candidates: usize,
+    compact_retry: bool,
+}
+
 pub async fn generate_candidates(config: AppConfig) -> Result<HotwordGenerationResult, String> {
     ensure_llm_api_ready(&config)?;
     let history_text = hotword_history::load_recent_text(config.auto_hotwords.max_history_chars)?;
@@ -37,35 +49,62 @@ pub async fn generate_candidates(config: AppConfig) -> Result<HotwordGenerationR
     }
 
     let used_chars = history_text.chars().count();
-    let redacted_text = redact_sensitive_text(&history_text);
-    let system_prompt = hotword_system_prompt();
     let existing_hotwords = effective_hotwords(&config);
-    let user_prompt = hotword_user_prompt(
-        &redacted_text,
-        &existing_hotwords,
-        &config.auto_hotwords.ignored_hotwords,
-        config.auto_hotwords.max_candidates,
-    );
+    let system_prompt = hotword_system_prompt();
+    let attempts = build_generation_attempts(&history_text, config.auto_hotwords.max_candidates);
 
-    app_log::info(format!(
-        "自动热词候选生成开始: used_chars={}, max_candidates={}, model={}",
-        used_chars,
-        config.auto_hotwords.max_candidates,
-        config.llm_post_edit.model.trim()
-    ));
-    let raw = call_openai_compatible_for_hotwords(&config, &system_prompt, &user_prompt).await?;
-    let parsed = parse_candidates(&raw)?;
-    let candidates = filter_candidates(parsed, &config);
-    app_log::info(format!(
-        "自动热词候选生成完成: candidate_count={}",
-        candidates.len()
-    ));
+    for (index, attempt) in attempts.iter().enumerate() {
+        let redacted_text = redact_sensitive_text(&attempt.history_text);
+        let user_prompt = hotword_user_prompt(
+            &redacted_text,
+            &existing_hotwords,
+            &config.auto_hotwords.ignored_hotwords,
+            attempt.max_candidates,
+        );
 
-    Ok(HotwordGenerationResult {
-        candidates,
-        used_chars,
-        warning: None,
-    })
+        app_log::info(format!(
+            "自动热词候选生成开始: used_chars={}, request_chars={}, max_candidates={}, model={}, compact_retry={}",
+            used_chars,
+            attempt.history_text.chars().count(),
+            attempt.max_candidates,
+            config.llm_post_edit.model.trim(),
+            attempt.compact_retry
+        ));
+
+        let result = call_openai_compatible_for_hotwords(
+            &config,
+            &system_prompt,
+            &user_prompt,
+            attempt.max_candidates,
+        )
+        .await
+        .and_then(|raw| parse_candidates(&raw))
+        .map(|parsed| filter_candidates(parsed, &config, attempt.max_candidates));
+
+        match result {
+            Ok(candidates) => {
+                app_log::info(format!(
+                    "自动热词候选生成完成: candidate_count={}, compact_retry={}",
+                    candidates.len(),
+                    attempt.compact_retry
+                ));
+                return Ok(HotwordGenerationResult {
+                    candidates,
+                    used_chars,
+                    warning: compact_retry_warning(attempt.compact_retry),
+                });
+            }
+            Err(err) if index + 1 < attempts.len() && is_retryable_generation_error(&err) => {
+                app_log::warn(format!(
+                    "自动热词候选生成首次尝试失败，将缩小历史范围重试: {}",
+                    err
+                ));
+            }
+            Err(err) => return Err(err),
+        }
+    }
+
+    Err("自动热词候选生成失败，请减少历史文本上限或候选数量后重试。".to_string())
 }
 
 fn ensure_llm_api_ready(config: &AppConfig) -> Result<(), String> {
@@ -79,16 +118,71 @@ fn ensure_llm_api_ready(config: &AppConfig) -> Result<(), String> {
     Ok(())
 }
 
+fn build_generation_attempts(
+    history_text: &str,
+    max_candidates: usize,
+) -> Vec<HotwordGenerationAttempt> {
+    let requested_candidates = max_candidates.max(1);
+    let mut attempts = vec![HotwordGenerationAttempt {
+        history_text: history_text.to_string(),
+        max_candidates: requested_candidates,
+        compact_retry: false,
+    }];
+
+    let history_chars = history_text.chars().count();
+    let fallback_candidates = requested_candidates.min(HOTWORD_GENERATION_FALLBACK_CANDIDATES);
+    if history_chars > HOTWORD_GENERATION_FALLBACK_HISTORY_CHARS
+        || requested_candidates > fallback_candidates
+    {
+        attempts.push(HotwordGenerationAttempt {
+            history_text: tail_chars(history_text, HOTWORD_GENERATION_FALLBACK_HISTORY_CHARS),
+            max_candidates: fallback_candidates,
+            compact_retry: true,
+        });
+    }
+
+    attempts
+}
+
+fn tail_chars(text: &str, max_chars: usize) -> String {
+    let char_count = text.chars().count();
+    if char_count <= max_chars {
+        return text.to_string();
+    }
+    text.chars().skip(char_count - max_chars).collect()
+}
+
+fn compact_retry_warning(compact_retry: bool) -> Option<String> {
+    compact_retry.then(|| {
+        "首次生成返回不完整或超时，已自动缩小历史文本范围并减少候选数量后生成。".to_string()
+    })
+}
+
+fn hotword_timeout_seconds(configured_seconds: f64) -> f64 {
+    configured_seconds
+        .max(HOTWORD_GENERATION_MIN_TIMEOUT_SECONDS)
+        .clamp(1.0, 300.0)
+}
+
+fn hotword_max_tokens(max_candidates: usize) -> u32 {
+    let requested = max_candidates.max(1) as u32;
+    (800 + requested.saturating_mul(120)).clamp(
+        HOTWORD_GENERATION_MIN_MAX_TOKENS,
+        HOTWORD_GENERATION_MAX_MAX_TOKENS,
+    )
+}
+
 async fn call_openai_compatible_for_hotwords(
     config: &AppConfig,
     system_prompt: &str,
     user_prompt: &str,
+    max_candidates: usize,
 ) -> Result<String, String> {
     let settings = &config.llm_post_edit;
     let base_url = settings.base_url.trim().trim_end_matches('/');
     let api_key = settings.api_key.trim();
     let model = settings.model.trim();
-    let timeout = Duration::from_secs_f64(settings.timeout_seconds.clamp(1.0, 300.0));
+    let timeout = Duration::from_secs_f64(hotword_timeout_seconds(settings.timeout_seconds));
     let client = reqwest::Client::builder()
         .timeout(timeout)
         .build()
@@ -101,6 +195,7 @@ async fn call_openai_compatible_for_hotwords(
             system_prompt,
             user_prompt,
             thinking_flag(base_url, settings.enable_thinking),
+            hotword_max_tokens(max_candidates),
         ))
         .send()
         .await
@@ -113,6 +208,7 @@ fn chat_body(
     system_prompt: &str,
     user_prompt: &str,
     enable_thinking: Option<bool>,
+    max_tokens: u32,
 ) -> Value {
     let mut body = json!({
             "model": model,
@@ -120,7 +216,8 @@ fn chat_body(
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
             ],
-            "temperature": 0.2
+            "temperature": 0.2,
+            "max_tokens": max_tokens
     });
     if let Some(enable_thinking) = enable_thinking {
         body["enable_thinking"] = json!(enable_thinking);
@@ -131,9 +228,10 @@ fn chat_body(
 async fn handle_generation_response(response: reqwest::Response) -> Result<String, String> {
     if !response.status().is_success() {
         let status = response.status();
+        let body = response.text().await.unwrap_or_default();
         return Err(friendly_generation_error(&format!(
-            "LLM 返回状态码: {}",
-            status
+            "LLM 返回状态码: {}; {}",
+            status, body
         )));
     }
     let value: Value = response
@@ -171,10 +269,14 @@ fn parse_candidates(raw: &str) -> Result<Vec<HotwordCandidate>, String> {
 fn filter_candidates(
     candidates: Vec<HotwordCandidate>,
     config: &AppConfig,
+    max_candidates: usize,
 ) -> Vec<HotwordCandidate> {
     let existing_hotwords = effective_hotwords(config);
     let existing = normalized_set(&existing_hotwords);
     let ignored = normalized_set(&config.auto_hotwords.ignored_hotwords);
+    let limit = max_candidates
+        .min(config.auto_hotwords.max_candidates)
+        .max(1);
     let mut seen = HashSet::new();
     let mut filtered = Vec::new();
 
@@ -200,7 +302,7 @@ fn filter_candidates(
         seen.insert(normalized);
         filtered.push(candidate);
 
-        if filtered.len() >= config.auto_hotwords.max_candidates {
+        if filtered.len() >= limit {
             break;
         }
     }
@@ -387,17 +489,51 @@ fn friendly_generation_error(error: &str) -> String {
         || lower.contains("invalid_api_key")
     {
         "大模型 API Key 或权限校验失败，请检查 API Key、Base URL 和模型名称。".to_string()
+    } else if lower.contains("429")
+        || lower.contains("rate limit")
+        || lower.contains("ratelimit")
+        || lower.contains("quota")
+        || lower.contains("insufficient_quota")
+    {
+        "大模型服务限流或额度不足，请稍后重试，或检查账号额度。".to_string()
+    } else if lower.contains("model not found")
+        || lower.contains("model_not_found")
+        || lower.contains("invalid model")
+        || lower.contains("模型不存在")
+    {
+        "大模型名称不可用，请检查模型名称是否与当前 Base URL 匹配。".to_string()
+    } else if lower.contains("data_inspection_failed")
+        || lower.contains("inappropriate content")
+        || lower.contains("content policy")
+        || lower.contains("内容安全")
+    {
+        "大模型内容安全检查未通过，请先清理自动热词历史文本，或降低历史文本上限后重试。".to_string()
     } else if lower.contains("timeout")
         || lower.contains("timed out")
+        || lower.contains("deadline has elapsed")
+        || lower.contains("elapsed")
         || lower.contains("dns")
         || lower.contains("connection")
         || lower.contains("connect")
         || lower.contains("proxy")
     {
-        "无法连接大模型服务，请检查网络、代理或 Base URL。".to_string()
+        "自动热词候选生成超时或无法连接大模型服务，请稍后重试，或降低历史文本上限和候选数量。"
+            .to_string()
     } else {
         "自动热词候选生成失败，请检查 API Key、Base URL、模型名称或网络环境。".to_string()
     }
+}
+
+fn is_retryable_generation_error(error: &str) -> bool {
+    let lower = error.to_ascii_lowercase();
+    lower.contains("不完整")
+        || lower.contains("被截断")
+        || lower.contains("eof")
+        || lower.contains("超时")
+        || lower.contains("timeout")
+        || lower.contains("timed out")
+        || lower.contains("deadline has elapsed")
+        || lower.contains("内容安全检查未通过")
 }
 
 fn hotword_system_prompt() -> String {
@@ -483,8 +619,10 @@ fn hotword_user_prompt(
 #[cfg(test)]
 mod tests {
     use super::{
-        filter_candidates, friendly_generation_error, is_valid_hotword, parse_candidates,
-        redact_sensitive_text, response_was_truncated, HotwordCandidate,
+        build_generation_attempts, filter_candidates, friendly_generation_error,
+        hotword_max_tokens, hotword_timeout_seconds, is_retryable_generation_error,
+        is_valid_hotword, parse_candidates, redact_sensitive_text, response_was_truncated,
+        HotwordCandidate,
     };
     use crate::config::AppConfig;
     use serde_json::json;
@@ -527,6 +665,7 @@ mod tests {
                 candidate("OpenAI Compatible"),
             ],
             &config,
+            30,
         );
 
         assert_eq!(result.len(), 1);
@@ -585,5 +724,45 @@ mod tests {
         assert!(!message.contains("api_key_example_value"));
         assert!(!message.contains("password"));
         assert!(!message.contains("token"));
+    }
+
+    #[test]
+    fn hotword_generation_uses_larger_timeout_and_output_budget() {
+        assert_eq!(hotword_timeout_seconds(30.0), 60.0);
+        assert_eq!(hotword_timeout_seconds(120.0), 120.0);
+        assert!(hotword_max_tokens(30) > 1_500);
+        assert!(hotword_max_tokens(100) <= 6_000);
+    }
+
+    #[test]
+    fn large_generation_gets_compact_retry_attempt() {
+        let history = "甲".repeat(10_000);
+        let attempts = build_generation_attempts(&history, 30);
+
+        assert_eq!(attempts.len(), 2);
+        assert!(!attempts[0].compact_retry);
+        assert!(attempts[1].compact_retry);
+        assert_eq!(attempts[1].history_text.chars().count(), 3_000);
+        assert_eq!(attempts[1].max_candidates, 15);
+    }
+
+    #[test]
+    fn explains_common_generation_failures() {
+        assert!(friendly_generation_error("429 rate limit").contains("限流"));
+        assert!(friendly_generation_error("model not found").contains("模型名称"));
+        assert!(friendly_generation_error("deadline has elapsed").contains("超时"));
+        assert!(friendly_generation_error("data_inspection_failed").contains("内容安全"));
+    }
+
+    #[test]
+    fn retries_incomplete_timeout_and_content_safety_errors() {
+        assert!(is_retryable_generation_error(
+            "大模型返回的热词候选不完整。"
+        ));
+        assert!(is_retryable_generation_error(
+            "自动热词候选生成超时或无法连接大模型服务。"
+        ));
+        assert!(is_retryable_generation_error("大模型内容安全检查未通过。"));
+        assert!(!is_retryable_generation_error("大模型名称不可用。"));
     }
 }

@@ -2,6 +2,9 @@ use serde::{Deserialize, Serialize};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+const DEFAULT_AUTO_HOTWORD_MAX_HISTORY_CHARS: usize = 5_000;
+const LEGACY_AUTO_HOTWORD_MAX_HISTORY_CHARS: usize = 10_000;
+
 use crate::config_validation::format_validation_errors;
 pub use crate::config_validation::validate_config;
 use crate::error;
@@ -491,7 +494,8 @@ pub fn load_config() -> Result<LoadedConfig, String> {
     } else {
         data.context.recent_context.clear();
     }
-    if contains_legacy_recent_context(&text) {
+    let migrated_auto_hotword_limit = migrate_auto_hotword_history_default(&mut data);
+    if contains_legacy_recent_context(&text) || migrated_auto_hotword_limit {
         let mut cleaned = data.clone();
         cleaned.context.recent_context.clear();
         write_config_file(&path, &cleaned)?;
@@ -566,6 +570,14 @@ fn contains_legacy_recent_context(text: &str) -> bool {
             || line.starts_with("recent_context =")
             || line.starts_with("recent_context=")
     })
+}
+
+fn migrate_auto_hotword_history_default(config: &mut AppConfig) -> bool {
+    if config.auto_hotwords.max_history_chars == LEGACY_AUTO_HOTWORD_MAX_HISTORY_CHARS {
+        config.auto_hotwords.max_history_chars = DEFAULT_AUTO_HOTWORD_MAX_HISTORY_CHARS;
+        return true;
+    }
+    false
 }
 
 fn sanitize_recent_context_text(text: &str) -> String {
@@ -736,7 +748,7 @@ fn default_update_github_repo() -> String {
     "zkwi/VoxType".to_string()
 }
 fn default_auto_hotword_max_history_chars() -> usize {
-    10_000
+    DEFAULT_AUTO_HOTWORD_MAX_HISTORY_CHARS
 }
 fn default_auto_hotword_max_candidates() -> usize {
     30
@@ -814,7 +826,8 @@ fn default_close_behavior() -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        contains_legacy_recent_context, effective_hotwords, validate_config, AppConfig, TextContext,
+        contains_legacy_recent_context, effective_hotwords, migrate_auto_hotword_history_default,
+        validate_config, AppConfig, TextContext,
     };
 
     #[test]
@@ -830,7 +843,7 @@ mod tests {
         assert!(!config.context.enable_recent_context);
         assert!(!config.auto_hotwords.enabled);
         assert!(config.auto_hotwords.accepted_hotwords.is_empty());
-        assert_eq!(config.auto_hotwords.max_history_chars, 10_000);
+        assert_eq!(config.auto_hotwords.max_history_chars, 5_000);
         assert_eq!(config.auto_hotwords.max_candidates, 30);
         assert!(!config.debug.print_transcript_to_console);
         assert!(config.typing.remove_trailing_period);
@@ -984,5 +997,19 @@ mod tests {
         assert!(!contains_legacy_recent_context(
             "[context]\nenable_recent_context = true\nrecent_context_rounds = 5\n"
         ));
+    }
+
+    #[test]
+    fn migrates_legacy_auto_hotword_history_default() {
+        let mut config = AppConfig::default();
+        config.auto_hotwords.max_history_chars = 10_000;
+
+        assert!(migrate_auto_hotword_history_default(&mut config));
+        assert_eq!(config.auto_hotwords.max_history_chars, 5_000);
+        assert!(!migrate_auto_hotword_history_default(&mut config));
+
+        config.auto_hotwords.max_history_chars = 12_000;
+        assert!(!migrate_auto_hotword_history_default(&mut config));
+        assert_eq!(config.auto_hotwords.max_history_chars, 12_000);
     }
 }

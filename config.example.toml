@@ -65,7 +65,7 @@ enabled = false
 accepted_hotwords = []
 # 以下为自动热词候选内部上限；应用设置页不再展示，可按需手动编辑
 # 本地历史文本总量上限
-max_history_chars = 10000
+max_history_chars = 5000
 # 单次生成候选数量上限
 max_candidates = 30
 # 用户忽略过的候选词；复制到本地 config.toml 后再按需填写
