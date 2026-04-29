@@ -120,8 +120,7 @@ fn chat_body(
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
             ],
-            "temperature": 0.2,
-            "max_tokens": 1400
+            "temperature": 0.2
     });
     if let Some(enable_thinking) = enable_thinking {
         body["enable_thinking"] = json!(enable_thinking);
@@ -147,13 +146,25 @@ async fn handle_generation_response(response: reqwest::Response) -> Result<Strin
             error
         )));
     }
-    Ok(extract_message_content(&value))
+    if response_was_truncated(&value) {
+        return Err("大模型返回的热词候选被截断。请减少历史文本上限或候选数量后重试。".to_string());
+    }
+    let content = extract_message_content(&value);
+    if content.trim().is_empty() {
+        return Err("大模型没有返回热词候选内容，请稍后重试或检查模型配置。".to_string());
+    }
+    Ok(content)
 }
 
 fn parse_candidates(raw: &str) -> Result<Vec<HotwordCandidate>, String> {
     let cleaned = strip_code_fence(raw);
-    let envelope: HotwordCandidateEnvelope =
-        serde_json::from_str(&cleaned).map_err(|err| format!("解析热词候选 JSON 失败: {}", err))?;
+    let envelope: HotwordCandidateEnvelope = serde_json::from_str(&cleaned).map_err(|err| {
+        if err.is_eof() {
+            "大模型返回的热词候选不完整。请减少历史文本上限或候选数量后重试。".to_string()
+        } else {
+            format!("解析热词候选 JSON 失败: {}", err)
+        }
+    })?;
     Ok(envelope.candidates)
 }
 
@@ -347,6 +358,17 @@ fn extract_message_content(value: &Value) -> String {
         .to_string()
 }
 
+fn response_was_truncated(value: &Value) -> bool {
+    value
+        .get("choices")
+        .and_then(Value::as_array)
+        .and_then(|choices| choices.first())
+        .and_then(|choice| choice.get("finish_reason"))
+        .and_then(Value::as_str)
+        .map(|reason| matches!(reason, "length" | "max_tokens"))
+        .unwrap_or(false)
+}
+
 fn thinking_flag(base_url: &str, enable_thinking: bool) -> Option<bool> {
     if enable_thinking || base_url.contains("dashscope.aliyuncs.com") {
         Some(enable_thinking)
@@ -462,9 +484,10 @@ fn hotword_user_prompt(
 mod tests {
     use super::{
         filter_candidates, friendly_generation_error, is_valid_hotword, parse_candidates,
-        redact_sensitive_text, HotwordCandidate,
+        redact_sensitive_text, response_was_truncated, HotwordCandidate,
     };
     use crate::config::AppConfig;
+    use serde_json::json;
 
     fn candidate(word: &str) -> HotwordCandidate {
         HotwordCandidate {
@@ -519,6 +542,27 @@ mod tests {
 
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].word, "VoxType");
+    }
+
+    #[test]
+    fn detects_truncated_llm_response() {
+        let value = json!({
+            "choices": [{
+                "finish_reason": "length",
+                "message": {"content": "{\"candidates\":["}
+            }]
+        });
+
+        assert!(response_was_truncated(&value));
+    }
+
+    #[test]
+    fn truncated_json_gets_actionable_error() {
+        let message = parse_candidates(r#"{"candidates":[{"word":"VoxType""#)
+            .expect_err("incomplete JSON should fail");
+
+        assert!(message.contains("不完整"));
+        assert!(message.contains("减少历史文本上限或候选数量"));
     }
 
     #[test]

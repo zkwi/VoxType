@@ -11,7 +11,12 @@ export function isSafeShortUserMessage(value: string) {
 
 export function userFacingInvokeFailure(command: string, error: unknown, genericMessage: string) {
   const raw = typeof error === "string" ? error.trim() : "";
-  if ((command === "test_asr_config" || command === "test_llm_config") && isSafeShortUserMessage(raw)) {
+  if (
+    (command === "test_asr_config" ||
+      command === "test_llm_config" ||
+      command === "generate_hotword_candidates") &&
+    isSafeShortUserMessage(raw)
+  ) {
     return raw;
   }
   return genericMessage;
