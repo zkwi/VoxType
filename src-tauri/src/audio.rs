@@ -279,9 +279,14 @@ fn send_silence_auto_stop(
     }
 }
 
+// 短促杂音不应打断静音计时，否则键盘声或碰麦会让空录音持续过久。
+const SILENCE_RESET_CONFIRM_MS: u64 = 200;
+
 struct SilenceAutoStopper {
     silence_frames: u64,
     limit_frames: u64,
+    consecutive_active_frames: u64,
+    active_reset_confirm_frames: u64,
     level_threshold: f32,
     triggered: bool,
 }
@@ -291,6 +296,9 @@ impl SilenceAutoStopper {
         Self {
             silence_frames: 0,
             limit_frames: sample_rate as u64 * seconds,
+            consecutive_active_frames: 0,
+            active_reset_confirm_frames: (sample_rate as u64 * SILENCE_RESET_CONFIRM_MS / 1000)
+                .max(1),
             level_threshold: level_threshold.clamp(0.001, 0.5),
             triggered: seconds == 0,
         }
@@ -302,8 +310,15 @@ impl SilenceAutoStopper {
         }
         if level <= self.level_threshold {
             self.silence_frames = self.silence_frames.saturating_add(frame_count as u64);
+            self.consecutive_active_frames = 0;
         } else {
-            self.silence_frames = 0;
+            self.consecutive_active_frames = self
+                .consecutive_active_frames
+                .saturating_add(frame_count as u64);
+            if self.consecutive_active_frames >= self.active_reset_confirm_frames {
+                self.silence_frames = 0;
+                self.consecutive_active_frames = self.active_reset_confirm_frames;
+            }
         }
         if self.silence_frames >= self.limit_frames {
             self.triggered = true;
@@ -585,6 +600,26 @@ mod tests {
         assert!(!stopper.observe(0.0, 16_000 * 8));
         assert!(!stopper.observe(0.05, 16_000));
         assert!(!stopper.observe(0.0, 16_000 * 9));
+        assert!(stopper.observe(0.0, 16_000));
+    }
+
+    #[test]
+    fn silence_auto_stop_resets_after_sustained_active_chunks() {
+        let mut stopper = SilenceAutoStopper::new(16_000, 10, 0.04);
+
+        assert!(!stopper.observe(0.0, 16_000 * 9));
+        assert!(!stopper.observe(0.08, 1_600));
+        assert!(!stopper.observe(0.08, 1_600));
+        assert!(!stopper.observe(0.0, 16_000 * 9));
+        assert!(stopper.observe(0.0, 16_000));
+    }
+
+    #[test]
+    fn silence_auto_stop_ignores_brief_loud_spikes() {
+        let mut stopper = SilenceAutoStopper::new(16_000, 10, 0.04);
+
+        assert!(!stopper.observe(0.0, 16_000 * 9));
+        assert!(!stopper.observe(0.08, 1_600));
         assert!(stopper.observe(0.0, 16_000));
     }
 
