@@ -25,7 +25,7 @@ const CF_DSPBITMAP: u32 = 0x0082;
 const CF_DSPMETAFILEPICT: u32 = 0x0083;
 const CF_DSPENHMETAFILE: u32 = 0x008E;
 const KEY_INTERVAL: Duration = Duration::from_millis(10);
-const MIN_RESTORE_DELAY_AFTER_PASTE_MS: u64 = 1_800;
+const MIN_RESTORE_DELAY_AFTER_PASTE_MS: u64 = 500;
 pub const WARNING_CLIPBOARD_PARTIAL_RESTORE: &str = "CLIPBOARD_PARTIAL_RESTORE";
 pub const WARNING_CLIPBOARD_NON_RESTORABLE: &str = "CLIPBOARD_NON_RESTORABLE";
 pub const WARNING_CLIPBOARD_RESTORE_FAILED: &str = "CLIPBOARD_RESTORE_FAILED";
@@ -468,15 +468,31 @@ fn write_clipboard_snapshot(snapshot: &ClipboardSnapshot) -> Result<(), String> 
 
 fn write_clipboard_text_verified(text: &str) -> Result<(), String> {
     write_clipboard_text(text)?;
-    let actual = read_clipboard_text()?;
-    if actual == text {
-        app_log::info(format!(
-            "剪贴板写入已确认: chars={}, readback_verified=true",
-            text.chars().count()
-        ));
-        Ok(())
-    } else {
-        Err("剪贴板写入后校验失败：读取内容与目标文本不一致".to_string())
+    match clipboard_write_readback_verdict(text, read_clipboard_text())? {
+        true => {
+            app_log::info(format!(
+                "剪贴板写入已确认: chars={}, readback_verified=true",
+                text.chars().count()
+            ));
+        }
+        false => {
+            app_log::warn("剪贴板写入后读回校验失败，已接受写入结果继续输出。");
+        }
+    }
+    Ok(())
+}
+
+fn clipboard_write_readback_verdict(
+    expected: &str,
+    readback: Result<String, String>,
+) -> Result<bool, String> {
+    match readback {
+        Ok(actual) if actual == expected => Ok(true),
+        Ok(_) => Err("剪贴板写入后校验失败：读取内容与目标文本不一致".to_string()),
+        Err(err) => {
+            app_log::warn(format!("剪贴板写入后读回失败: {}", err));
+            Ok(false)
+        }
     }
 }
 
@@ -542,10 +558,10 @@ fn send_key_event(key: VIRTUAL_KEY, key_up: bool, extended: bool) {
 mod tests {
     use super::{
         clipboard_format_snapshot_action, clipboard_restore_delay, clipboard_text_ready_for_paste,
-        effective_clipboard_restore_delay_ms, is_known_non_memory_clipboard_format,
-        is_quiet_output_warning_code, output_text, ClipboardFormatSnapshotAction,
-        MIN_RESTORE_DELAY_AFTER_PASTE_MS, WARNING_CLIPBOARD_NON_RESTORABLE,
-        WARNING_CLIPBOARD_PARTIAL_RESTORE,
+        clipboard_write_readback_verdict, effective_clipboard_restore_delay_ms,
+        is_known_non_memory_clipboard_format, is_quiet_output_warning_code, output_text,
+        ClipboardFormatSnapshotAction, MIN_RESTORE_DELAY_AFTER_PASTE_MS,
+        WARNING_CLIPBOARD_NON_RESTORABLE, WARNING_CLIPBOARD_PARTIAL_RESTORE,
     };
     use crate::config::TypingConfig;
     use std::time::Duration;
@@ -554,7 +570,7 @@ mod tests {
     fn restore_delay_uses_independent_clipboard_restore_setting() {
         let typing = TypingConfig {
             paste_delay_ms: 0,
-            clipboard_restore_delay_ms: 800,
+            clipboard_restore_delay_ms: 300,
             ..TypingConfig::default()
         };
         assert_eq!(
@@ -588,6 +604,23 @@ mod tests {
     fn clipboard_text_must_still_match_before_paste() {
         assert!(clipboard_text_ready_for_paste("识别文本", "识别文本"));
         assert!(!clipboard_text_ready_for_paste("识别文本", "旧剪贴板文本"));
+    }
+
+    #[test]
+    fn readback_failure_after_successful_write_is_non_fatal() {
+        let result = clipboard_write_readback_verdict(
+            "识别文本",
+            Err("读取剪贴板失败: Thread does not have a clipboard open. (0x8007058A)".to_string()),
+        );
+
+        assert_eq!(result, Ok(false));
+    }
+
+    #[test]
+    fn readback_mismatch_after_successful_write_stays_fatal() {
+        let result = clipboard_write_readback_verdict("识别文本", Ok("其他剪贴板文本".to_string()));
+
+        assert!(result.is_err());
     }
 
     #[test]

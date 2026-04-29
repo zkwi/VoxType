@@ -212,7 +212,7 @@ right_alt_enabled = false
 paste_method = "ctrl_v"
 remove_trailing_period = true
 restore_clipboard_after_paste = true
-clipboard_restore_delay_ms = 1800
+clipboard_restore_delay_ms = 800
 ```
 
 更新：

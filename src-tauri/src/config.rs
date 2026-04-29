@@ -727,7 +727,7 @@ fn default_clipboard_open_retry_interval_ms() -> u64 {
     50
 }
 fn default_clipboard_restore_delay_ms() -> u64 {
-    1_800
+    800
 }
 fn default_clipboard_snapshot_max_bytes() -> u64 {
     8 * 1024 * 1024
@@ -837,7 +837,7 @@ mod tests {
         assert!(config.typing.restore_clipboard_after_paste);
         assert_eq!(config.typing.clipboard_open_retry_count, 5);
         assert_eq!(config.typing.clipboard_open_retry_interval_ms, 50);
-        assert_eq!(config.typing.clipboard_restore_delay_ms, 1_800);
+        assert_eq!(config.typing.clipboard_restore_delay_ms, 800);
         assert_eq!(config.typing.clipboard_snapshot_max_bytes, 8 * 1024 * 1024);
     }
 

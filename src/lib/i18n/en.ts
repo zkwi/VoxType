@@ -311,7 +311,7 @@ export const en = {
   "clipboardRestoreDelay": "Clipboard restore delay ms",
   "clipboardSnapshotMaxBytes": "Clipboard snapshot limit bytes",
   "clipboardTextRestoreHint": "After paste, VoxType tries to restore the original clipboard. Plain text is most reliable; rich text, table ranges, images, files, and private app formats may not restore completely.",
-  "clipboardRestoreDelayHint": "A longer restore delay gives the target app more time to read the dictated text, but restores the old clipboard later. Auto paste uses a 1800 ms safety floor.",
+  "clipboardRestoreDelayHint": "A longer restore delay gives the target app more time to read the dictated text, but restores the old clipboard later. Auto paste uses a 500 ms safety floor.",
   "clipboardRetryCount": "Clipboard write retries",
   "clipboardRetryInterval": "Clipboard retry interval ms",
   "clipboardRetryHint": "Used when another app briefly holds the Windows clipboard. It only retries writing to the clipboard and does not guarantee the target app accepted paste.",

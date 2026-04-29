@@ -310,7 +310,7 @@ export const zhCN = {
   "clipboardRestoreDelay": "剪贴板恢复延迟毫秒",
   "clipboardSnapshotMaxBytes": "剪贴板快照上限字节",
   "clipboardTextRestoreHint": "粘贴后会尽量恢复原剪贴板内容。纯文本恢复最稳定；富文本、表格区域、图片、文件或部分应用私有格式可能无法完整恢复。",
-  "clipboardRestoreDelayHint": "恢复延迟越长，目标应用越有时间读取语音文本；但原剪贴板恢复也会更晚。自动粘贴时低于 1800ms 会按安全下限处理。",
+  "clipboardRestoreDelayHint": "恢复延迟越长，目标应用越有时间读取语音文本；但原剪贴板恢复也会更晚。自动粘贴时低于 500ms 会按安全下限处理。",
   "clipboardRetryCount": "剪贴板写入重试次数",
   "clipboardRetryInterval": "剪贴板重试间隔毫秒",
   "clipboardRetryHint": "用于解决剪贴板被其他程序短暂占用的问题，只影响写入剪贴板，不保证目标应用一定粘贴成功。",

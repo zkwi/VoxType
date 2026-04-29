@@ -311,7 +311,7 @@ export const zhTW = {
   "clipboardRestoreDelay": "剪貼簿恢復延遲毫秒",
   "clipboardSnapshotMaxBytes": "剪貼簿快照上限位元組",
   "clipboardTextRestoreHint": "貼上後會盡量恢復原剪貼簿內容。純文字恢復最穩定；富文字、表格區域、圖片、檔案或部分應用私有格式可能無法完整恢復。",
-  "clipboardRestoreDelayHint": "恢復延遲越長，目標應用越有時間讀取語音文字；但原剪貼簿恢復也會更晚。自動貼上時低於 1800ms 會按安全下限處理。",
+  "clipboardRestoreDelayHint": "恢復延遲越長，目標應用越有時間讀取語音文字；但原剪貼簿恢復也會更晚。自動貼上時低於 500ms 會按安全下限處理。",
   "clipboardRetryCount": "剪貼簿寫入重試次數",
   "clipboardRetryInterval": "剪貼簿重試間隔毫秒",
   "clipboardRetryHint": "用於解決剪貼簿被其他程式短暫占用的問題，只影響寫入剪貼簿，不保證目標應用一定貼上成功。",

@@ -136,11 +136,11 @@ remove_trailing_period = true
 
 ```toml
 [typing]
-clipboard_restore_delay_ms = 1800
+clipboard_restore_delay_ms = 800
 clipboard_snapshot_max_bytes = 8388608
 ```
 
-恢复延迟越长，目标应用越有时间读取语音文本；但原剪贴板恢复也会更晚。为避免慢应用粘贴到旧剪贴板内容，自动粘贴时会使用不低于 1800ms 的安全恢复等待。快照大小上限用于跳过过大的格式，降低大剪贴板卡顿风险。
+恢复延迟越长，目标应用越有时间读取语音文本；但原剪贴板恢复也会更晚。为避免慢应用粘贴到旧剪贴板内容，自动粘贴时会使用不低于 500ms 的安全恢复等待。快照大小上限用于跳过过大的格式，降低大剪贴板卡顿风险。
 
 如需随 Windows 登录自动启动，可在选项页开启，或在 `config.toml` 中设置：
 
