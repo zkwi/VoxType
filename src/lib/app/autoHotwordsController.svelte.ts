@@ -97,7 +97,7 @@ export function createAutoHotwordsController(options: AutoHotwordsControllerOpti
     try {
       const result = await options.safeInvoke<ConnectionTestResult>("clear_hotword_history", undefined, false);
       if (result) {
-        options.showActionNotice(result.message, "success");
+        options.showActionNotice(options.t("autoHotwordsHistoryCleared"), "success");
         candidates = [];
         await refreshStatus();
       } else {

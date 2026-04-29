@@ -94,6 +94,40 @@
         <div id="boot-fallback-bar"></div>
       </div>
     </div>
+    <script>
+      (() => {
+        const copy = {
+          en: {
+            lang: "en",
+            mark: "V",
+            title: "VoxType is starting",
+            body: "Preparing voice input. If this stays for too long, update Microsoft Edge WebView2 Runtime."
+          },
+          "zh-TW": {
+            lang: "zh-Hant",
+            mark: "聲",
+            title: "聲寫正在啟動",
+            body: "正在準備語音輸入環境。若長時間停留，請更新 Microsoft Edge WebView2 Runtime。"
+          },
+          "zh-CN": {
+            lang: "zh-Hans",
+            mark: "声",
+            title: "声写正在启动",
+            body: "正在准备语音输入环境。若长时间停留，请更新 Microsoft Edge WebView2 Runtime。"
+          }
+        };
+        try {
+          const language = localStorage.getItem("voxtype-language");
+          const current = copy[language] || copy["zh-CN"];
+          document.documentElement.lang = current.lang;
+          document.getElementById("boot-fallback-mark").textContent = current.mark;
+          document.getElementById("boot-fallback-title").textContent = current.title;
+          document.getElementById("boot-fallback-copy").textContent = current.body;
+        } catch {
+          // 启动兜底页不参与主流程，失败时保持默认中文。
+        }
+      })();
+    </script>
     <div style="display: contents">%sveltekit.body%</div>
   </body>
 </html>

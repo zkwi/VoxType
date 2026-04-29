@@ -273,7 +273,7 @@
   <div class="section-title-row">
     <h3>{t("recentUsage")}</h3>
   </div>
-  <div class="stats-row" aria-label="Usage summary">
+  <div class="stats-row" aria-label={t("usageSummary")}>
     <article class="stat-card blue">
       <span class="stat-icon"><PenLine size={uiCompact ? 16 : 20} /></span>
       <p>{t("todayInput")}</p>

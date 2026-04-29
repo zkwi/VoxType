@@ -1,13 +1,12 @@
 use crate::session::SessionController;
 use crate::{app_log, config, main_window};
+use std::sync::{Mutex, OnceLock};
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, TrayIconBuilder, TrayIconEvent};
 use tauri::{image::Image, AppHandle, Emitter, Manager};
 use tauri_plugin_opener::OpenerExt;
 
 const TRAY_ID: &str = "voxtype";
-const TRAY_TOOLTIP_IDLE: &str = "声写";
-const TRAY_TOOLTIP_INPUT: &str = "声写 · 输入中";
 const TRAY_ICON_SIZE: usize = 32;
 const TRAY_ICON_RGBA: &[u8] = include_bytes!("../icons/32x32.rgba");
 
@@ -18,36 +17,22 @@ const CHECK_UPDATE_ID: &str = "check_update";
 const EXIT_ID: &str = "exit";
 const CHECK_UPDATE_EVENT: &str = "check-update-requested";
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct TrayLabels {
+    open_config: &'static str,
+    open_log: &'static str,
+    open_setup_guide: &'static str,
+    check_update: &'static str,
+    exit: &'static str,
+}
+
 pub fn setup_tray(app: &AppHandle) -> Result<(), String> {
-    let open_config = MenuItem::with_id(app, OPEN_CONFIG_ID, "打开配置文件", true, None::<&str>)
-        .map_err(|err| format!("创建托盘菜单失败: {}", err))?;
-    let open_log = MenuItem::with_id(app, OPEN_LOG_ID, "查看日志", true, None::<&str>)
-        .map_err(|err| format!("创建托盘菜单失败: {}", err))?;
-    let open_setup_guide =
-        MenuItem::with_id(app, OPEN_SETUP_GUIDE_ID, "配置指南", true, None::<&str>)
-            .map_err(|err| format!("创建托盘菜单失败: {}", err))?;
-    let check_update = MenuItem::with_id(app, CHECK_UPDATE_ID, "检查更新", true, None::<&str>)
-        .map_err(|err| format!("创建托盘菜单失败: {}", err))?;
-    let separator = PredefinedMenuItem::separator(app)
-        .map_err(|err| format!("创建托盘菜单分隔线失败: {}", err))?;
-    let exit = MenuItem::with_id(app, EXIT_ID, "退出", true, None::<&str>)
-        .map_err(|err| format!("创建托盘菜单失败: {}", err))?;
-    let menu = Menu::with_items(
-        app,
-        &[
-            &open_config,
-            &open_log,
-            &open_setup_guide,
-            &check_update,
-            &separator,
-            &exit,
-        ],
-    )
-    .map_err(|err| format!("创建托盘菜单失败: {}", err))?;
+    let language = current_tray_language();
+    let menu = build_tray_menu(app, tray_labels(language))?;
 
     let app_for_event = app.clone();
     let mut builder = TrayIconBuilder::with_id(TRAY_ID)
-        .tooltip(TRAY_TOOLTIP_IDLE)
+        .tooltip(tray_tooltip(language, false))
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(move |app, event| match event.id().as_ref() {
@@ -83,7 +68,67 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+pub fn set_language(app: &AppHandle, language: &str) -> Result<(), String> {
+    let language = normalize_tray_language(language);
+    if let Ok(mut current) = tray_language().lock() {
+        *current = language;
+    }
+
+    let Some(tray) = app.tray_by_id(TRAY_ID) else {
+        return Ok(());
+    };
+    let menu = build_tray_menu(app, tray_labels(language))?;
+    tray.set_menu(Some(menu))
+        .map_err(|err| format!("更新托盘菜单语言失败: {}", err))?;
+    tray.set_tooltip(Some(tray_tooltip(language, current_tray_active())))
+        .map_err(|err| format!("更新托盘提示语言失败: {}", err))?;
+    Ok(())
+}
+
+fn build_tray_menu(app: &AppHandle, labels: TrayLabels) -> Result<Menu<tauri::Wry>, String> {
+    let open_config =
+        MenuItem::with_id(app, OPEN_CONFIG_ID, labels.open_config, true, None::<&str>)
+            .map_err(|err| format!("创建托盘菜单失败: {}", err))?;
+    let open_log = MenuItem::with_id(app, OPEN_LOG_ID, labels.open_log, true, None::<&str>)
+        .map_err(|err| format!("创建托盘菜单失败: {}", err))?;
+    let open_setup_guide = MenuItem::with_id(
+        app,
+        OPEN_SETUP_GUIDE_ID,
+        labels.open_setup_guide,
+        true,
+        None::<&str>,
+    )
+    .map_err(|err| format!("创建托盘菜单失败: {}", err))?;
+    let check_update = MenuItem::with_id(
+        app,
+        CHECK_UPDATE_ID,
+        labels.check_update,
+        true,
+        None::<&str>,
+    )
+    .map_err(|err| format!("创建托盘菜单失败: {}", err))?;
+    let separator = PredefinedMenuItem::separator(app)
+        .map_err(|err| format!("创建托盘菜单分隔线失败: {}", err))?;
+    let exit = MenuItem::with_id(app, EXIT_ID, labels.exit, true, None::<&str>)
+        .map_err(|err| format!("创建托盘菜单失败: {}", err))?;
+    Menu::with_items(
+        app,
+        &[
+            &open_config,
+            &open_log,
+            &open_setup_guide,
+            &check_update,
+            &separator,
+            &exit,
+        ],
+    )
+    .map_err(|err| format!("创建托盘菜单失败: {}", err))
+}
+
 pub fn set_input_active(app: &AppHandle, active: bool) {
+    if let Ok(mut current) = tray_active().lock() {
+        *current = active;
+    }
     let Some(tray) = app.tray_by_id(TRAY_ID) else {
         return;
     };
@@ -95,11 +140,7 @@ pub fn set_input_active(app: &AppHandle, active: bool) {
     if let Err(err) = tray.set_icon(Some(icon)) {
         app_log::warn(format!("更新托盘图标失败: {}", err));
     }
-    let tooltip = if active {
-        TRAY_TOOLTIP_INPUT
-    } else {
-        TRAY_TOOLTIP_IDLE
-    };
+    let tooltip = tray_tooltip(current_tray_language(), active);
     if let Err(err) = tray.set_tooltip(Some(tooltip)) {
         app_log::warn(format!("更新托盘提示失败: {}", err));
     }
@@ -117,6 +158,72 @@ pub fn show_startup_message() {
         "声写已启动，按 {} / 右Alt / 鼠标中键 开始/停止语音输入",
         loaded.data.hotkey.to_uppercase()
     ));
+}
+
+fn tray_labels(language: &str) -> TrayLabels {
+    match normalize_tray_language(language) {
+        "en" => TrayLabels {
+            open_config: "Open config file",
+            open_log: "View logs",
+            open_setup_guide: "Setup guide",
+            check_update: "Check updates",
+            exit: "Exit",
+        },
+        "zh-TW" => TrayLabels {
+            open_config: "打開配置檔",
+            open_log: "查看日誌",
+            open_setup_guide: "配置指南",
+            check_update: "檢查更新",
+            exit: "退出",
+        },
+        _ => TrayLabels {
+            open_config: "打开配置文件",
+            open_log: "查看日志",
+            open_setup_guide: "配置指南",
+            check_update: "检查更新",
+            exit: "退出",
+        },
+    }
+}
+
+fn tray_tooltip(language: &str, active: bool) -> &'static str {
+    match (normalize_tray_language(language), active) {
+        ("en", true) => "VoxType · Listening",
+        ("en", false) => "VoxType",
+        ("zh-TW", true) => "聲寫 · 輸入中",
+        ("zh-TW", false) => "聲寫",
+        (_, true) => "声写 · 输入中",
+        (_, false) => "声写",
+    }
+}
+
+fn normalize_tray_language(language: &str) -> &'static str {
+    match language {
+        "en" => "en",
+        "zh-TW" => "zh-TW",
+        _ => "zh-CN",
+    }
+}
+
+fn current_tray_language() -> &'static str {
+    tray_language()
+        .lock()
+        .map(|language| *language)
+        .unwrap_or("zh-CN")
+}
+
+fn current_tray_active() -> bool {
+    tray_active().lock().map(|active| *active).unwrap_or(false)
+}
+
+fn tray_language() -> &'static Mutex<&'static str> {
+    static TRAY_LANGUAGE: OnceLock<Mutex<&'static str>> = OnceLock::new();
+    TRAY_LANGUAGE.get_or_init(|| Mutex::new("zh-CN"))
+}
+
+fn tray_active() -> &'static Mutex<bool> {
+    static TRAY_ACTIVE: OnceLock<Mutex<bool>> = OnceLock::new();
+    TRAY_ACTIVE.get_or_init(|| Mutex::new(false))
 }
 
 fn open_config_file(app: &AppHandle) {
@@ -206,5 +313,41 @@ fn paint_status_dot(rgba: &mut [u8]) {
             };
             rgba[offset..offset + 4].copy_from_slice(&color);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{tray_labels, tray_tooltip};
+
+    #[test]
+    fn tray_labels_follow_selected_language() {
+        let labels = tray_labels("en");
+
+        assert_eq!(labels.open_config, "Open config file");
+        assert_eq!(labels.open_log, "View logs");
+        assert_eq!(labels.open_setup_guide, "Setup guide");
+        assert_eq!(labels.check_update, "Check updates");
+        assert_eq!(labels.exit, "Exit");
+    }
+
+    #[test]
+    fn tray_labels_support_traditional_chinese() {
+        let labels = tray_labels("zh-TW");
+
+        assert_eq!(labels.open_config, "打開配置檔");
+        assert_eq!(labels.open_log, "查看日誌");
+        assert_eq!(labels.open_setup_guide, "配置指南");
+        assert_eq!(labels.check_update, "檢查更新");
+        assert_eq!(labels.exit, "退出");
+    }
+
+    #[test]
+    fn tray_language_falls_back_to_simplified_chinese() {
+        let labels = tray_labels("fr");
+
+        assert_eq!(labels.open_config, "打开配置文件");
+        assert_eq!(tray_tooltip("fr", false), "声写");
+        assert_eq!(tray_tooltip("en", true), "VoxType · Listening");
     }
 }

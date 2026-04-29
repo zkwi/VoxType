@@ -97,15 +97,15 @@
         <Download size={15} />
         <span>{t("minimizeToTray")}</span>
       </button>
-      <button aria-label="最小化" title="最小化" onclick={onMinimize}><Minus size={13} /></button>
-      <button aria-label="最大化或还原" title="最大化或还原" onclick={onToggleMaximize}><Maximize2 size={12} /></button>
-      <button class="close" aria-label="关闭" title="关闭" onclick={onClose}><XIcon size={14} /></button>
+      <button aria-label={t("windowMinimize")} title={t("windowMinimize")} onclick={onMinimize}><Minus size={13} /></button>
+      <button aria-label={t("windowMaximizeRestore")} title={t("windowMaximizeRestore")} onclick={onToggleMaximize}><Maximize2 size={12} /></button>
+      <button class="close" aria-label={t("windowClose")} title={t("windowClose")} onclick={onClose}><XIcon size={14} /></button>
     </div>
   </header>
 
   <main class="shell">
     <aside class="sidebar">
-      <nav aria-label="Main sections">
+      <nav aria-label={t("mainSections")}>
         {#each navItems as item}
           {@const Icon = item.icon}
           <button

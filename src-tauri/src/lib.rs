@@ -358,6 +358,11 @@ fn copy_recent_input_text_to_clipboard(text: String) -> Result<(), String> {
     text_output::copy_text_to_clipboard(&text)
 }
 
+#[tauri::command]
+fn set_tray_language(app: AppHandle, language: String) -> Result<(), String> {
+    tray::set_language(&app, &language)
+}
+
 fn build_diagnostic_report(
     session: &State<'_, SessionController>,
 ) -> Result<DiagnosticReport, String> {
@@ -625,6 +630,7 @@ pub fn run() {
             get_diagnostic_report,
             copy_diagnostic_report_to_clipboard,
             copy_recent_input_text_to_clipboard,
+            set_tray_language,
             hide_main_window,
             exit_application,
             update_close_preference,

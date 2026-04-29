@@ -190,6 +190,33 @@ export function buildSetupStatusItems(params: {
   ];
 }
 
+const setupWarningCopyKeys: Record<string, { title: CopyKey; message: CopyKey }> = {
+  ASR_AUTH_MISSING: {
+    title: "setupWarningAsrAuthTitle",
+    message: "setupWarningAsrAuthMessage",
+  },
+  MIC_DEVICE_NOT_FOUND: {
+    title: "setupWarningMicTitle",
+    message: "setupWarningMicMessage",
+  },
+  TRIGGER_DISABLED: {
+    title: "setupWarningTriggerTitle",
+    message: "setupWarningTriggerMessage",
+  },
+};
+
+export function localizeSetupWarnings(warnings: SetupStatusWarning[], t: Translate): SetupStatusWarning[] {
+  return warnings.map((warning) => {
+    const copyKeys = setupWarningCopyKeys[warning.code];
+    if (!copyKeys) return warning;
+    return {
+      ...warning,
+      title: t(copyKeys.title),
+      message: t(copyKeys.message),
+    };
+  });
+}
+
 export function setupActionText(action: string, t: Translate) {
   if (action === "asr_auth") return t("setupActionAsr");
   if (action === "audio") return t("setupActionAudio");

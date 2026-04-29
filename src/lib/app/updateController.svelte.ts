@@ -53,7 +53,7 @@ export function createUpdateController(options: UpdateControllerOptions) {
                   onClick: downloadLatest,
                 }
               : undefined;
-          options.showActionNotice(result.message, result.update_available ? "warning" : "success", updateAction);
+          options.showActionNotice(updateNoticeMessage(result), result.update_available ? "warning" : "success", updateAction);
         } else {
           options.setStatusMessage(previousStatus);
         }
@@ -73,7 +73,7 @@ export function createUpdateController(options: UpdateControllerOptions) {
     try {
       const result = await options.safeInvoke<InstallUpdateResult>("download_and_install_update");
       if (result) {
-        options.showActionNotice(result.message, "success");
+        options.showActionNotice(options.t("updateInstallStarted"), "success");
       }
     } finally {
       installing = false;
@@ -92,7 +92,17 @@ export function createUpdateController(options: UpdateControllerOptions) {
       return options.t("updateReady", { asset: status.asset_name });
     }
     if (status.update_available) return options.t("updateNoInstaller");
-    return status.message;
+    return options.t("updateNoticeUpToDate");
+  }
+
+  function updateNoticeMessage(result: UpdateStatus) {
+    if (result.update_available && result.asset_name) {
+      return options.t("updateNoticeAvailable", { version: result.latest_version });
+    }
+    if (result.update_available) {
+      return options.t("updateNoticeNoInstaller", { version: result.latest_version });
+    }
+    return options.t("updateNoticeUpToDate");
   }
 
   function metaText() {

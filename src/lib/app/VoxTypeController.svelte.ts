@@ -80,6 +80,7 @@ import {
   buildSetupStatusItems,
   currentAsrConnectionStatus as getCurrentAsrConnectionStatus,
   formatEnabledTriggers as getEnabledTriggersText,
+  localizeSetupWarnings,
   mergeSetupStatusFromConfig,
   pasteMethodLabel as getPasteMethodLabel,
   readCachedSetupStatus,
@@ -243,6 +244,7 @@ export function createVoxTypeController() {
     if (savedLanguage === "zh-CN" || savedLanguage === "zh-TW" || savedLanguage === "en") {
       language = savedLanguage;
       statusMessage = t("bridgeLoading");
+      syncTrayLanguage(savedLanguage);
     }
     void bootstrapApp();
     let overlayPoll: number | undefined;
@@ -409,6 +411,7 @@ export function createVoxTypeController() {
     if (value !== "zh-CN" && value !== "zh-TW" && value !== "en") return;
     language = value;
     localStorage.setItem("voxtype-language", value);
+    syncTrayLanguage(value);
     if (
       statusMessage === copy["zh-CN"].bridgeLoading ||
       statusMessage === copy["zh-TW"].bridgeLoading ||
@@ -416,6 +419,10 @@ export function createVoxTypeController() {
     ) {
       statusMessage = t("bridgeLoading");
     }
+  }
+
+  function syncTrayLanguage(value: Language) {
+    void safeInvoke<void>("set_tray_language", { language: value }, true);
   }
 
   async function safeInvoke<T>(command: string, args?: Record<string, unknown>, quiet = false): Promise<T | null> {
@@ -683,8 +690,8 @@ export function createVoxTypeController() {
     }
     clearingRecentContext = true;
     try {
-      const result = await invoke<ConnectionTestResult>("clear_recent_context");
-      statusMessage = result.message || t("recentContextCleared");
+      await invoke<ConnectionTestResult>("clear_recent_context");
+      statusMessage = t("recentContextCleared");
       showActionNotice(statusMessage, "success");
       await refreshSetupStatus();
     } catch (error) {
@@ -705,8 +712,8 @@ export function createVoxTypeController() {
       if (result) {
         asrConnectionStatus = "tested_ok";
         asrTestedConfigFingerprint = asrConfigFingerprint();
-        statusMessage = result.message;
-        showActionNotice(result.message, "success");
+        statusMessage = t("asrTestSucceeded");
+        showActionNotice(statusMessage, "success");
       } else if (statusMessage) {
         asrConnectionStatus = "tested_failed";
         asrTestedConfigFingerprint = asrConfigFingerprint();
@@ -722,8 +729,8 @@ export function createVoxTypeController() {
     try {
       const result = await safeInvoke<ConnectionTestResult>("test_llm_config", { config: clonePlain(config) });
       if (result) {
-        statusMessage = result.message;
-        showActionNotice(result.message, "success");
+        statusMessage = t("llmTestSucceeded");
+        showActionNotice(statusMessage, "success");
       } else if (statusMessage) {
         showActionNotice(statusMessage, "error");
       }
@@ -1129,7 +1136,7 @@ export function createVoxTypeController() {
       setupChecking: setupStatusLoading && !setupStatus,
       setupStatusReady: setupIsReady(),
       setupStatusItems: setupStatusItems(),
-      setupWarnings: setupStatus?.warnings ?? [],
+      setupWarnings: localizeSetupWarnings(setupStatus?.warnings ?? [], t),
       setupWarningCount: setupWarningCount(),
       testingAsr,
       testingLlm,
