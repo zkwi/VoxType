@@ -292,11 +292,11 @@
           {#if config.auth.mode === DOUBAO_AUTH_MODE_API_KEY}
             <SecretInput
               id="setting-doubao-console-api-key"
-              configField="auth.api_key"
-              bind:value={config.auth.api_key}
+              configField="auth.console_api_key"
+              bind:value={config.auth.console_api_key}
               label={t("doubaoConsoleApiKey")}
               hint={t("doubaoConsoleApiKeyHint")}
-              error={fieldError("auth.api_key")}
+              error={fieldError("auth.console_api_key")}
               showLabel={t("showApiKey")}
               hideLabel={t("hideApiKey")}
               copyLabel={t("copyApiKey")}

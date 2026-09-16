@@ -70,7 +70,7 @@ VoxType 的主链路依赖一个可用的流式 ASR 服务。默认仍使用豆�
 | App Key + Access Key | App Key、Access Key | 旧版控制台接入方式，Resource ID 可按账号已开通资源配置 |
 | 火山方舟 Agent Plan | Agent Plan API Key | 使用方舟专属 `X-Api-Key`；模型和超额后付费需先在方舟控制台配置 |
 
-几套凭据会独立保存在本地配置文件，切换后只使用当前接入方式，不需要反复覆盖另一套 Key。语音控制台 API Key 与方舟 Agent Plan 密钥不通用，填错会直接返回 401。Agent Plan 固定使用豆包流式语音识别模型 2.0 的 Resource ID `volc.seedasr.sauc.duration`，并自动连接 `wss://openspeech.bytedance.com/api/v3/plan/sauc/bigmodel_async`；该模式不使用 `[request].ws_url`。切换到 Agent Plan 时，设置页会自动校正 Resource ID。本版本只接入 ASR，不包含 Agent Plan TTS。
+三套凭据分别存放在 `console_api_key`、`api_key` 和 `app_key`/`access_key`，会独立保存在本地配置文件，切换后只使用当前接入方式，不需要反复覆盖另一套 Key。语音控制台 API Key 与方舟 Agent Plan 密钥不通用，填错会直接返回 401。Agent Plan 固定使用豆包流式语音识别模型 2.0 的 Resource ID `volc.seedasr.sauc.duration`，并自动连接 `wss://openspeech.bytedance.com/api/v3/plan/sauc/bigmodel_async`；该模式不使用 `[request].ws_url`。切换到 Agent Plan 时，设置页会自动校正 Resource ID。本版本只接入 ASR，不包含 Agent Plan TTS。
 
 语音控制台 API Key 方式发送 `X-Api-Key`、`X-Api-Resource-Id` 和 `X-Api-Request-Id`；旧版标准方式发送 `X-Api-App-Key`、`X-Api-Access-Key` 和 `X-Api-Resource-Id`；Agent Plan 发送方舟专属 `X-Api-Key` 和固定 Resource ID。不要把百炼大模型 Key、GitHub Token 或火山引擎 IAM Secret 填到 ASR 认证里。豆包认证区域会根据当前接入方式打开对应官方文档。
 

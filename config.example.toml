@@ -20,9 +20,12 @@ mode = "api_key"
 # 旧版控制台凭据，仅在 mode = "app_access" 时使用
 app_key = ""
 access_key = ""
-# API Key，mode = "api_key" 或 mode = "agent_plan" 时使用；两种方式的密钥不通用
+# 火山方舟 Agent Plan 专属密钥，仅在 mode = "agent_plan" 时使用
 # 不要把大模型 API Key、GitHub Token 或火山引擎 IAM Secret 填到这里
 api_key = ""
+# 新版语音控制台 API Key，仅在 mode = "api_key" 时使用
+# 与上面的 Agent Plan 密钥不通用，分开存放，切换接入方式时不会互相覆盖
+console_api_key = ""
 # 小时版 volc.seedasr.sauc.duration / 并发版 volc.seedasr.sauc.concurrent
 # Agent Plan 必须保持为豆包流式语音识别模型 2.0 的固定 Resource ID
 resource_id = "volc.seedasr.sauc.duration"

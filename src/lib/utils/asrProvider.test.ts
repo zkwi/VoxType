@@ -17,7 +17,7 @@ function consoleApiKeyConfig() {
   const config = structuredClone(fallbackConfig);
   Object.assign(config.auth, {
     mode: "api_key",
-    api_key: "console-test-key",
+    console_api_key: "console-test-key",
     app_key: "",
     access_key: "",
   });
@@ -39,6 +39,19 @@ describe("Doubao authentication modes", () => {
     const config = consoleApiKeyConfig();
     config.auth.resource_id = "volc.seedasr.sauc.concurrent";
 
+    expect(hasAsrProviderConfig(config)).toBe(true);
+  });
+
+  it("keeps console and Agent Plan keys in separate fields", () => {
+    // 两种方式的密钥不通用，切换接入方式不能互相覆盖，也不能互相顶替。
+    const config = consoleApiKeyConfig();
+    config.auth.api_key = "plan-test-key";
+    expect(hasAsrProviderConfig(config)).toBe(true);
+
+    config.auth.console_api_key = "";
+    expect(hasAsrProviderConfig(config)).toBe(false);
+
+    config.auth.mode = "agent_plan";
     expect(hasAsrProviderConfig(config)).toBe(true);
   });
 

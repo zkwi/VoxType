@@ -26,7 +26,7 @@ export function hasAsrProviderConfig(config: AppConfig) {
     );
   }
   if (config.auth.mode === DOUBAO_AUTH_MODE_API_KEY) {
-    return Boolean(config.auth.api_key.trim() && config.auth.resource_id.trim());
+    return Boolean(config.auth.console_api_key.trim() && config.auth.resource_id.trim());
   }
   if (config.auth.mode === DOUBAO_AUTH_MODE_AGENT_PLAN) {
     return Boolean(
@@ -62,6 +62,7 @@ export function activeAsrConfigFingerprint(config: AppConfig) {
     app_key: config.auth.app_key,
     access_key: config.auth.access_key,
     api_key: config.auth.api_key,
+    console_api_key: config.auth.console_api_key,
     resource_id: config.auth.resource_id,
     ws_url: config.request.ws_url,
     model_name: config.request.model_name,

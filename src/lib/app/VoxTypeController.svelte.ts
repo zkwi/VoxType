@@ -819,10 +819,11 @@ export function createVoxTypeController() {
         errors["aliyun_asr.workspace_id"] = t("aliyunWorkspaceOrUrlRequired");
       }
     } else {
-      if (
-        config.auth.mode === DOUBAO_AUTH_MODE_AGENT_PLAN ||
-        config.auth.mode === DOUBAO_AUTH_MODE_API_KEY
-      ) {
+      if (config.auth.mode === DOUBAO_AUTH_MODE_API_KEY) {
+        if (!config.auth.console_api_key.trim()) {
+          errors["auth.console_api_key"] = t("requiredField");
+        }
+      } else if (config.auth.mode === DOUBAO_AUTH_MODE_AGENT_PLAN) {
         if (!config.auth.api_key.trim()) errors["auth.api_key"] = t("requiredField");
       } else {
         if (!config.auth.app_key.trim()) errors["auth.app_key"] = t("requiredField");

@@ -15,7 +15,7 @@ use tokio_tungstenite::tungstenite::Message;
 const ASR_CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
 
 pub(crate) async fn test_doubao_connection(config: &AppConfig) -> Result<(), String> {
-    if config.auth.uses_console_api_key() && config.auth.api_key.trim().is_empty() {
+    if config.auth.uses_console_api_key() && config.auth.console_api_key.trim().is_empty() {
         return Err("请先填写豆包语音控制台的 API Key。".to_string());
     }
     if config.auth.uses_agent_plan() && config.auth.api_key.trim().is_empty() {

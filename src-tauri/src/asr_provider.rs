@@ -151,7 +151,7 @@ pub(crate) async fn recognize_stream(input: RecognitionInput) -> Result<String, 
 }
 
 fn doubao_configuration_error(config: &AppConfig) -> Option<AsrConfigurationError> {
-    if config.auth.uses_console_api_key() && config.auth.api_key.trim().is_empty() {
+    if config.auth.uses_console_api_key() && config.auth.console_api_key.trim().is_empty() {
         return Some(AsrConfigurationError {
             code: "ASR_AUTH_MISSING",
             message: "请先填写豆包语音控制台的 API Key。".to_string(),
@@ -249,12 +249,12 @@ mod tests {
     }
 
     #[test]
-    fn doubao_console_api_key_configuration_uses_only_api_key() {
+    fn doubao_console_api_key_configuration_uses_only_console_key() {
         let config: AppConfig = toml::from_str(
             r#"
 [auth]
 mode = "api_key"
-api_key = "example-console-key"
+console_api_key = "example-console-key"
 resource_id = "volc.seedasr.sauc.duration"
 "#,
         )
@@ -263,11 +263,39 @@ resource_id = "volc.seedasr.sauc.duration"
         assert!(configuration_error(&config).is_none());
 
         let mut missing = config.clone();
-        missing.auth.api_key.clear();
+        missing.auth.console_api_key.clear();
         assert_eq!(
             configuration_error(&missing).unwrap().message,
             "请先填写豆包语音控制台的 API Key。"
         );
+
+        // 填了 Agent Plan 密钥也不能顶替控制台密钥：两者不通用，错填会直接 401。
+        missing.auth.api_key = "example-agent-plan-key".to_string();
+        assert_eq!(
+            configuration_error(&missing).unwrap().message,
+            "请先填写豆包语音控制台的 API Key。"
+        );
+    }
+
+    #[test]
+    fn switching_between_api_key_modes_keeps_both_credentials() {
+        let mut config: AppConfig = toml::from_str(
+            r#"
+[auth]
+mode = "api_key"
+console_api_key = "example-console-key"
+api_key = "example-agent-plan-key"
+resource_id = "volc.seedasr.sauc.duration"
+"#,
+        )
+        .unwrap();
+
+        assert!(configuration_error(&config).is_none());
+        assert_eq!(config.auth.active_api_key(), "example-console-key");
+
+        config.auth.mode = crate::config::DOUBAO_AUTH_MODE_AGENT_PLAN.to_string();
+        assert!(configuration_error(&config).is_none());
+        assert_eq!(config.auth.active_api_key(), "example-agent-plan-key");
     }
 
     #[test]

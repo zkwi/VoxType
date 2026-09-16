@@ -158,11 +158,11 @@ provider = "doubao"
 
 [auth]
 mode = "api_key"
-api_key = ""
+console_api_key = ""
 resource_id = "volc.seedasr.sauc.duration"
 ```
 
-豆包支持三种可选择的接入方式。`api_key` 使用新版豆包语音控制台「API Key 管理」创建的密钥，发送 `X-Api-Key`、`X-Api-Resource-Id`、`X-Api-Request-Id` 和 `X-Api-Connect-Id`，连接 `[request].ws_url` 指定的标准端点，是当前推荐方式；全新安装（尚无配置文件）默认就是这种方式，而缺少 `mode` 字段的旧配置仍按 `app_access` 处理。`app_access` 保持旧版控制台行为，发送 `X-Api-App-Key`、`X-Api-Access-Key` 和 `X-Api-Resource-Id`。`agent_plan` 只发送方舟专属 `X-Api-Key` 和固定的 `X-Api-Resource-Id: volc.seedasr.sauc.duration`，自动连接 `wss://openspeech.bytedance.com/api/v3/plan/sauc/bigmodel_async`。几套凭据独立保存在本地，切换后只使用当前方式；切到 Agent Plan 时会把 Resource ID 校正为豆包流式语音识别模型 2.0。语音控制台 API Key 和方舟 Agent Plan 密钥不通用，互相填错会直接返回 401。Agent Plan 的模型配置和超额后付费需要先在火山方舟控制台完成，VoxType 不会代替用户修改计费设置。本版本只新增 ASR 接入，不包含 TTS。
+豆包支持三种可选择的接入方式。`api_key` 使用新版豆包语音控制台「API Key 管理」创建的密钥，发送 `X-Api-Key`、`X-Api-Resource-Id`、`X-Api-Request-Id` 和 `X-Api-Connect-Id`，连接 `[request].ws_url` 指定的标准端点，是当前推荐方式；全新安装（尚无配置文件）默认就是这种方式，而缺少 `mode` 字段的旧配置仍按 `app_access` 处理。`app_access` 保持旧版控制台行为，发送 `X-Api-App-Key`、`X-Api-Access-Key` 和 `X-Api-Resource-Id`。`agent_plan` 只发送方舟专属 `X-Api-Key` 和固定的 `X-Api-Resource-Id: volc.seedasr.sauc.duration`，自动连接 `wss://openspeech.bytedance.com/api/v3/plan/sauc/bigmodel_async`。三套凭据分别存放在 `console_api_key`、`api_key` 和 `app_key`/`access_key`，切换接入方式不会互相覆盖，运行时只使用当前方式对应的那一套；切到 Agent Plan 时会把 Resource ID 校正为豆包流式语音识别模型 2.0。语音控制台 API Key 和方舟 Agent Plan 密钥不通用，互相填错会直接返回 401。Agent Plan 的模型配置和超额后付费需要先在火山方舟控制台完成，VoxType 不会代替用户修改计费设置。本版本只新增 ASR 接入，不包含 TTS。
 
 旧版 App Key + Access Key 示例：
 

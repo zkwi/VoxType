@@ -53,7 +53,10 @@ pub fn build_headers(config: &AppConfig) -> BTreeMap<String, String> {
         // 新版语音控制台 API Key：走标准端点，Resource ID 由用户在配置页选择。
         let request_id = Uuid::new_v4().to_string();
         return BTreeMap::from([
-            ("X-Api-Key".to_string(), config.auth.api_key.clone()),
+            (
+                "X-Api-Key".to_string(),
+                config.auth.active_api_key().to_string(),
+            ),
             (
                 "X-Api-Resource-Id".to_string(),
                 config.auth.resource_id.clone(),
@@ -65,7 +68,10 @@ pub fn build_headers(config: &AppConfig) -> BTreeMap<String, String> {
     if config.auth.uses_agent_plan() {
         let request_id = Uuid::new_v4().to_string();
         return BTreeMap::from([
-            ("X-Api-Key".to_string(), config.auth.api_key.clone()),
+            (
+                "X-Api-Key".to_string(),
+                config.auth.active_api_key().to_string(),
+            ),
             (
                 "X-Api-Resource-Id".to_string(),
                 DOUBAO_SEED_ASR_2_RESOURCE_ID.to_string(),
@@ -319,7 +325,8 @@ mod tests {
             r#"
 [auth]
 mode = "api_key"
-api_key = "example-console-key"
+console_api_key = "example-console-key"
+api_key = "example-agent-plan-key"
 resource_id = "volc.seedasr.sauc.duration"
 
 [request]
@@ -334,6 +341,7 @@ ws_url = "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async"
             preview.ws_url,
             "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async"
         );
+        // 同时存有 Agent Plan 密钥时也必须发控制台密钥，两者不通用。
         assert_eq!(
             preview.headers.get("X-Api-Key").map(String::as_str),
             Some("example-console-key")

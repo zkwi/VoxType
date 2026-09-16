@@ -74,8 +74,12 @@ pub struct AuthConfig {
     pub app_key: String,
     #[serde(default)]
     pub access_key: String,
+    /// 火山方舟 Agent Plan 专属密钥。
     #[serde(default)]
     pub api_key: String,
+    /// 新版豆包语音控制台 API Key。两种方式的密钥不通用，分开存放，切换接入方式时不会互相覆盖。
+    #[serde(default)]
+    pub console_api_key: String,
     #[serde(default = "default_resource_id")]
     pub resource_id: String,
 }
@@ -90,9 +94,18 @@ impl AuthConfig {
         self.mode.trim() == DOUBAO_AUTH_MODE_API_KEY
     }
 
-    /// 两种以 API Key 鉴权的方式共用同一个字段。
+    /// 两种以 API Key 鉴权的方式；它们各自读取自己的密钥字段。
     pub(crate) fn uses_api_key_auth(&self) -> bool {
         self.uses_agent_plan() || self.uses_console_api_key()
+    }
+
+    /// 当前接入方式实际使用的 API Key。
+    pub(crate) fn active_api_key(&self) -> &str {
+        if self.uses_console_api_key() {
+            &self.console_api_key
+        } else {
+            &self.api_key
+        }
     }
 }
 
@@ -391,6 +404,7 @@ impl Default for AuthConfig {
             app_key: String::new(),
             access_key: String::new(),
             api_key: String::new(),
+            console_api_key: String::new(),
             resource_id: default_resource_id(),
         }
     }
@@ -1699,7 +1713,7 @@ access_key = "example-access-key"
             r#"
 [auth]
 mode = "api_key"
-api_key = "example-console-key"
+console_api_key = "example-console-key"
 resource_id = ""
 "#,
         )

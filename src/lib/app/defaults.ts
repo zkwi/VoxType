@@ -64,6 +64,7 @@ export const fallbackConfig: AppConfig = {
     app_key: "",
     access_key: "",
     api_key: "",
+    console_api_key: "",
     resource_id: "volc.seedasr.sauc.duration",
   },
   aliyun_asr: {

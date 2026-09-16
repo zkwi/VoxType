@@ -18,7 +18,8 @@
 
 ### 新增
 
-- 豆包 ASR 新增 `api_key` 接入方式，对应新版豆包语音控制台「API Key 管理」创建的密钥：走 `[request].ws_url` 指定的标准端点，发送 `X-Api-Key`、`X-Api-Resource-Id` 和 `X-Api-Request-Id`。原 `app_access` 和 `agent_plan` 方式保持不变，三套凭据独立保存；设置页新增对应选项、密钥输入框和三语言文案，帮助文档按当前接入方式跳转。语音控制台 API Key 与方舟 Agent Plan 密钥不通用，互相填错会直接返回 401。
+- 豆包 ASR 新增 `api_key` 接入方式，对应新版豆包语音控制台「API Key 管理」创建的密钥：走 `[request].ws_url` 指定的标准端点，发送 `X-Api-Key`、`X-Api-Resource-Id` 和 `X-Api-Request-Id`。原 `app_access` 和 `agent_plan` 方式保持不变；设置页新增对应选项、密钥输入框和三语言文案，帮助文档按当前接入方式跳转。语音控制台 API Key 与方舟 Agent Plan 密钥不通用，互相填错会直接返回 401。
+- 新增配置字段 `auth.console_api_key` 存放语音控制台密钥，与存放方舟 Agent Plan 密钥的 `auth.api_key` 分开。三套凭据各有独立字段，切换接入方式不会互相覆盖。已发布版本的 `api_key` 语义不变，老配置无需迁移。
 
 ### 变更
 
