@@ -183,6 +183,9 @@ impl SessionController {
             };
             emit_state(Some(app), &starting);
         }
+        // 屏幕 OCR 在独立线程里跑，先于麦克风启动和系统静音发起，可以多抢出这段时间，
+        // 让首包能用上上下文而不是撞到等待上限；采集失败时这次结果会被直接丢弃。
+        let screen_context_rx = screen_context::spawn_capture(&loaded.data.screen_context);
         let audio_capture = match audio::start_capture(
             &loaded.data.audio,
             Some(audio_tx),
@@ -227,7 +230,6 @@ impl SessionController {
         } else {
             None
         };
-        let screen_context_rx = screen_context::spawn_capture(&loaded.data.screen_context);
         let audio_info = audio_capture.info();
         app_log::info(format!(
             "麦克风采集已启动: device=\"{}\", rate={}Hz, channels={}",

@@ -74,9 +74,11 @@ pub fn spawn_asr_worker(input: AsrWorkerInput) {
         };
         let typing = config.typing.clone();
         let remove_trailing_period = config.typing.remove_trailing_period;
-        let screen_context =
-            screen_context::wait_for_context(screen_context_rx, config.screen_context.timeout_ms);
-        let screen_context_text = screen_context.as_ref().map(|item| item.text.clone());
+        // OCR 等待不再挡在建连前面：交给 provider 在握手的同时解析，结果解析一次后复用。
+        let screen_context = screen_context::PendingScreenContext::new(
+            screen_context_rx,
+            config.screen_context.timeout_ms,
+        );
         let runtime_result = runtime.block_on(async {
             let text = asr_provider::recognize_stream(asr_provider::RecognitionInput {
                 config: config.clone(),
@@ -84,10 +86,11 @@ pub fn spawn_asr_worker(input: AsrWorkerInput) {
                 app: app.clone(),
                 session: session.clone(),
                 generation,
-                screen_context: screen_context_text.clone(),
+                screen_context: screen_context.clone(),
                 activity,
             })
             .await?;
+            let screen_context_text = screen_context.resolve().await;
             if text.trim().is_empty() {
                 return Ok::<llm_post_edit::PolishOutcome, String>(llm_post_edit::PolishOutcome {
                     text,

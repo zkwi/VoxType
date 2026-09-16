@@ -5,9 +5,11 @@
 //! Provider-specific protocol details stay in `asr_ws/` and `aliyun_asr.rs`.
 
 use crate::config::{AppConfig, ASR_PROVIDER_ALIYUN_FUN};
+use crate::screen_context::PendingScreenContext;
 use crate::session::SessionController;
 use crate::{aliyun_asr, asr_activity::AsrActivityReporter, asr_ws};
 use std::sync::mpsc::Receiver;
+use std::sync::Arc;
 use tauri::AppHandle;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -23,7 +25,7 @@ pub(crate) struct RecognitionInput {
     pub(crate) app: AppHandle,
     pub(crate) session: SessionController,
     pub(crate) generation: u64,
-    pub(crate) screen_context: Option<String>,
+    pub(crate) screen_context: Arc<PendingScreenContext>,
     pub(crate) activity: AsrActivityReporter,
 }
 
@@ -64,7 +66,9 @@ pub(crate) fn start_configuration_error(
             match active_provider(config) {
                 AsrProviderKind::Doubao => AsrConfigurationError {
                     code: "ASR_AUTH_MISSING",
-                    message: if config.auth.uses_agent_plan() {
+                    message: if config.auth.uses_console_api_key() {
+                        "ASR 未配置豆包 API Key，请先在配置页填写控制台 API Key 并保存。".to_string()
+                    } else if config.auth.uses_agent_plan() {
                         "ASR 未配置 Agent Plan API Key，请先在配置页填写专属密钥并保存。"
                             .to_string()
                     } else {
@@ -93,7 +97,9 @@ pub(crate) fn worker_configuration_error(config: &AppConfig) -> Option<AsrConfig
     configuration_error(config).map(|_| match active_provider(config) {
         AsrProviderKind::Doubao => AsrConfigurationError {
             code: "ASR_AUTH_MISSING",
-            message: if config.auth.uses_agent_plan() {
+            message: if config.auth.uses_console_api_key() {
+                "ASR skipped: Doubao console API Key is not configured.".to_string()
+            } else if config.auth.uses_agent_plan() {
                 "ASR skipped: Agent Plan API Key is not configured.".to_string()
             } else {
                 "ASR skipped: app_key/access_key is not configured.".to_string()
@@ -116,20 +122,20 @@ pub(crate) async fn test_connection(config: &AppConfig) -> Result<(), String> {
 pub(crate) async fn recognize_stream(input: RecognitionInput) -> Result<String, String> {
     match active_provider(&input.config) {
         AsrProviderKind::Doubao => {
-            let screen_context = input.screen_context;
             asr_ws::run_doubao_websocket_session(
                 input.config,
                 input.audio_rx,
                 input.app,
                 input.session,
                 input.generation,
-                screen_context.as_deref(),
+                input.screen_context,
                 input.activity,
             )
             .await
         }
         AsrProviderKind::AliyunFun => {
-            let screen_context = input.screen_context;
+            // 阿里云通道在建连前解析上下文，保持既有顺序。
+            let screen_context = input.screen_context.resolve().await;
             aliyun_asr::recognize_stream(
                 input.config,
                 input.audio_rx,
@@ -145,13 +151,19 @@ pub(crate) async fn recognize_stream(input: RecognitionInput) -> Result<String, 
 }
 
 fn doubao_configuration_error(config: &AppConfig) -> Option<AsrConfigurationError> {
+    if config.auth.uses_console_api_key() && config.auth.console_api_key.trim().is_empty() {
+        return Some(AsrConfigurationError {
+            code: "ASR_AUTH_MISSING",
+            message: "请先填写豆包语音控制台的 API Key。".to_string(),
+        });
+    }
     if config.auth.uses_agent_plan() && config.auth.api_key.trim().is_empty() {
         return Some(AsrConfigurationError {
             code: "ASR_AUTH_MISSING",
             message: "请先填写火山方舟 Agent Plan 专属 API Key。".to_string(),
         });
     }
-    if !config.auth.uses_agent_plan()
+    if !config.auth.uses_api_key_auth()
         && (config.auth.app_key.trim().is_empty() || config.auth.access_key.trim().is_empty())
     {
         return Some(AsrConfigurationError {
@@ -195,7 +207,7 @@ fn aliyun_configuration_error(config: &AppConfig) -> Option<AsrConfigurationErro
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::ASR_PROVIDER_ALIYUN_FUN;
+    use crate::config::{ASR_PROVIDER_ALIYUN_FUN, DOUBAO_AUTH_MODE_APP_ACCESS};
 
     #[test]
     fn doubao_is_current_default_provider() {
@@ -207,6 +219,7 @@ mod tests {
     #[test]
     fn doubao_configuration_uses_existing_auth_fields() {
         let mut config = AppConfig::default();
+        config.auth.mode = DOUBAO_AUTH_MODE_APP_ACCESS.to_string();
         assert!(configuration_error(&config).is_some());
         assert_eq!(
             configuration_error(&config).unwrap().message,
@@ -222,6 +235,67 @@ mod tests {
             configuration_error(&config).unwrap().message,
             "请先填写豆包 Resource ID。"
         );
+    }
+
+    #[test]
+    fn new_install_default_requires_console_api_key() {
+        let config = AppConfig::default();
+
+        assert!(config.auth.uses_console_api_key());
+        assert_eq!(
+            configuration_error(&config).unwrap().message,
+            "请先填写豆包语音控制台的 API Key。"
+        );
+    }
+
+    #[test]
+    fn doubao_console_api_key_configuration_uses_only_console_key() {
+        let config: AppConfig = toml::from_str(
+            r#"
+[auth]
+mode = "api_key"
+console_api_key = "example-console-key"
+resource_id = "volc.seedasr.sauc.duration"
+"#,
+        )
+        .unwrap();
+
+        assert!(configuration_error(&config).is_none());
+
+        let mut missing = config.clone();
+        missing.auth.console_api_key.clear();
+        assert_eq!(
+            configuration_error(&missing).unwrap().message,
+            "请先填写豆包语音控制台的 API Key。"
+        );
+
+        // 填了 Agent Plan 密钥也不能顶替控制台密钥：两者不通用，错填会直接 401。
+        missing.auth.api_key = "example-agent-plan-key".to_string();
+        assert_eq!(
+            configuration_error(&missing).unwrap().message,
+            "请先填写豆包语音控制台的 API Key。"
+        );
+    }
+
+    #[test]
+    fn switching_between_api_key_modes_keeps_both_credentials() {
+        let mut config: AppConfig = toml::from_str(
+            r#"
+[auth]
+mode = "api_key"
+console_api_key = "example-console-key"
+api_key = "example-agent-plan-key"
+resource_id = "volc.seedasr.sauc.duration"
+"#,
+        )
+        .unwrap();
+
+        assert!(configuration_error(&config).is_none());
+        assert_eq!(config.auth.active_api_key(), "example-console-key");
+
+        config.auth.mode = crate::config::DOUBAO_AUTH_MODE_AGENT_PLAN.to_string();
+        assert!(configuration_error(&config).is_none());
+        assert_eq!(config.auth.active_api_key(), "example-agent-plan-key");
     }
 
     #[test]
@@ -242,6 +316,7 @@ resource_id = "volc.seedasr.sauc.duration"
     #[test]
     fn aliyun_configuration_uses_only_active_provider_fields() {
         let mut config = AppConfig::default();
+        config.auth.mode = DOUBAO_AUTH_MODE_APP_ACCESS.to_string();
         config.auth.app_key = "doubao-app".to_string();
         config.auth.access_key = "doubao-access".to_string();
         assert!(configuration_error(&config).is_none());
@@ -263,7 +338,8 @@ resource_id = "volc.seedasr.sauc.duration"
 
     #[test]
     fn start_configuration_error_preserves_existing_user_messages() {
-        let config = AppConfig::default();
+        let mut config = AppConfig::default();
+        config.auth.mode = DOUBAO_AUTH_MODE_APP_ACCESS.to_string();
         let existing = start_configuration_error(&config, true).unwrap();
         assert_eq!(existing.code, "ASR_AUTH_MISSING");
         assert!(existing.message.contains("豆包认证信息"));
@@ -281,7 +357,8 @@ resource_id = "volc.seedasr.sauc.duration"
 
     #[test]
     fn worker_configuration_error_preserves_existing_error_code() {
-        let config = AppConfig::default();
+        let mut config = AppConfig::default();
+        config.auth.mode = DOUBAO_AUTH_MODE_APP_ACCESS.to_string();
         let err = worker_configuration_error(&config).unwrap();
         assert_eq!(err.code, "ASR_AUTH_MISSING");
         assert_eq!(

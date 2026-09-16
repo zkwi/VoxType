@@ -4,6 +4,20 @@ use std::time::{Duration, Instant};
 
 // 头部保护并入第一包真实音频，避免独立短包破坏豆包推荐的发包节奏。
 const INITIAL_AUDIO_SILENCE_PADDING_MS: u64 = 50;
+// 建连和屏幕 OCR 会让本地先攒下几包音频；落后时按豆包建议区间的下限追赶，分片大小不变。
+const CATCH_UP_SEND_INTERVAL: Duration = Duration::from_millis(100);
+// 录音已结束时剩下的都是本地积压，不再需要按说话节奏发，实测服务端最终文本一致。
+const TAIL_FLUSH_SEND_INTERVAL: Duration = Duration::from_millis(50);
+// 队列里还剩这么多包就算落后，需要追赶。
+const CATCH_UP_BACKLOG_PACKETS: usize = 2;
+
+/// 发包节奏：只影响发送间隔，不改变音频分片大小。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum SendPace {
+    Realtime,
+    CatchUp,
+    TailFlush,
+}
 
 pub(super) struct AudioSendPacer {
     next_send_at: Option<Instant>,
@@ -76,6 +90,17 @@ impl AsrAudioQueue {
         self.pending_packets.is_empty()
     }
 
+    /// 取出一包后调用：按剩余积压决定下一包的发送节奏。
+    pub(super) fn send_pace(&self) -> SendPace {
+        if self.closed {
+            SendPace::TailFlush
+        } else if self.pending_packets.len() >= CATCH_UP_BACKLOG_PACKETS {
+            SendPace::CatchUp
+        } else {
+            SendPace::Realtime
+        }
+    }
+
     fn drain_complete_packets(&mut self) {
         loop {
             let target = self.next_packet_bytes();
@@ -129,8 +154,13 @@ impl AudioSendPacer {
         }
     }
 
-    pub(super) fn mark_sent_bytes(&mut self, byte_len: usize) {
-        self.next_send_at = Some(Instant::now() + Self::interval_for_audio_bytes(byte_len));
+    pub(super) fn mark_sent_bytes(&mut self, byte_len: usize, pace: SendPace) {
+        let interval = match pace {
+            SendPace::Realtime => Self::interval_for_audio_bytes(byte_len),
+            SendPace::CatchUp => CATCH_UP_SEND_INTERVAL,
+            SendPace::TailFlush => TAIL_FLUSH_SEND_INTERVAL,
+        };
+        self.next_send_at = Some(Instant::now() + interval);
     }
 }
 
@@ -176,7 +206,7 @@ fn asr_pcm_duration_ms_for_bytes(byte_len: usize) -> u64 {
 mod tests {
     use super::{
         asr_pcm_bytes_for_ms, silent_test_audio, websocket_response_poll_timeout, AsrAudioQueue,
-        AudioSendPacer,
+        AudioSendPacer, SendPace,
     };
     use crate::config::AppConfig;
     use std::time::{Duration, Instant};
@@ -279,10 +309,58 @@ mod tests {
             RESPONSE_POLL_TIMEOUT
         );
 
-        pacer.mark_sent_bytes(3_200);
+        pacer.mark_sent_bytes(3_200, SendPace::Realtime);
 
         assert!(!pacer.ready_to_send());
         assert!(pacer.response_poll_timeout(RESPONSE_POLL_TIMEOUT) <= RESPONSE_POLL_TIMEOUT);
+    }
+
+    #[test]
+    fn send_pace_follows_backlog_and_input_state() {
+        let config = AppConfig::default();
+        let mut queue = AsrAudioQueue::new(&config);
+        let packet = vec![7; asr_pcm_bytes_for_ms(200) as usize];
+
+        queue.push_real_audio(packet.clone());
+        queue.pop_front().unwrap();
+        assert_eq!(queue.send_pace(), SendPace::Realtime);
+
+        // 建连/OCR 期间攒下的积压：取走一包后仍有两包待发，应转入追赶。
+        for _ in 0..3 {
+            queue.push_real_audio(packet.clone());
+        }
+        queue.pop_front().unwrap();
+        assert_eq!(queue.send_pace(), SendPace::CatchUp);
+
+        queue.close_input();
+        assert_eq!(queue.send_pace(), SendPace::TailFlush);
+    }
+
+    #[test]
+    fn catch_up_and_tail_flush_shorten_send_interval_without_changing_segment_size() {
+        let mut pacer = AudioSendPacer::new();
+        let realtime_bytes = asr_pcm_bytes_for_ms(200) as usize;
+
+        // 机器负载高时下一次发送时间可能已经过去，用 checked 版本避免断言变成 panic。
+        let remaining = |pacer: &AudioSendPacer| {
+            pacer
+                .next_send_at
+                .unwrap()
+                .checked_duration_since(Instant::now())
+                .unwrap_or_default()
+        };
+
+        pacer.mark_sent_bytes(realtime_bytes, SendPace::Realtime);
+        let realtime_wait = remaining(&pacer);
+        pacer.mark_sent_bytes(realtime_bytes, SendPace::CatchUp);
+        let catch_up_wait = remaining(&pacer);
+        pacer.mark_sent_bytes(realtime_bytes, SendPace::TailFlush);
+        let tail_wait = remaining(&pacer);
+
+        assert!(realtime_wait > catch_up_wait);
+        assert!(catch_up_wait > tail_wait);
+        // 追赶间隔仍不低于豆包建议区间下限 100ms。
+        assert!(catch_up_wait >= Duration::from_millis(90));
     }
 
     #[test]

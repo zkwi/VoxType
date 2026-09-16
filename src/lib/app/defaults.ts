@@ -60,10 +60,11 @@ export const fallbackConfig: AppConfig = {
   hotkey: "ctrl+q",
   asr: { provider: "doubao", no_feedback_auto_stop_seconds: 30 },
   auth: {
-    mode: "app_access",
+    mode: "api_key",
     app_key: "",
     access_key: "",
     api_key: "",
+    console_api_key: "",
     resource_id: "volc.seedasr.sauc.duration",
   },
   aliyun_asr: {

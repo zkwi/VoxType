@@ -76,7 +76,7 @@ API配置页顶部提供配置健康检查，只把真正阻断主流程的问�
 
 ## Windows 语音输入功能
 
-- 全局触发：默认只启用 `Ctrl + Q`；右 Alt 和鼠标中键可在选项页手动开启，避免误触或与其他软件冲突。
+- 全局触发：默认只启用 `Ctrl + Q`；右 Alt 和鼠标中键可在选项页手动开启，避免误触或与其他软件冲突。开启后这两个按键由 VoxType 独占，不再传给其他软件——这样浏览器不会因为收到单独的 Alt 或中键而让正在输入的表单失焦；代价是右 Alt 组合键和中键操作在开启期间不可用，左 Alt 不受影响。
 - 麦克风采集：使用 Rust `cpal` 采集 PCM 音频，可选择输入设备。
 - 实时语音识别：默认对接豆包 `bigmodel_async` WebSocket，也可在 API配置页切换到阿里云 FunASR Realtime；字幕只作反馈，最终粘贴必须等待所选 ASR 服务返回最终完成事件。豆包链路继续使用二遍识别和 `full` 全量结果；FunASR 实时字幕会合并已确认分句与当前未完成分句，阿里云链路仍等待 `task-finished` 后再进入润色/粘贴。
 - 无反馈兜底：ASR 连续 30 秒没有返回有效文本反馈时，会按正常停录流程收尾；不再依赖本地音量阈值。
@@ -140,7 +140,7 @@ VoxType 默认使用豆包 ASR，也可以在 API配置页切换到阿里云 Fun
 
 | 场景 | 必填 | 可先不填 | 测试入口 |
 | --- | --- | --- | --- |
-| 只想语音转文字 | 当前 ASR 服务认证信息（豆包 App Key/Access Key、方舟 Agent Plan API Key，或阿里云 API Key + Workspace ID） | 大模型 API、热词、屏幕 OCR | API配置页的 ASR 测试 |
+| 只想语音转文字 | 当前 ASR 服务认证信息（豆包语音控制台 API Key、旧版 App Key/Access Key、方舟 Agent Plan API Key，或阿里云 API Key + Workspace ID） | 大模型 API、热词、屏幕 OCR | API配置页的 ASR 测试 |
 | 想让文本更自然 | 当前 ASR 服务 + 大模型 Base URL、API Key、模型名，并开启润色 | 自动热词候选 | API配置页的大模型测试 |
 | 测试失败 | 先看红色提示、Key 是否填错、网络/代理是否可用 | 不要先改高级参数 | 复制脱敏诊断报告排查 |
 
@@ -157,14 +157,25 @@ Copy-Item .\config.example.toml .\config.toml
 provider = "doubao"
 
 [auth]
-mode = "app_access"
-app_key = ""
-access_key = ""
-api_key = ""
+mode = "api_key"
+console_api_key = ""
 resource_id = "volc.seedasr.sauc.duration"
 ```
 
-豆包支持两种可选择的接入方式。`app_access` 保持原有行为，发送 `X-Api-App-Key`、`X-Api-Access-Key` 和 `X-Api-Resource-Id`，并允许按已开通资源调整 Resource ID。`agent_plan` 只发送方舟专属 `X-Api-Key` 和固定的 `X-Api-Resource-Id: volc.seedasr.sauc.duration`，自动连接 `wss://openspeech.bytedance.com/api/v3/plan/sauc/bigmodel_async`。两套凭据独立保存在本地，切换后只使用当前方式；切到 Agent Plan 时会把 Resource ID 校正为豆包流式语音识别模型 2.0。Agent Plan 的模型配置和超额后付费需要先在火山方舟控制台完成，VoxType 不会代替用户修改计费设置。本版本只新增 ASR 接入，不包含 TTS。
+豆包支持三种可选择的接入方式。`api_key` 使用新版豆包语音控制台「API Key 管理」创建的密钥，发送 `X-Api-Key`、`X-Api-Resource-Id`、`X-Api-Request-Id` 和 `X-Api-Connect-Id`，连接 `[request].ws_url` 指定的标准端点，是当前推荐方式；全新安装（尚无配置文件）默认就是这种方式，而缺少 `mode` 字段的旧配置仍按 `app_access` 处理。`app_access` 保持旧版控制台行为，发送 `X-Api-App-Key`、`X-Api-Access-Key` 和 `X-Api-Resource-Id`。`agent_plan` 只发送方舟专属 `X-Api-Key` 和固定的 `X-Api-Resource-Id: volc.seedasr.sauc.duration`，自动连接 `wss://openspeech.bytedance.com/api/v3/plan/sauc/bigmodel_async`。三套凭据分别存放在 `console_api_key`、`api_key` 和 `app_key`/`access_key`，切换接入方式不会互相覆盖，运行时只使用当前方式对应的那一套；切到 Agent Plan 时会把 Resource ID 校正为豆包流式语音识别模型 2.0。语音控制台 API Key 和方舟 Agent Plan 密钥不通用，互相填错会直接返回 401。Agent Plan 的模型配置和超额后付费需要先在火山方舟控制台完成，VoxType 不会代替用户修改计费设置。本版本只新增 ASR 接入，不包含 TTS。
+
+旧版 App Key + Access Key 示例：
+
+```toml
+[asr]
+provider = "doubao"
+
+[auth]
+mode = "app_access"
+app_key = ""
+access_key = ""
+resource_id = "volc.seedasr.sauc.duration"
+```
 
 Agent Plan 示例：
 
@@ -178,7 +189,7 @@ api_key = ""
 resource_id = "volc.seedasr.sauc.duration"
 ```
 
-不要把真实密钥提交到仓库，也不要把大模型平台的普通 API Key、GitHub Token、火山引擎 IAM Secret 填到 ASR 字段。API配置页会根据当前接入方式打开对应的[豆包标准接入文档](https://www.volcengine.com/docs/6561/1354869?lang=zh)或[火山方舟 Agent Plan 文档](https://www.volcengine.com/docs/82379/2516286?lang=zh)。
+不要把真实密钥提交到仓库，也不要把大模型平台的普通 API Key、GitHub Token、火山引擎 IAM Secret 填到 ASR 字段。API配置页会根据当前接入方式打开对应的[豆包 API Key 接入文档](https://docs.volcengine.com/docs/6561/2630027?lang=zh)、[豆包标准接入文档](https://www.volcengine.com/docs/6561/1354869?lang=zh)或[火山方舟 Agent Plan 文档](https://www.volcengine.com/docs/82379/2516286?lang=zh)。
 
 API配置页默认只展示服务商和认证字段。豆包 ASR 的输入语言收在“高级连接与语言设置”里，默认选择自动/服务默认，会省略请求里的 `language` 参数；当前主链路使用 `bigmodel_async + enable_nonstream` 二遍识别，豆包文档说明二遍不支持 `language`，留空更适合中文、英文、方言和混合输入。中文普通话无需设置，旧配置里的 `zh-CN` 会自动迁移为空；只有明确要排查非默认语种时，再切换为 `en-US`、`ja-JP`、`yue-CN` 等代码。
 
@@ -411,7 +422,7 @@ src-tauri\target\release\voxtype-desktop.exe
 - 屏幕 OCR 上下文默认开启，默认识别当前显示器，识别结果不落盘、不跨轮缓存；如屏幕可能包含敏感信息，可在选项页切换为仅当前窗口或关闭。
 - 自动热词候选默认关闭。开启后本地采集文本写入 `context/hotword_history.jsonl`，可在热词页或隐私与本地数据页清空；诊断报告和日志不会输出历史正文、候选词或 prompt。
 - 统计只保存字数、时长、速度等非正文数据，可在隐私与本地数据页清空。
-- 右 Alt 和鼠标中键默认关闭，确认不与其他软件冲突后再开启。
+- 右 Alt 和鼠标中键默认关闭，确认不与其他软件冲突后再开启；开启期间这两个按键被 VoxType 独占，其他软件收不到。
 - ASR 无反馈自动停止默认 `30` 秒，填 `0` 可关闭；停录尾音窗口会保留用户设置，录音期间静音系统声音默认关闭。
 - 最终识别正文默认不打印到控制台。
 

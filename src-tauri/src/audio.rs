@@ -643,10 +643,12 @@ fn apply_input_gain_to_pcm(bytes: &mut [u8], gain_factor: f32) {
     if (gain_factor - 1.0).abs() < f32::EPSILON || !gain_factor.is_finite() {
         return;
     }
-    for sample in bytes.chunks_exact_mut(2) {
-        let value = i16::from_le_bytes([sample[0], sample[1]]);
+    // 定长 2 字节用 as_chunks_mut 表达，省掉运行时长度检查，也满足新版 clippy 的定长切片检查。
+    let (samples, _) = bytes.as_chunks_mut::<2>();
+    for sample in samples {
+        let value = i16::from_le_bytes(*sample);
         let boosted = ((value as f32) * gain_factor).round() as i32;
-        sample.copy_from_slice(&clamp_i32_to_i16(boosted).to_le_bytes());
+        *sample = clamp_i32_to_i16(boosted).to_le_bytes();
     }
 }
 
@@ -1112,8 +1114,10 @@ mod tests {
 
     fn pcm_bytes_to_i16(bytes: &[u8]) -> Vec<i16> {
         bytes
-            .chunks_exact(2)
-            .map(|chunk| i16::from_le_bytes([chunk[0], chunk[1]]))
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|chunk| i16::from_le_bytes(*chunk))
             .collect()
     }
 

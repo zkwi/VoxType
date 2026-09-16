@@ -6,6 +6,8 @@ pub const SETUP_GUIDE_URL: &str = "https://github.com/zkwi/VoxType/wiki/Setup-Gu
 pub const DOUBAO_ASR_DOCS_URL: &str = "https://www.volcengine.com/docs/6561/1354869?lang=zh";
 pub const DOUBAO_AGENT_PLAN_ASR_DOCS_URL: &str =
     "https://www.volcengine.com/docs/82379/2516286?lang=zh";
+pub const DOUBAO_API_KEY_ASR_DOCS_URL: &str =
+    "https://docs.volcengine.com/docs/6561/2630027?lang=zh";
 pub const ALIYUN_ASR_DOCS_URL: &str =
     "https://help.aliyun.com/zh/model-studio/fun-asr-realtime-websocket-api";
 
@@ -15,17 +17,17 @@ pub fn open(app: &AppHandle) -> Result<(), String> {
         .map_err(|err| format!("打开配置指南失败: {}", err))
 }
 
-pub fn doubao_asr_docs_url(uses_agent_plan: bool) -> &'static str {
-    if uses_agent_plan {
-        DOUBAO_AGENT_PLAN_ASR_DOCS_URL
-    } else {
-        DOUBAO_ASR_DOCS_URL
+pub fn doubao_asr_docs_url(auth_mode: &str) -> &'static str {
+    match auth_mode.trim() {
+        config::DOUBAO_AUTH_MODE_AGENT_PLAN => DOUBAO_AGENT_PLAN_ASR_DOCS_URL,
+        config::DOUBAO_AUTH_MODE_API_KEY => DOUBAO_API_KEY_ASR_DOCS_URL,
+        _ => DOUBAO_ASR_DOCS_URL,
     }
 }
 
-pub fn open_doubao_asr_docs(app: &AppHandle, uses_agent_plan: bool) -> Result<(), String> {
+pub fn open_doubao_asr_docs(app: &AppHandle, auth_mode: &str) -> Result<(), String> {
     app.opener()
-        .open_url(doubao_asr_docs_url(uses_agent_plan), None::<&str>)
+        .open_url(doubao_asr_docs_url(auth_mode), None::<&str>)
         .map_err(|err| format!("打开豆包帮助文档失败: {}", err))
 }
 
@@ -58,11 +60,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn selects_agent_plan_docs_for_agent_plan_mode() {
+    fn selects_docs_url_per_auth_mode() {
         assert_eq!(
-            doubao_asr_docs_url(true),
+            doubao_asr_docs_url(config::DOUBAO_AUTH_MODE_AGENT_PLAN),
             "https://www.volcengine.com/docs/82379/2516286?lang=zh"
         );
-        assert_eq!(doubao_asr_docs_url(false), DOUBAO_ASR_DOCS_URL);
+        assert_eq!(
+            doubao_asr_docs_url(config::DOUBAO_AUTH_MODE_API_KEY),
+            "https://docs.volcengine.com/docs/6561/2630027?lang=zh"
+        );
+        assert_eq!(
+            doubao_asr_docs_url(config::DOUBAO_AUTH_MODE_APP_ACCESS),
+            DOUBAO_ASR_DOCS_URL
+        );
     }
 }

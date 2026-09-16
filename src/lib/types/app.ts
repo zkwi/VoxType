@@ -201,7 +201,14 @@ export type TextContext = { text: string };
 export type AppConfig = {
   hotkey: string;
   asr: { provider: string; no_feedback_auto_stop_seconds: number };
-  auth: { mode: string; app_key: string; access_key: string; api_key: string; resource_id: string };
+  auth: {
+    mode: string;
+    app_key: string;
+    access_key: string;
+    api_key: string;
+    console_api_key: string;
+    resource_id: string;
+  };
   aliyun_asr: {
     api_key: string;
     workspace_id: string;
