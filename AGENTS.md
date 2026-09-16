@@ -132,7 +132,7 @@ ASR 速度、识别效果、OCR 等待、尾音和最终包选择相关改动，
 
 | 改动范围 | 本地检查 |
 | --- | --- |
-| 纯文档 | 核对内容、引用、命令与 diff，不运行应用构建或发布预检 |
+| 纯文档 | 核对内容、引用、命令与 diff，并运行 `npm run check:governance`；改动治理脚本本身时加跑 `npm run test:governance`。不运行应用构建或发布预检 |
 | 前端代码 | `npm run check`、相关单测；页面或构建链路变化时运行 `npm run build`，并验证实际界面 |
 | Rust 代码 | 在 `src-tauri` 中运行 `cargo fmt --check`、`cargo check` 和相关 `cargo test` |
 | 主链路或跨前后端改动 | 运行 `npm run ai:check` 完成综合检查，再验证受影响的真实使用路径 |
