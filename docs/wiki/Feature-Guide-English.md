@@ -38,7 +38,7 @@ Default trigger: `Ctrl + Q`.
 | --- | --- | --- |
 | Main shortcut | On | Keep it on |
 | Middle mouse | Off | Enable only after checking browser/editor conflicts |
-| Right Alt | Off | Enable only after checking IME/system shortcut conflicts |
+| Right Alt | Off | While enabled, right Alt belongs to VoxType and never reaches other apps, so right Alt combinations stop working. Left Alt is unaffected |
 
 Avoid enabling multiple easy-to-misfire triggers unless you really need them.
 
@@ -68,7 +68,7 @@ Tips:
 
 ## 5. ASR Service
 
-VoxType uses Doubao `bigmodel_async` WebSocket by default, and Alibaba Cloud FunASR can be selected from API Config. Doubao can use either the existing App Key + Access Key flow or a dedicated Volcengine Ark Agent Plan API Key. Both credential sets are stored locally, while Agent Plan automatically uses its fixed endpoint and Doubao Streaming ASR 2.0 Resource ID. Both ASR providers share the same recording, caption, final text, LLM, clipboard, and stats workflow.
+VoxType uses Doubao `bigmodel_async` WebSocket by default, and Alibaba Cloud FunASR can be selected from API Config. Doubao can use a speech console API Key, the legacy App Key + Access Key flow, or a dedicated Volcengine Ark Agent Plan API Key. Each credential set is stored locally, while Agent Plan automatically uses its fixed endpoint and Doubao Streaming ASR 2.0 Resource ID. Both ASR providers share the same recording, caption, final text, LLM, clipboard, and stats workflow.
 
 Doubao mode keeps two-pass recognition enabled by default. Live captions are feedback only, while pasted output waits for Doubao's final package, prefers final `definite=true` utterances, and can use a highly overlapping final full text to recover missing head or tail words. Alibaba Cloud FunASR mode waits for `task-finished` and only uses final sentence text as output. If the connection closes early or the final wait times out, VoxType fails the session instead of pasting interim text. In Doubao mode, the main workflow forces two-pass recognition, utterance output, and `full` cumulative result delivery. First-word acceleration is disabled by default to prioritize beginning-word accuracy, while DDC semantic smoothing is enabled by default for light ASR-side smoothing on short and medium text.
 

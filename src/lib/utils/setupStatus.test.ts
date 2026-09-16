@@ -9,8 +9,10 @@ import {
 } from "./setupStatus";
 
 function configuredApp(): AppConfig {
+  // 用旧版接入方式覆盖新装默认，保证这里测的是"认证已填写"而不是默认值本身。
   const config = structuredClone(fallbackConfig);
   config.asr.provider = "doubao";
+  config.auth.mode = "app_access";
   config.auth.app_key = "test-app";
   config.auth.access_key = "test-access";
   config.triggers.hotkey_enabled = true;

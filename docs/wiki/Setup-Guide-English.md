@@ -61,12 +61,13 @@ Open **API Config -> Speech recognition provider**, choose "Doubao ASR", then se
 
 | Access mode | Required fields | Notes |
 | --- | --- | --- |
-| App Key + Access Key | App Key and Access Key | Preserves the existing Doubao speech-service flow; Resource ID can match the account's enabled resource |
+| Speech console API Key (recommended) | API Key | Created under API Key management in the new Doubao speech console; uses the standard endpoint and the hourly resource by default. A fresh install starts here |
+| App Key + Access Key | App Key and Access Key | Preserves the legacy Doubao speech-service flow; Resource ID can match the account's enabled resource |
 | Volcengine Ark Agent Plan | Agent Plan API Key | Uses the dedicated Ark `X-Api-Key`; configure the model and overage post-pay in the Ark console first |
 
-Both credential sets are stored separately in the local config, and only the selected access mode is used. Agent Plan is fixed to Doubao Streaming ASR 2.0 resource `volc.seedasr.sauc.duration` and automatically connects to `wss://openspeech.bytedance.com/api/v3/plan/sauc/bigmodel_async`; it does not use `[request].ws_url`. API Config resets the Resource ID when Agent Plan is selected. This release adds Agent Plan ASR only, not TTS.
+The three credential sets live in separate fields (`console_api_key`, `api_key`, and `app_key`/`access_key`) in the local config, so switching modes never overwrites another mode's key, and only the selected access mode is used. Speech console API Keys and Ark Agent Plan keys are not interchangeable and return 401 if swapped. Agent Plan is fixed to Doubao Streaming ASR 2.0 resource `volc.seedasr.sauc.duration` and automatically connects to `wss://openspeech.bytedance.com/api/v3/plan/sauc/bigmodel_async`; it does not use `[request].ws_url`. API Config resets the Resource ID when Agent Plan is selected. This release adds Agent Plan ASR only, not TTS.
 
-Standard access sends `X-Api-App-Key`, `X-Api-Access-Key`, and `X-Api-Resource-Id`; Agent Plan sends `X-Api-Key` and the fixed Resource ID. Do not paste a Bailian/DashScope LLM key, GitHub token, or unrelated cloud secret into ASR credentials. The Doubao panel opens the official docs for the selected access mode.
+The speech console API Key mode sends `X-Api-Key`, `X-Api-Resource-Id`, and `X-Api-Request-Id`; legacy standard access sends `X-Api-App-Key`, `X-Api-Access-Key`, and `X-Api-Resource-Id`; Agent Plan sends the dedicated Ark `X-Api-Key` and the fixed Resource ID. Do not paste a Bailian/DashScope LLM key, GitHub token, or unrelated cloud secret into ASR credentials. The Doubao panel opens the official docs for the selected access mode.
 
 Click **Test** after filling credentials. This connection test uses the current real credentials and sends a short program-generated silence packet to the selected ASR provider to verify authentication, TLS, and service access. It does not open the microphone and does not replace a real recording, final-event, and paste regression. When it passes, return to Home and start voice input.
 

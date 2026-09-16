@@ -8,10 +8,12 @@ use super::final_text::{
 use super::partial_text::{
     emit_partial_text, normalize_live_text, LiveCaptionBuffer, PartialTextLimiter,
 };
+use crate::screen_context::PendingScreenContext;
 use crate::session::{SessionController, SessionPhase};
 use crate::{app_log, asr, asr_activity::AsrActivityReporter, config::AppConfig, protocol};
 use futures_util::{SinkExt, StreamExt};
 use std::sync::mpsc::{Receiver, TryRecvError};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tauri::AppHandle;
 use tokio_tungstenite::connect_async;
@@ -28,17 +30,15 @@ pub(crate) async fn run_doubao_websocket_session(
     app: AppHandle,
     session: SessionController,
     generation: u64,
-    screen_context: Option<&str>,
+    screen_context: Arc<PendingScreenContext>,
     activity: AsrActivityReporter,
 ) -> Result<String, String> {
     let remove_trailing_period = config.typing.remove_trailing_period;
-    let preview = asr::build_request_preview(&config, screen_context);
-    let mut request = preview
-        .ws_url
+    let mut request = asr::effective_ws_url(&config)
         .as_str()
         .into_client_request()
         .map_err(|err| format!("创建 ASR WebSocket 请求失败: {}", err))?;
-    for (name, value) in preview.headers {
+    for (name, value) in asr::build_headers(&config) {
         let name = HeaderName::from_bytes(name.as_bytes())
             .map_err(|err| format!("ASR header 名称无效: {}", err))?;
         let value =
@@ -46,8 +46,13 @@ pub(crate) async fn run_doubao_websocket_session(
         request.headers_mut().insert(name, value);
     }
 
-    let (mut websocket, handshake) =
-        await_asr_connect(connect_async(request), ASR_CONNECT_TIMEOUT).await?;
+    // 握手不依赖屏幕 OCR，只有首包 payload 依赖；两者并行可省掉一次串行等待。
+    let (connect_result, screen_context_text) = futures_util::future::join(
+        await_asr_connect(connect_async(request), ASR_CONNECT_TIMEOUT),
+        screen_context.resolve(),
+    )
+    .await;
+    let (mut websocket, handshake) = connect_result?;
     if let Some(log_id) = handshake
         .headers()
         .get("x-tt-logid")
@@ -57,9 +62,13 @@ pub(crate) async fn run_doubao_websocket_session(
     } else {
         app_log::info("ASR WebSocket 已连接");
     }
+    let payload = asr::build_request_payload(
+        &config,
+        asr::build_context_payload(&config, screen_context_text.as_deref()),
+    );
     websocket
         .send(Message::Binary(
-            protocol::build_full_request(&preview.payload, 1)?.into(),
+            protocol::build_full_request(&payload, 1)?.into(),
         ))
         .await
         .map_err(|err| format!("发送 ASR 首包失败: {}", err))?;
@@ -127,7 +136,7 @@ pub(crate) async fn run_doubao_websocket_session(
                         }
                         app_log::info("ASR 最后一包音频已发送");
                     } else {
-                        audio_pacer.mark_sent_bytes(chunk.len());
+                        audio_pacer.mark_sent_bytes(chunk.len(), pending_audio.send_pace());
                     }
                     seq += 1;
                 } else if end_packet_pending {

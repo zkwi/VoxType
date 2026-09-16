@@ -94,11 +94,13 @@ Start-Process -Wait -Verb RunAs "C:\Temp\MicrosoftEdgeWebView2RuntimeInstallerX6
 
 ## ASR 测试失败
 
-先确认 API配置页选择的 ASR 服务和豆包接入方式与认证字段匹配。豆包标准方式需要 App Key、Access Key 和 Resource ID 属于同一个语音识别服务；Agent Plan 需要方舟专属 API Key，并在方舟控制台配置豆包流式语音识别模型 2.0 和超额后付费。阿里云 FunASR 模式需要 API Key、Workspace ID、地域和模型权限属于同一个百炼工作空间。不要把大模型 API Key、GitHub Token、火山引擎 IAM Secret 或其他平台密钥填到错误的 ASR 服务里。
+如果在浏览器表单里按右 Alt 或鼠标中键会丢焦点，先确认对应触发方式是否已开启：开启后 VoxType 会独占这个按键，浏览器收不到，也就不会失焦；关闭时按键原样传给浏览器，Chrome 会把单独的 Alt 当成激活菜单栏、把中键当成自动滚动，从而让输入框失焦。
+
+先确认 API配置页选择的 ASR 服务和豆包接入方式与认证字段匹配。豆包语音控制台 API Key 方式只需要控制台创建的 API Key 和已开通的 Resource ID；旧版标准方式需要 App Key、Access Key 和 Resource ID 属于同一个语音识别服务；Agent Plan 需要方舟专属 API Key，并在方舟控制台配置豆包流式语音识别模型 2.0 和超额后付费。阿里云 FunASR 模式需要 API Key、Workspace ID、地域和模型权限属于同一个百炼工作空间。不要把大模型 API Key、GitHub Token、火山引擎 IAM Secret 或其他平台密钥填到错误的 ASR 服务里。
 
 常见处理：
 
-1. 豆包认证或权限失败：先确认接入方式；标准方式重新复制 App Key、Access Key 并检查 Resource ID，Agent Plan 重新复制专属 API Key 并检查模型配置和超额后付费。
+1. 豆包认证或权限失败：先确认接入方式；语音控制台 API Key 方式确认密钥来自「API Key 管理」且资源已开通，旧版标准方式重新复制 App Key、Access Key 并检查 Resource ID，Agent Plan 重新复制专属 API Key 并检查模型配置和超额后付费。方舟 Agent Plan 订阅失效时会返回 `InvalidSubscription`，需要改用其他接入方式或恢复订阅。
 2. 阿里云认证或权限失败：重新复制 API Key，确认 Workspace ID、地域和 `fun-asr-realtime` 模型权限匹配。
 3. 连接失败或超时：检查代理、防火墙和网络是否能访问当前 ASR 服务域名。
 4. 修改识别语言后失败：先改回“自动 / 服务默认”再测试。

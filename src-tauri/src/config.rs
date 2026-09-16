@@ -8,6 +8,7 @@ pub(crate) const ASR_PROVIDER_DOUBAO: &str = "doubao";
 pub(crate) const ASR_PROVIDER_ALIYUN_FUN: &str = "aliyun_fun";
 pub(crate) const DOUBAO_AUTH_MODE_APP_ACCESS: &str = "app_access";
 pub(crate) const DOUBAO_AUTH_MODE_AGENT_PLAN: &str = "agent_plan";
+pub(crate) const DOUBAO_AUTH_MODE_API_KEY: &str = "api_key";
 pub(crate) const DOUBAO_SEED_ASR_2_RESOURCE_ID: &str = "volc.seedasr.sauc.duration";
 pub(crate) const DEFAULT_ENABLE_ACCELERATE_TEXT: bool = false;
 pub(crate) const DEFAULT_ACCELERATE_SCORE: i64 = 0;
@@ -73,8 +74,12 @@ pub struct AuthConfig {
     pub app_key: String,
     #[serde(default)]
     pub access_key: String,
+    /// 火山方舟 Agent Plan 专属密钥。
     #[serde(default)]
     pub api_key: String,
+    /// 新版豆包语音控制台 API Key。两种方式的密钥不通用，分开存放，切换接入方式时不会互相覆盖。
+    #[serde(default)]
+    pub console_api_key: String,
     #[serde(default = "default_resource_id")]
     pub resource_id: String,
 }
@@ -82,6 +87,25 @@ pub struct AuthConfig {
 impl AuthConfig {
     pub(crate) fn uses_agent_plan(&self) -> bool {
         self.mode.trim() == DOUBAO_AUTH_MODE_AGENT_PLAN
+    }
+
+    /// 新版豆包语音控制台的 API Key：标准端点 + `X-Api-Key`，与方舟 Agent Plan 的专属端点不同。
+    pub(crate) fn uses_console_api_key(&self) -> bool {
+        self.mode.trim() == DOUBAO_AUTH_MODE_API_KEY
+    }
+
+    /// 两种以 API Key 鉴权的方式；它们各自读取自己的密钥字段。
+    pub(crate) fn uses_api_key_auth(&self) -> bool {
+        self.uses_agent_plan() || self.uses_console_api_key()
+    }
+
+    /// 当前接入方式实际使用的 API Key。
+    pub(crate) fn active_api_key(&self) -> &str {
+        if self.uses_console_api_key() {
+            &self.console_api_key
+        } else {
+            &self.api_key
+        }
     }
 }
 
@@ -376,10 +400,11 @@ impl Default for AsrConfig {
 impl Default for AuthConfig {
     fn default() -> Self {
         Self {
-            mode: default_doubao_auth_mode(),
+            mode: new_install_doubao_auth_mode(),
             app_key: String::new(),
             access_key: String::new(),
             api_key: String::new(),
+            console_api_key: String::new(),
             resource_id: default_resource_id(),
         }
     }
@@ -759,6 +784,7 @@ fn load_config_from_path(path: PathBuf) -> Result<LoadedConfig, String> {
     } else {
         data.context.recent_context.clear();
     }
+    normalize_blank_resource_id(&mut data);
     let migrated_result_type = migrate_result_type_default(&mut data);
     let migrated_asr_language = migrate_legacy_asr_language_default(&mut data);
     if contains_legacy_recent_context(&text) || migrated_result_type || migrated_asr_language {
@@ -967,8 +993,22 @@ fn default_asr_provider() -> String {
 fn default_asr_no_feedback_auto_stop_seconds() -> u64 {
     30
 }
+/// 缺少 `mode` 字段的配置都来自该字段存在之前，只可能配了 app_key/access_key，必须保持原行为。
+/// 配置页没有 Resource ID 输入框，手工写成空串会卡在"提示缺资源但无处可改"。
+/// 按文档默认的小时版资源补齐，避免出现无法自助恢复的配置。
+fn normalize_blank_resource_id(config: &mut AppConfig) {
+    if config.auth.resource_id.trim().is_empty() {
+        config.auth.resource_id = default_resource_id();
+    }
+}
+
 fn default_doubao_auth_mode() -> String {
     DOUBAO_AUTH_MODE_APP_ACCESS.to_string()
+}
+
+/// 全新安装（尚无配置文件）使用推荐的新版语音控制台 API Key，和配置模板、设置页口径一致。
+fn new_install_doubao_auth_mode() -> String {
+    DOUBAO_AUTH_MODE_API_KEY.to_string()
 }
 fn default_resource_id() -> String {
     DOUBAO_SEED_ASR_2_RESOURCE_ID.to_string()
@@ -1175,6 +1215,7 @@ mod tests {
         migrate_legacy_asr_language_default, migrate_result_type_default,
         text_looks_like_voxtype_config, validate_config, write_config_file, AppConfig, TextContext,
         ASR_PROVIDER_DOUBAO, DEFAULT_ACCELERATE_SCORE, DEFAULT_ENABLE_ACCELERATE_TEXT,
+        DOUBAO_AUTH_MODE_API_KEY, DOUBAO_AUTH_MODE_APP_ACCESS, DOUBAO_SEED_ASR_2_RESOURCE_ID,
     };
     use std::path::{Path, PathBuf};
 
@@ -1644,6 +1685,46 @@ resource_id = "volc.seedasr.sauc.concurrent"
                 "{seconds} should be accepted"
             );
         }
+    }
+
+    #[test]
+    fn new_install_defaults_to_console_api_key_while_missing_mode_stays_app_access() {
+        // 全新安装没有配置文件，应落到推荐的新版控制台 API Key。
+        assert_eq!(AppConfig::default().auth.mode, DOUBAO_AUTH_MODE_API_KEY);
+
+        // 早于 auth.mode 字段的手写配置只可能配了 app_key/access_key，必须保持原行为。
+        let legacy: AppConfig = toml::from_str(
+            r#"
+[auth]
+app_key = "example-app-key"
+access_key = "example-access-key"
+"#,
+        )
+        .unwrap();
+        assert_eq!(legacy.auth.mode, DOUBAO_AUTH_MODE_APP_ACCESS);
+    }
+
+    #[test]
+    fn blank_resource_id_falls_back_to_documented_default() {
+        let dir = temp_test_dir("blank-resource-id");
+        let path = dir.join("config.toml");
+        std::fs::write(
+            &path,
+            r#"
+[auth]
+mode = "api_key"
+console_api_key = "example-console-key"
+resource_id = ""
+"#,
+        )
+        .unwrap();
+
+        // 配置页没有 Resource ID 入口，留空必须自动补齐，否则用户无法自助恢复。
+        let loaded = load_config_from_path(path).unwrap();
+        assert_eq!(loaded.data.auth.resource_id, DOUBAO_SEED_ASR_2_RESOURCE_ID);
+        assert!(crate::asr_provider::configuration_error(&loaded.data).is_none());
+
+        remove_temp_dir(&dir);
     }
 
     #[test]

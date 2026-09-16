@@ -4,6 +4,7 @@ export const ASR_PROVIDER_DOUBAO = "doubao";
 export const ASR_PROVIDER_ALIYUN_FUN = "aliyun_fun";
 export const DOUBAO_AUTH_MODE_APP_ACCESS = "app_access";
 export const DOUBAO_AUTH_MODE_AGENT_PLAN = "agent_plan";
+export const DOUBAO_AUTH_MODE_API_KEY = "api_key";
 export const DOUBAO_SEED_ASR_2_RESOURCE_ID = "volc.seedasr.sauc.duration";
 
 // Frontend mirror of the Rust provider facade. Keep this file focused on
@@ -23,6 +24,9 @@ export function hasAsrProviderConfig(config: AppConfig) {
         config.aliyun_asr.model.trim() &&
         (config.aliyun_asr.workspace_id.trim() || config.aliyun_asr.websocket_url.trim()),
     );
+  }
+  if (config.auth.mode === DOUBAO_AUTH_MODE_API_KEY) {
+    return Boolean(config.auth.console_api_key.trim() && config.auth.resource_id.trim());
   }
   if (config.auth.mode === DOUBAO_AUTH_MODE_AGENT_PLAN) {
     return Boolean(
@@ -58,6 +62,7 @@ export function activeAsrConfigFingerprint(config: AppConfig) {
     app_key: config.auth.app_key,
     access_key: config.auth.access_key,
     api_key: config.auth.api_key,
+    console_api_key: config.auth.console_api_key,
     resource_id: config.auth.resource_id,
     ws_url: config.request.ws_url,
     model_name: config.request.model_name,
