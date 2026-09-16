@@ -34,11 +34,13 @@ src/
 │   └── +page.svelte
 └── lib/
     ├── components/
-    │   ├── overview/
-    │   ├── settings/
-    │   ├── overlay/
-    │   └── common/
-    ├── app/
+    │   ├── app/       # 应用外壳：侧边栏、路由容器
+    │   ├── pages/     # 页面级区块，例如 API 配置、热词与提示词
+    │   ├── overview/  # 首页卡片
+    │   ├── settings/  # 设置项控件
+    │   ├── overlay/   # 悬浮字幕
+    │   └── common/    # 通用按钮、提示、卡片
+    ├── app/           # 前端状态 controller
     ├── i18n/
     ├── utils/
     └── types/
@@ -48,7 +50,7 @@ src/
 
 1. `src/routes/+page.svelte` 是主入口，短期保留。
 2. 新增组件放到 `src/lib/components/`。
-3. 首页组件放到 `src/lib/components/overview/`。
+3. 首页组件放到 `src/lib/components/overview/`；整页级区块放到 `src/lib/components/pages/`，应用外壳放到 `src/lib/components/app/`。
 4. 设置页组件放到 `src/lib/components/settings/`。
 5. 悬浮字幕组件放到 `src/lib/components/overlay/`。
 6. 通用按钮、提示、卡片放到 `src/lib/components/common/`。
@@ -73,16 +75,29 @@ src/
 ```text
 src-tauri/
 ├── src/
+│   ├── aliyun_asr.rs
 │   ├── app_log.rs
 │   ├── asr.rs
+│   ├── asr_activity.rs
+│   ├── asr_provider.rs
 │   ├── asr_ws/
 │   ├── audio.rs
 │   ├── autostart.rs
+│   ├── commands/
 │   ├── config.rs
+│   ├── config_validation.rs
+│   ├── error.rs
 │   ├── hotkey.rs
+│   ├── hotword_generator.rs
+│   ├── hotword_history.rs
+│   ├── llm_client.rs
+│   ├── llm_endpoint.rs
 │   ├── llm_post_edit.rs
+│   ├── llm_request_adapter.rs
+│   ├── main_window.rs
 │   ├── overlay.rs
 │   ├── protocol.rs
+│   ├── screen_context.rs
 │   ├── session.rs
 │   ├── setup_guide.rs
 │   ├── stats.rs
@@ -90,7 +105,8 @@ src-tauri/
 │   ├── text_output.rs
 │   ├── tray.rs
 │   ├── update.rs
-│   └── lib.rs
+│   ├── lib.rs
+│   └── main.rs
 ├── capabilities/
 ├── icons/
 ├── Cargo.toml
@@ -101,20 +117,30 @@ src-tauri/
 
 1. `session.rs`：录音会话状态。
 2. `audio.rs`：麦克风采集。
-3. `asr.rs`：ASR 请求组装、上下文和结果解析。
-4. `asr_ws/`：豆包 WebSocket ASR 会话、音频发送、最终文本和错误映射。
-5. `protocol.rs`：豆包二进制协议。
-6. `llm_post_edit.rs`：LLM 润色。
-7. `text_output.rs`：剪贴板和自动粘贴。
-8. `hotkey.rs`：全局热键和输入钩子。
-9. `overlay.rs`：悬浮字幕。
-10. `tray.rs`：系统托盘。
-11. `config.rs`：配置模型、加载、保存、校验。
-12. `app_log.rs`：日志和脱敏。
-13. `stats.rs`：使用统计。
-14. `update.rs`：更新检查。
-15. `system_audio.rs`：系统音量。
-16. `autostart.rs`：开机启动。
+3. `asr_provider.rs`：选择 ASR 服务、做启动前配置门禁，并转交录音会话参数。
+4. `asr.rs`：豆包 ASR 请求组装、上下文和结果解析。
+5. `asr_ws/`：豆包 WebSocket ASR 会话、音频发送、最终文本和错误映射。
+6. `aliyun_asr.rs`：阿里云 FunASR 会话与事件门禁。
+7. `asr_activity.rs`：ASR 有效反馈上报，供无反馈自动停止使用。
+8. `protocol.rs`：豆包二进制协议。
+9. `screen_context.rs`：屏幕 OCR 上下文采集与延后解析。
+10. `llm_post_edit.rs`：LLM 润色主流程。
+11. `llm_client.rs`、`llm_endpoint.rs`、`llm_request_adapter.rs`：OpenAI 兼容请求发送、端点归一化、思考开关适配。
+12. `text_output.rs`：剪贴板和自动粘贴。
+13. `hotkey.rs`：全局热键和输入钩子。
+14. `overlay.rs`：悬浮字幕。
+15. `tray.rs`：系统托盘。
+16. `main_window.rs`：主窗口显示与隐藏。
+17. `config.rs`：配置模型、加载、保存、迁移。
+18. `config_validation.rs`：保存前的字段校验。
+19. `commands/`：Tauri command 层，按配置、会话、诊断、更新分文件。
+20. `hotword_generator.rs`、`hotword_history.rs`：自动热词候选生成与本地历史。
+21. `app_log.rs`：日志和脱敏。
+22. `stats.rs`：使用统计。
+23. `update.rs`：更新检查。
+24. `system_audio.rs`：系统音量。
+25. `autostart.rs`：开机启动。
+26. `error.rs`：错误上下文辅助。
 
 ### 规则
 

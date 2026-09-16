@@ -322,6 +322,15 @@ mod tests {
     }
 
     #[test]
+    fn redacts_console_api_key_field() {
+        // console_api_key 含有 api_key 子串，应当被同一条键值规则覆盖。
+        let message = sanitize_message("auth: console_api_key=\"abcdef0123456789\" mode=api_key");
+
+        assert!(!message.contains("abcdef0123456789"));
+        assert!(message.contains(super::REDACTED));
+    }
+
+    #[test]
     fn redacts_unlabelled_agent_plan_keys() {
         let agent_plan_key = ["ark", "testagentplancredential"].join("-");
         let message = sanitize_message(&format!("request failed near {}", agent_plan_key));
