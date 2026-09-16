@@ -25,6 +25,10 @@
 - 全新安装（尚无配置文件）的豆包接入方式默认改为 `api_key`，与配置模板和设置页的推荐项一致。缺少 `auth.mode` 字段的旧配置仍按 `app_access` 处理，行为不变。
 - `auth.resource_id` 被手工写成空串时自动补回文档默认的小时版资源。设置页没有该字段入口，留空会让首页提示"未配置"而用户无处可改。
 
+### 工程治理
+
+- 把 `audio.rs` 中两处定长 2 字节切片从 `chunks_exact` 改写为 `as_chunks`，满足新版 stable clippy 的 `chunks_exact_to_as_chunks` 检查。本地 clippy 1.95 还没有这条 lint，CI 的 stable 工具链有，此前会只在 CI 失败。
+
 ### 安全
 
 - 将 `rustls` 从 `0.23.39` 升到 `0.23.45`（连带 `rustls-webpki` 升到 `0.103.15`），处理 RUSTSEC-2026-0285：TLS 1.3 握手消息在加密层级边界上被错误接受。该库是 ASR WebSocket 与 LLM 请求实际使用的 TLS 实现，按锁文件更新处理，不改运行时代码。
