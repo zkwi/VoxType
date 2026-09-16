@@ -1,7 +1,7 @@
 use crate::config::{
     AppConfig, ConfigValidationError, ASR_PROVIDER_ALIYUN_FUN, ASR_PROVIDER_DOUBAO,
-    DOUBAO_AUTH_MODE_AGENT_PLAN, DOUBAO_AUTH_MODE_APP_ACCESS, DOUBAO_SEED_ASR_2_RESOURCE_ID,
-    MIN_UI_HEIGHT,
+    DOUBAO_AUTH_MODE_AGENT_PLAN, DOUBAO_AUTH_MODE_API_KEY, DOUBAO_AUTH_MODE_APP_ACCESS,
+    DOUBAO_SEED_ASR_2_RESOURCE_ID, MIN_UI_HEIGHT,
 };
 use crate::llm_request_adapter::is_valid_thinking_strategy;
 
@@ -24,8 +24,12 @@ pub fn validate_config(config: &AppConfig) -> Result<(), Vec<ConfigValidationErr
         &mut errors,
         "auth.mode",
         &config.auth.mode,
-        &[DOUBAO_AUTH_MODE_APP_ACCESS, DOUBAO_AUTH_MODE_AGENT_PLAN],
-        "豆包认证方式只能是 app_access 或 agent_plan。",
+        &[
+            DOUBAO_AUTH_MODE_APP_ACCESS,
+            DOUBAO_AUTH_MODE_AGENT_PLAN,
+            DOUBAO_AUTH_MODE_API_KEY,
+        ],
+        "豆包认证方式只能是 api_key、app_access 或 agent_plan。",
     );
     if config.auth.uses_agent_plan()
         && config.auth.resource_id.trim() != DOUBAO_SEED_ASR_2_RESOURCE_ID

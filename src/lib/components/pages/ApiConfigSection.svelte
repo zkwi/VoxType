@@ -13,6 +13,7 @@
     ASR_PROVIDER_ALIYUN_FUN,
     ASR_PROVIDER_DOUBAO,
     DOUBAO_AUTH_MODE_AGENT_PLAN,
+    DOUBAO_AUTH_MODE_API_KEY,
     DOUBAO_AUTH_MODE_APP_ACCESS,
     DOUBAO_SEED_ASR_2_RESOURCE_ID,
   } from "$lib/utils/asrProvider";
@@ -152,7 +153,7 @@
   function updateDoubaoAuthMode(event: Event) {
     const mode = (event.currentTarget as HTMLSelectElement).value;
     config.auth.mode = mode;
-    if (mode === DOUBAO_AUTH_MODE_AGENT_PLAN) {
+    if (mode === DOUBAO_AUTH_MODE_AGENT_PLAN || !config.auth.resource_id.trim()) {
       config.auth.resource_id = DOUBAO_SEED_ASR_2_RESOURCE_ID;
     }
   }
@@ -281,13 +282,28 @@
           <label class:field-invalid={Boolean(fieldError("auth.mode"))}>
             <span>{t("doubaoAuthMode")}</span>
             <select value={config.auth.mode} onchange={updateDoubaoAuthMode}>
+              <option value={DOUBAO_AUTH_MODE_API_KEY}>{t("doubaoAuthModeApiKey")}</option>
               <option value={DOUBAO_AUTH_MODE_APP_ACCESS}>{t("doubaoAuthModeAppAccess")}</option>
               <option value={DOUBAO_AUTH_MODE_AGENT_PLAN}>{t("doubaoAuthModeAgentPlan")}</option>
             </select>
             {#if fieldError("auth.mode")}<small class="field-error">{fieldError("auth.mode")}</small>{/if}
             <small class="field-hint">{t("doubaoAuthModeHint")}</small>
           </label>
-          {#if config.auth.mode === DOUBAO_AUTH_MODE_AGENT_PLAN}
+          {#if config.auth.mode === DOUBAO_AUTH_MODE_API_KEY}
+            <SecretInput
+              id="setting-doubao-console-api-key"
+              configField="auth.api_key"
+              bind:value={config.auth.api_key}
+              label={t("doubaoConsoleApiKey")}
+              hint={t("doubaoConsoleApiKeyHint")}
+              error={fieldError("auth.api_key")}
+              showLabel={t("showApiKey")}
+              hideLabel={t("hideApiKey")}
+              copyLabel={t("copyApiKey")}
+              copiedLabel={t("apiKeyCopied")}
+              copyFailedLabel={t("apiKeyCopyFailed")}
+            />
+          {:else if config.auth.mode === DOUBAO_AUTH_MODE_AGENT_PLAN}
             <SecretInput
               id="setting-doubao-agent-plan-api-key"
               configField="auth.api_key"

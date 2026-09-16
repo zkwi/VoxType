@@ -367,8 +367,7 @@ pub(crate) fn open_setup_guide(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub(crate) fn open_doubao_asr_docs(app: AppHandle, mode: String) -> Result<(), String> {
     app_log::info("用户打开豆包 ASR 帮助文档。");
-    let uses_agent_plan = mode.trim() == config::DOUBAO_AUTH_MODE_AGENT_PLAN;
-    setup_guide::open_doubao_asr_docs(&app, uses_agent_plan).map_err(|err| {
+    setup_guide::open_doubao_asr_docs(&app, &mode).map_err(|err| {
         app_log::warn(format!("打开豆包 ASR 帮助文档失败: {}", err));
         err
     })
@@ -501,7 +500,7 @@ mod tests {
         config_side_effects, hotkey_registration_test_needed, hotkey_runtime_update_needed,
         ConfigSaveMode, ConfigSideEffects,
     };
-    use crate::config::{AppConfig, ConfigValidationError};
+    use crate::config::{AppConfig, ConfigValidationError, DOUBAO_AUTH_MODE_APP_ACCESS};
 
     #[test]
     fn setup_status_blocks_missing_auth_audio_and_triggers() {
@@ -532,6 +531,7 @@ mod tests {
     #[test]
     fn setup_status_keeps_soft_options_non_blocking() {
         let mut config = AppConfig::default();
+        config.auth.mode = DOUBAO_AUTH_MODE_APP_ACCESS.to_string();
         config.auth.app_key = "app".to_string();
         config.auth.access_key = "access".to_string();
         config.context.enable_recent_context = false;
@@ -547,6 +547,7 @@ mod tests {
     #[test]
     fn setup_status_is_ready_when_auth_audio_and_trigger_are_available() {
         let mut config = AppConfig::default();
+        config.auth.mode = DOUBAO_AUTH_MODE_APP_ACCESS.to_string();
         config.auth.app_key = "app".to_string();
         config.auth.access_key = "access".to_string();
         config.triggers.hotkey_enabled = true;

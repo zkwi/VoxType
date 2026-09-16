@@ -40,7 +40,7 @@ pub fn build_request_preview(
     }
 }
 
-fn effective_ws_url(config: &AppConfig) -> String {
+pub fn effective_ws_url(config: &AppConfig) -> String {
     if config.auth.uses_agent_plan() {
         AGENT_PLAN_ASR_WS_URL.to_string()
     } else {
@@ -49,6 +49,19 @@ fn effective_ws_url(config: &AppConfig) -> String {
 }
 
 pub fn build_headers(config: &AppConfig) -> BTreeMap<String, String> {
+    if config.auth.uses_console_api_key() {
+        // 新版语音控制台 API Key：走标准端点，Resource ID 由用户在配置页选择。
+        let request_id = Uuid::new_v4().to_string();
+        return BTreeMap::from([
+            ("X-Api-Key".to_string(), config.auth.api_key.clone()),
+            (
+                "X-Api-Resource-Id".to_string(),
+                config.auth.resource_id.clone(),
+            ),
+            ("X-Api-Request-Id".to_string(), request_id.clone()),
+            ("X-Api-Connect-Id".to_string(), request_id),
+        ]);
+    }
     if config.auth.uses_agent_plan() {
         let request_id = Uuid::new_v4().to_string();
         return BTreeMap::from([
@@ -299,6 +312,42 @@ pub fn normalize_final_text(text: &str, remove_trailing_period: bool) -> String 
 mod tests {
     use super::*;
     use crate::config::{AppConfig, TextContext};
+
+    #[test]
+    fn console_api_key_preview_uses_standard_endpoint_and_configured_resource() {
+        let config: AppConfig = toml::from_str(
+            r#"
+[auth]
+mode = "api_key"
+api_key = "example-console-key"
+resource_id = "volc.seedasr.sauc.duration"
+
+[request]
+ws_url = "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async"
+"#,
+        )
+        .unwrap();
+
+        let preview = build_request_preview(&config, None);
+
+        assert_eq!(
+            preview.ws_url,
+            "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async"
+        );
+        assert_eq!(
+            preview.headers.get("X-Api-Key").map(String::as_str),
+            Some("example-console-key")
+        );
+        assert_eq!(
+            preview.headers.get("X-Api-Resource-Id").map(String::as_str),
+            Some("volc.seedasr.sauc.duration")
+        );
+        assert!(preview.headers.contains_key("X-Api-Request-Id"));
+        assert!(!preview.headers.contains_key("X-Api-App-Key"));
+        assert!(!preview.headers.contains_key("X-Api-Access-Key"));
+        // 标准端点不需要 Agent Plan 的握手序号头。
+        assert!(!preview.headers.contains_key("X-Api-Sequence"));
+    }
 
     #[test]
     fn agent_plan_preview_uses_plan_endpoint_and_api_key_headers() {

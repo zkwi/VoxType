@@ -11,14 +11,19 @@ provider = "doubao"
 no_feedback_auto_stop_seconds = 30
 
 [auth]
-# 豆包接入方式：app_access / agent_plan。两套凭据独立保存，运行时只使用当前方式
-mode = "app_access"
-# 标准接入凭据，仅在 mode = "app_access" 时使用
+# 豆包接入方式：api_key / app_access / agent_plan。几套凭据独立保存，运行时只使用当前方式
+# api_key：新版豆包语音控制台「API Key 管理」创建的密钥，走标准端点，推荐新用户使用
+# app_access：旧版控制台的 App ID + Access Token
+# agent_plan：火山方舟 Agent Plan 专属密钥，走方舟专属端点
+# 全新安装（应用自己新建配置）默认 api_key；不写该字段时按 app_access 处理，兼容早期手写的配置
+mode = "api_key"
+# 旧版控制台凭据，仅在 mode = "app_access" 时使用
 app_key = ""
 access_key = ""
-# 火山方舟 Agent Plan 专属 API Key，仅在 mode = "agent_plan" 时使用
+# API Key，mode = "api_key" 或 mode = "agent_plan" 时使用；两种方式的密钥不通用
 # 不要把大模型 API Key、GitHub Token 或火山引擎 IAM Secret 填到这里
 api_key = ""
+# 小时版 volc.seedasr.sauc.duration / 并发版 volc.seedasr.sauc.concurrent
 # Agent Plan 必须保持为豆包流式语音识别模型 2.0 的固定 Resource ID
 resource_id = "volc.seedasr.sauc.duration"
 

@@ -3,10 +3,14 @@ use serde::Serialize;
 use std::{
     ffi::c_void,
     mem,
-    sync::mpsc::{self, Receiver, RecvTimeoutError},
+    sync::{
+        mpsc::{self, Receiver, RecvTimeoutError},
+        Arc, Mutex,
+    },
     thread,
     time::{Duration, Instant},
 };
+use tokio::sync::OnceCell;
 use windows::{
     core::{Error as WindowsError, HSTRING},
     Globalization::Language,
@@ -80,6 +84,41 @@ pub fn spawn_capture(config: &ScreenContextConfig) -> Option<ScreenContextReceiv
         let _ = tx.send(result);
     });
     Some(rx)
+}
+
+/// 延后解析的屏幕 OCR 上下文。
+///
+/// OCR 只影响首包 payload，不影响 WebSocket 握手，所以建连可以和 OCR 等待并行；
+/// 结果解析一次后缓存，ASR 首包和随后的 LLM 润色共用同一份文本。
+pub struct PendingScreenContext {
+    receiver: Mutex<Option<ScreenContextReceiver>>,
+    timeout_ms: u64,
+    resolved: OnceCell<Option<String>>,
+}
+
+impl PendingScreenContext {
+    pub fn new(receiver: Option<ScreenContextReceiver>, timeout_ms: u64) -> Arc<Self> {
+        Arc::new(Self {
+            receiver: Mutex::new(receiver),
+            timeout_ms,
+            resolved: OnceCell::new(),
+        })
+    }
+
+    pub async fn resolve(&self) -> Option<String> {
+        self.resolved
+            .get_or_init(|| async {
+                let receiver = self.receiver.lock().ok().and_then(|mut slot| slot.take())?;
+                let timeout_ms = self.timeout_ms;
+                // OCR 等待是阻塞的 recv_timeout，放到 blocking 线程，避免占住 ASR 的 runtime。
+                tokio::task::spawn_blocking(move || wait_for_context(Some(receiver), timeout_ms))
+                    .await
+                    .unwrap_or_default()
+                    .map(|snapshot| snapshot.text)
+            })
+            .await
+            .clone()
+    }
 }
 
 pub fn wait_for_context(

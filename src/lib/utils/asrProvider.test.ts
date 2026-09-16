@@ -13,7 +13,35 @@ function agentPlanConfig() {
   return config;
 }
 
+function consoleApiKeyConfig() {
+  const config = structuredClone(fallbackConfig);
+  Object.assign(config.auth, {
+    mode: "api_key",
+    api_key: "console-test-key",
+    app_key: "",
+    access_key: "",
+  });
+  return config;
+}
+
 describe("Doubao authentication modes", () => {
+  it("starts a fresh install in speech console API key mode", () => {
+    expect(fallbackConfig.auth.mode).toBe("api_key");
+    // 新装默认没有密钥，必须判为未配置，首页才会引导去填写。
+    expect(hasAsrProviderConfig(fallbackConfig)).toBe(false);
+  });
+
+  it("treats a speech console API key as complete Doubao authentication", () => {
+    expect(hasAsrProviderConfig(consoleApiKeyConfig())).toBe(true);
+  });
+
+  it("accepts any configured resource in speech console API key mode", () => {
+    const config = consoleApiKeyConfig();
+    config.auth.resource_id = "volc.seedasr.sauc.concurrent";
+
+    expect(hasAsrProviderConfig(config)).toBe(true);
+  });
+
   it("treats an Agent Plan API key as complete Doubao authentication", () => {
     expect(hasAsrProviderConfig(agentPlanConfig())).toBe(true);
   });
