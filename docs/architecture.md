@@ -73,7 +73,7 @@ flowchart TD
 ASR 质量与延迟相关改动必须同时参考 [ASR 质量与延迟守门清单](asr-quality-latency-guardrails.md)。该清单记录 0.1.102 后实测有效的参数组合、不可回退点、测试和手工回归建议。
 
 1. 开始录音时，`SessionController` 加载配置，启动麦克风采集，并按需启动屏幕 OCR。
-2. `screen_context.rs` 按配置截取当前显示器或当前前台窗口；ASR 建连前只短暂等待 OCR，上下文只在本轮请求内使用，失败或超时会跳过，不阻断录音、最终识别和粘贴。
+2. `screen_context.rs` 按配置截取当前显示器或当前前台窗口，在独立线程中执行，早于麦克风启动发起。OCR 等待与 ASR 建连并行：握手不依赖 OCR，只有首包 payload 依赖，`PendingScreenContext` 解析一次后由 ASR 首包和 LLM 润色共用。上下文只在本轮请求内使用，失败或超时会跳过，不阻断录音、最终识别和粘贴。
 3. `asr_provider.rs` 按 `asr.provider` 选择豆包 ASR 或阿里云 FunASR，并做当前服务的启动前配置检查。
 4. 豆包模式由 `asr.rs` 组装请求、`asr_ws/` 维护流式 WebSocket 会话、音频发送、最终文本选择和错误映射；阿里云模式由 `aliyun_asr.rs` 维护 `run-task`、音频上传、`finish-task` 和 `task-finished` 门禁。热词、最近上下文、场景上下文和 OCR 结果会按服务能力作为上下文发送；OCR 会标注为开始录音时的屏幕 OCR 上下文，不是用户指令或待识别文本。
 5. 实时片段只用于悬浮字幕，最终结果进入后处理。豆包必须等待最终包，阿里云必须等待 `task-finished`；缺少最终结果时进入失败态。

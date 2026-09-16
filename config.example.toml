@@ -102,6 +102,11 @@ recent_context_rounds = 5
 # 不要在模板或文档中填写个人热词；复制到本地 config.toml 后再按需填写
 hotwords = []
 
+# 场景与偏好提示词，可写多条；对应设置页「热词与提示词」里的提示词输入框
+# 只用于告诉模型使用场景和关注领域，不是待识别文本，也不会写回日志或统计
+# [[context.prompt_context]]
+# text = "常见使用场景包括即时聊天和正式文档；关注领域主要是编程与写作"
+
 [screen_context]
 # 开始录音时用 Windows OCR 识别文字，结果作为临时上下文发送给 ASR 和大模型；默认开启
 enabled = true
