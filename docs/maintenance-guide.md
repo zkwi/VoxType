@@ -84,7 +84,7 @@ npm run ai:release-check
 npx tauri build
 ```
 
-`ai:release-check` 会先确认调试版 EXE 没有被运行中的 VoxType 占用，再覆盖日常检查、npm audit、Rust audit、clippy 和 Tauri debug build。若前置检查提示文件锁定，先关闭本轮启动的调试应用再重试，不要等到最后的 Tauri build 才排查。GitHub Actions CI 复用同一入口；如果本地发布检查没过，不要推送发布分支。
+`ai:release-check` 会先确认调试版 EXE 没有被运行中的 VoxType 占用，再覆盖日常检查、npm audit、Rust audit、clippy 和 Tauri debug build。它覆盖不到真实安装、WebView2 引导、首次启动和卸载，这些按 [安装包冒烟测试清单](installer-smoke-test.md) 在干净虚拟机上执行。若前置检查提示文件锁定，先关闭本轮启动的调试应用再重试，不要等到最后的 Tauri build 才排查。GitHub Actions CI 复用同一入口；如果本地发布检查没过，不要推送发布分支。
 
 测试证据分为三层，不要混写：
 

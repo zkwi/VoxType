@@ -84,7 +84,7 @@ npm run ai:release-check
 npx tauri build
 ```
 
-`ai:release-check` first confirms the debug EXE is not locked by a running VoxType instance, then covers the day-to-day checks, npm audit, Rust audit, clippy, and a Tauri debug build. If the preflight reports a file lock, close the debug app from this session and retry — do not wait until the final Tauri build to debug it. GitHub Actions CI reuses the same entry point; if local release checks fail, do not push a release branch.
+`ai:release-check` first confirms the debug EXE is not locked by a running VoxType instance, then covers the day-to-day checks, npm audit, Rust audit, clippy, and a Tauri debug build. It cannot cover real installation, the WebView2 bootstrapper, first launch, or uninstall; run the [installer smoke-test checklist](installer-smoke-test.md) on a clean virtual machine for those. If the preflight reports a file lock, close the debug app from this session and retry — do not wait until the final Tauri build to debug it. GitHub Actions CI reuses the same entry point; if local release checks fail, do not push a release branch.
 
 Treat test evidence as three separate layers — do not mix them:
 

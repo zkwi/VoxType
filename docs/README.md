@@ -18,6 +18,8 @@
 - 日常维护指南：[docs/maintenance-guide.md](maintenance-guide.md) / [English](maintenance-guide.en.md)
 - 架构概览：[docs/architecture.md](architecture.md)
 - ASR 质量与延迟守门清单：[docs/asr-quality-latency-guardrails.md](asr-quality-latency-guardrails.md)
+- 安装包冒烟测试清单：[docs/installer-smoke-test.md](installer-smoke-test.md)
+- 安装包来源验证设计：[docs/plans/release-artifact-verification.md](plans/release-artifact-verification.md)
 - 代码规范：[docs/code-style.md](code-style.md)
 - 目录结构规范：[docs/directory-structure.md](directory-structure.md)
 - 贡献指南：[CONTRIBUTING.md](../CONTRIBUTING.md)
