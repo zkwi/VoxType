@@ -562,7 +562,7 @@ export const zhCN = {
   "hotkeyRequired": "热键不能为空。",
   "hotkeyNeedsModifier": "热键至少需要 Ctrl、Alt、Shift 或 Win 中的一个修饰键。",
   "hotkeyUnsupported": "暂不支持这个按键，请使用 A-Z、0-9、Space、F1-F12 或 Enter。",
-  "triggerConflictHint": "鼠标中键开启后，会占用浏览器、编辑器、文件管理器等软件的中键操作；右 Alt 也可能和输入法或快捷键冲突。",
+  "triggerConflictHint": "鼠标中键和右 Alt 开启后会被 VoxType 独占，其他软件收不到这个按键：浏览器、编辑器、文件管理器的中键操作失效，右 Alt 组合键（如右 Alt + Tab）也会失效，左 Alt 不受影响。这样按键不会漏给浏览器，输入框不会失焦。关掉对应触发方式即恢复。",
   "asrNoFeedbackAutoStopHint": "默认 30 秒；ASR 在这段时间内没有返回任何有效文本反馈时，会按正常停录流程收尾。填 0 表示关闭。",
   "inputGainHint": "默认 0 dB，不额外放大。只有麦克风声音持续偏小但清晰时再手动调高；先试 +3 或 +6 dB，避免过高增益造成削波和噪声放大。",
   "recentContextHint": "最近上下文会在单独的本地文件保存最近识别片段，用于改善连续识别；默认关闭，默认保留最近 5 轮。",

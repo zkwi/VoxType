@@ -38,7 +38,7 @@ Default trigger: `Ctrl + Q`.
 | --- | --- | --- |
 | Main shortcut | On | Keep it on |
 | Middle mouse | Off | Enable only after checking browser/editor conflicts |
-| Right Alt | Off | Enable only after checking IME/system shortcut conflicts |
+| Right Alt | Off | While enabled, right Alt belongs to VoxType and never reaches other apps, so right Alt combinations stop working. Left Alt is unaffected |
 
 Avoid enabling multiple easy-to-misfire triggers unless you really need them.
 

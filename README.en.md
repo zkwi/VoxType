@@ -63,7 +63,7 @@ API Config starts with a setup health check instead of a generic status header. 
 
 ## Windows Voice Typing Features
 
-- Global trigger: `Ctrl + Q` is enabled by default. Right Alt and middle mouse can be enabled manually.
+- Global trigger: `Ctrl + Q` is enabled by default. Right Alt and middle mouse can be enabled manually. While enabled they belong to VoxType and never reach other apps, which is what keeps a browser from moving focus out of the field you are typing in; the cost is that right Alt combinations and middle-click actions stop working until the trigger is turned off. Left Alt is unaffected.
 - Microphone capture: PCM audio capture through Rust `cpal`; input device can be selected.
 - Real-time speech recognition: Doubao `bigmodel_async` WebSocket by default, with Alibaba Cloud FunASR Realtime available from API Config. Live captions are feedback only; pasted output waits for the selected ASR provider's final completion event. The Doubao path keeps two-pass recognition and `full` cumulative results. FunASR live captions combine confirmed sentences with the current unfinished sentence, while the Alibaba Cloud path still waits for `task-finished` before polishing or pasting.
 - No-feedback fallback: if ASR returns no effective text feedback for 30 seconds, VoxType stops through the normal grace flow; this no longer depends on local volume thresholds.

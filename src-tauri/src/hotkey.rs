@@ -14,8 +14,8 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 use windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, DispatchMessageW, GetMessageW, PostThreadMessageW, SetWindowsHookExW,
     TranslateMessage, UnhookWindowsHookEx, HC_ACTION, KBDLLHOOKSTRUCT, LLKHF_INJECTED,
-    LLMHF_INJECTED, MSG, MSLLHOOKSTRUCT, WH_KEYBOARD_LL, WH_MOUSE_LL, WM_HOTKEY, WM_KEYUP,
-    WM_MBUTTONDOWN, WM_MBUTTONUP, WM_QUIT, WM_SYSKEYUP,
+    LLMHF_INJECTED, MSG, MSLLHOOKSTRUCT, WH_KEYBOARD_LL, WH_MOUSE_LL, WM_HOTKEY, WM_KEYDOWN,
+    WM_KEYUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_QUIT, WM_SYSKEYDOWN, WM_SYSKEYUP,
 };
 
 use crate::app_log;
@@ -320,14 +320,53 @@ fn run_input_hook_loop() -> Result<(), String> {
     Ok(())
 }
 
+/// 右 Alt 钩子对单个按键事件的处理方式。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RightAltHookAction {
+    /// 原样交给前台程序。
+    Forward,
+    /// 拦下但不触发录音。
+    Swallow,
+    /// 拦下并排队触发录音。
+    SwallowAndTrigger,
+}
+
+/// 启用右 Alt 触发时，这个键完全归 VoxType，按下和松开都不再交给前台程序。
+///
+/// 放行会被 Chrome、资源管理器等按"单独 Alt"激活菜单栏，正在输入的表单会失焦；
+/// 只拦松开则更糟：前台程序只收到按下、等不到松开，会留下修饰键卡死状态。
+/// 注入事件一律放行，VoxType 自己模拟的粘贴按键不受影响。
+fn right_alt_hook_action(
+    message: u32,
+    vk_code: u32,
+    injected: bool,
+    right_alt_trigger_enabled: bool,
+) -> RightAltHookAction {
+    if vk_code != VK_RMENU.0 as u32 || injected || !right_alt_trigger_enabled {
+        return RightAltHookAction::Forward;
+    }
+    match message {
+        WM_KEYUP | WM_SYSKEYUP => RightAltHookAction::SwallowAndTrigger,
+        WM_KEYDOWN | WM_SYSKEYDOWN => RightAltHookAction::Swallow,
+        _ => RightAltHookAction::Forward,
+    }
+}
+
 unsafe extern "system" fn keyboard_hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
-    if code == HC_ACTION as i32 && (wparam.0 as u32 == WM_KEYUP || wparam.0 as u32 == WM_SYSKEYUP) {
+    if code == HC_ACTION as i32 {
         let event = unsafe { *(lparam.0 as *const KBDLLHOOKSTRUCT) };
-        if event.vkCode == VK_RMENU.0 as u32
-            && !event.flags.contains(LLKHF_INJECTED)
-            && trigger_enabled("right_alt")
-        {
-            queue_hook_trigger("右 Alt");
+        match right_alt_hook_action(
+            wparam.0 as u32,
+            event.vkCode,
+            event.flags.contains(LLKHF_INJECTED),
+            trigger_enabled("right_alt"),
+        ) {
+            RightAltHookAction::SwallowAndTrigger => {
+                queue_hook_trigger("右 Alt");
+                return LRESULT(1);
+            }
+            RightAltHookAction::Swallow => return LRESULT(1),
+            RightAltHookAction::Forward => {}
         }
     }
     unsafe { CallNextHookEx(None, code, wparam, lparam) }
@@ -455,11 +494,59 @@ fn wait_for_thread_to_stop(slot: &'static OnceLock<Mutex<Option<u32>>>, timeout:
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_conservative_trigger_defaults, refresh_trigger_config_from, trigger_enabled,
-        HOTKEY_TRIGGER_ENABLED, MIDDLE_MOUSE_TRIGGER_ENABLED, RIGHT_ALT_TRIGGER_ENABLED,
+        apply_conservative_trigger_defaults, refresh_trigger_config_from, right_alt_hook_action,
+        trigger_enabled, RightAltHookAction, HOTKEY_TRIGGER_ENABLED, MIDDLE_MOUSE_TRIGGER_ENABLED,
+        RIGHT_ALT_TRIGGER_ENABLED,
     };
     use crate::config::TriggerConfig;
     use std::sync::atomic::Ordering;
+    use windows::Win32::UI::Input::KeyboardAndMouse::{VK_RMENU, VK_TAB};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        WM_KEYDOWN, WM_KEYUP, WM_SYSKEYDOWN, WM_SYSKEYUP,
+    };
+
+    const RIGHT_ALT: u32 = VK_RMENU.0 as u32;
+
+    #[test]
+    fn enabled_right_alt_trigger_takes_over_both_key_down_and_key_up() {
+        // 松开时触发录音，按下也必须一起拦下：只拦松开会让前台程序以为 Alt 还按着。
+        for message in [WM_KEYUP, WM_SYSKEYUP] {
+            assert_eq!(
+                right_alt_hook_action(message, RIGHT_ALT, false, true),
+                RightAltHookAction::SwallowAndTrigger
+            );
+        }
+        for message in [WM_KEYDOWN, WM_SYSKEYDOWN] {
+            assert_eq!(
+                right_alt_hook_action(message, RIGHT_ALT, false, true),
+                RightAltHookAction::Swallow
+            );
+        }
+    }
+
+    #[test]
+    fn disabled_right_alt_trigger_keeps_the_key_working_for_other_apps() {
+        for message in [WM_KEYDOWN, WM_KEYUP, WM_SYSKEYDOWN, WM_SYSKEYUP] {
+            assert_eq!(
+                right_alt_hook_action(message, RIGHT_ALT, false, false),
+                RightAltHookAction::Forward
+            );
+        }
+    }
+
+    #[test]
+    fn injected_right_alt_and_other_keys_are_never_swallowed() {
+        // 注入事件放行，避免 VoxType 自己模拟的按键被自己拦掉。
+        assert_eq!(
+            right_alt_hook_action(WM_KEYUP, RIGHT_ALT, true, true),
+            RightAltHookAction::Forward
+        );
+        // 其他按键与右 Alt 无关，任何情况下都不拦。
+        assert_eq!(
+            right_alt_hook_action(WM_KEYUP, VK_TAB.0 as u32, false, true),
+            RightAltHookAction::Forward
+        );
+    }
 
     struct TriggerStateGuard {
         hotkey: bool,

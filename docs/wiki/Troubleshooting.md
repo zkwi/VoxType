@@ -94,6 +94,8 @@ Start-Process -Wait -Verb RunAs "C:\Temp\MicrosoftEdgeWebView2RuntimeInstallerX6
 
 ## ASR 测试失败
 
+如果在浏览器表单里按右 Alt 或鼠标中键会丢焦点，先确认对应触发方式是否已开启：开启后 VoxType 会独占这个按键，浏览器收不到，也就不会失焦；关闭时按键原样传给浏览器，Chrome 会把单独的 Alt 当成激活菜单栏、把中键当成自动滚动，从而让输入框失焦。
+
 先确认 API配置页选择的 ASR 服务和豆包接入方式与认证字段匹配。豆包语音控制台 API Key 方式只需要控制台创建的 API Key 和已开通的 Resource ID；旧版标准方式需要 App Key、Access Key 和 Resource ID 属于同一个语音识别服务；Agent Plan 需要方舟专属 API Key，并在方舟控制台配置豆包流式语音识别模型 2.0 和超额后付费。阿里云 FunASR 模式需要 API Key、Workspace ID、地域和模型权限属于同一个百炼工作空间。不要把大模型 API Key、GitHub Token、火山引擎 IAM Secret 或其他平台密钥填到错误的 ASR 服务里。
 
 常见处理：

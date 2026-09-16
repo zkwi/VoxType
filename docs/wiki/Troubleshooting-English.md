@@ -94,6 +94,8 @@ Notes:
 
 ## ASR Test Fails
 
+If pressing right Alt or middle click inside a browser form drops focus, check whether that trigger is enabled. While enabled VoxType consumes the key and the browser never sees it, so focus stays put. While disabled the key passes through, and Chrome treats a solitary Alt as "open the menu bar" and a middle click as autoscroll, both of which blur the focused field.
+
 First confirm that API Config's selected ASR provider and Doubao access mode match the credential fields. The speech console API Key mode only needs a key from API Key management plus an enabled Resource ID. Legacy standard access requires App Key, Access Key, and Resource ID from the same speech service. Agent Plan requires the dedicated Ark API Key plus Doubao Streaming ASR 2.0 and overage post-pay configured in the Ark console. Alibaba Cloud FunASR requires API Key, Workspace ID, region, and model permission from the same Bailian workspace. Do not paste an LLM API key, GitHub token, Volcano Engine IAM secret, or another platform's key into the wrong ASR provider.
 
 Common fixes:

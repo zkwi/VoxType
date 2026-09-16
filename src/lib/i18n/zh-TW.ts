@@ -563,7 +563,7 @@ export const zhTW = {
   "hotkeyRequired": "快捷鍵不能為空。",
   "hotkeyNeedsModifier": "快捷鍵至少需要 Ctrl、Alt、Shift 或 Win 中的一個修飾鍵。",
   "hotkeyUnsupported": "暫不支援這個按鍵，請使用 A-Z、0-9、Space、F1-F12 或 Enter。",
-  "triggerConflictHint": "滑鼠中鍵開啟後，會占用瀏覽器、編輯器、檔案管理器等軟體的中鍵操作；右 Alt 也可能和輸入法或快捷鍵衝突。",
+  "triggerConflictHint": "滑鼠中鍵和右 Alt 開啟後會被 VoxType 獨占，其他軟體收不到這個按鍵：瀏覽器、編輯器、檔案管理器的中鍵操作失效，右 Alt 組合鍵（如右 Alt + Tab）也會失效，左 Alt 不受影響。這樣按鍵不會漏給瀏覽器，輸入框不會失焦。關掉對應觸發方式即恢復。",
   "asrNoFeedbackAutoStopHint": "預設 30 秒；ASR 在這段時間內沒有回傳任何有效文字回饋時，會按正常停錄流程收尾。填 0 表示關閉。",
   "inputGainHint": "預設 0 dB，不額外放大。只有麥克風聲音持續偏小但清晰時再手動調高；先試 +3 或 +6 dB，避免過高增益造成削波和噪音放大。",
   "recentContextHint": "最近上下文會在單獨的本地檔案保存最近識別片段，用於改善連續識別；預設關閉，預設保留最近 5 輪。",

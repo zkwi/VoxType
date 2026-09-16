@@ -563,7 +563,7 @@ export const en = {
   "hotkeyRequired": "Shortcut is required.",
   "hotkeyNeedsModifier": "Shortcut needs at least one modifier: Ctrl, Alt, Shift, or Win.",
   "hotkeyUnsupported": "Unsupported key. Use A-Z, 0-9, Space, F1-F12, or Enter.",
-  "triggerConflictHint": "Middle click takes over middle-click actions in browsers, editors, and file managers. Right Alt may conflict with IMEs or shortcuts.",
+  "triggerConflictHint": "While enabled, middle click and right Alt belong to VoxType and never reach other apps: middle-click actions in browsers, editors, and file managers stop working, and right Alt combinations such as right Alt + Tab stop working too. Left Alt is unaffected. This is what keeps a browser from stealing focus out of the field you are typing in. Turning the trigger off restores normal behavior.",
   "asrNoFeedbackAutoStopHint": "Default is 30 seconds. If ASR returns no effective text feedback during this window, VoxType stops recording through the normal grace flow. Set 0 to disable.",
   "inputGainHint": "Default is 0 dB with no extra boost. Raise it manually only when the mic stays quiet but clear; try +3 or +6 dB first to avoid clipping and amplified noise.",
   "recentContextHint": "Recent context stores recent voice input snippets in a separate local file to improve continuous voice input. It is off by default and keeps the latest 5 rounds by default.",
