@@ -116,3 +116,9 @@ npx tauri build
 - major：破坏兼容或需要用户重新理解核心使用方式。
 
 发布时同步 `package.json`、`package-lock.json`、`src-tauri/Cargo.toml`、`src-tauri/Cargo.lock`、`src-tauri/tauri.conf.json`、`CHANGELOG.md`、`docs/audits/` 和 `docs/README.md` 的当前发布审计入口。
+
+线上 GitHub Wiki 是独立的 git 仓库，不会随主仓库合并自动更新，而应用首次启动时打开的配置指南正是线上 Wiki 页面。发布合并后把 `docs/wiki/` 推上去；想先看差异可以加 `-- -DryRun`：
+
+```powershell
+npm run wiki:publish
+```

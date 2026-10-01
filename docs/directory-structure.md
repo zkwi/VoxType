@@ -200,6 +200,7 @@ scripts/
 ├── ai-release-check.ps1
 ├── release-preflight.ps1
 ├── test-release-preflight.ps1
+├── publish-wiki.ps1
 ├── enable_git_hooks.ps1
 ├── rust-audit.ps1
 ├── scan-secrets.mjs

@@ -117,6 +117,12 @@ Release version numbers should reflect impact:
 
 On release, keep `package.json`, `package-lock.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, `src-tauri/tauri.conf.json`, `CHANGELOG.md`, `docs/audits/`, and the current release-audit entry in `docs/README.md` in sync.
 
+The online GitHub Wiki is a separate git repository and is not updated by merges into the main repository, yet the setup guide the app opens on first launch is an online wiki page. After a release is merged, publish `docs/wiki/`; append `-- -DryRun` to preview the difference first:
+
+```powershell
+npm run wiki:publish
+```
+
 ## Configuration sync, secrets scan, and rollback
 
 Before merging maintainer changes that touch settings or release metadata:
