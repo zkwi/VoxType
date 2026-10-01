@@ -83,6 +83,8 @@ cargo test --lib real_clipboard -- --ignored --nocapture --test-threads=1
 
 VoxType lives in the tray, and a hidden WebView keeps running. When adding a timer, a poll, or a looping animation, make sure it stops while the window is hidden. To check background cost, look at the CPU-time delta of the app and its WebView processes; it should be close to zero when idle.
 
+Check the main process as well: look at per-thread CPU time and context switches per second; an idle main thread should show single digits. The `tray-icon` library's "mouse left the icon" timer has an upstream defect and may never stop, which shows up as the main thread sitting at over two hundred switches per second and about 0.75% of one core. `tray.rs` stops that timer once the tray icon has been quiet for 2 seconds and writes an info log line. The workaround depends on two internals of the library: the window class name `tray_icon_app` and the timer id `6008`. After a Tauri upgrade changes the `tray-icon` version, re-check both constants against the new source, and remove the workaround once upstream fixes the timer.
+
 Every log line carries a millisecond timestamp, so the time between two stages (for example "stop requested" to "paste shortcut sent") is the difference between two lines.
 
 ## Pre-release checks
