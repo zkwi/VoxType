@@ -22,7 +22,7 @@ VoxType is an actively maintained personal open-source project. This roadmap com
 
 - Run the [installer smoke-test checklist](docs/installer-smoke-test.md) on a clean Windows VM for each release. The checklist is documented; running it is not yet part of every release.
 - Implement release artifact verification in stages, following the [design](docs/plans/release-artifact-verification.md): length and digest checks first, then a detached signature once the trust-bootstrap question is settled.
-- Migrate the four breaking dependency upgrades one at a time with real-device regression ([#46](https://github.com/zkwi/VoxType/issues/46)), and take Tauri 2.12 in its own pull request.
+- Migrate `cpal` to 0.18 with real-device recording regression ([#46](https://github.com/zkwi/VoxType/issues/46)). It changes how Windows devices are named and starts reporting capture discontinuities through the error callback, so it cannot be a mechanical bump.
 - Evaluate Windows ARM64 demand and build feasibility using real hardware or CI evidence before promising support.
 
 ## Later
