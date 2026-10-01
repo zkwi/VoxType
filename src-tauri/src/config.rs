@@ -662,7 +662,7 @@ fn installed_config_path_from_appdata(base: &Path) -> PathBuf {
     normalize_path(base.join(APP_DATA_DIR_NAME).join("config.toml"))
 }
 
-fn is_development_layout() -> bool {
+pub(crate) fn is_development_layout() -> bool {
     if let Ok(cwd) = std::env::current_dir() {
         if cwd.ancestors().any(looks_like_project_root) {
             return true;
