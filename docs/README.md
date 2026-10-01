@@ -92,7 +92,7 @@ npm run ai:check
 npm run check:governance
 ```
 
-该检查会验证 `package.json`、两个 lockfile、Cargo 和 Tauri 版本号一致性，当前版本 CHANGELOG、发布审计与本文索引是否齐全，以及本地 Markdown 链接、截图引用、三语言 key 和 GitHub Wiki 镜像是否同步。
+该检查会验证 `package.json`、两个 lockfile、Cargo 和 Tauri 版本号一致性，当前版本 CHANGELOG、发布审计与本文索引是否齐全，以及本地 Markdown 链接、截图引用、三语言 key 和 GitHub Wiki 镜像是否同步；三语言文案键还必须在代码里有引用，界面改版后遗留的无用文案会被直接拦下。
 
 治理检查脚本自身的最小回归测试：
 

@@ -110,6 +110,8 @@ function writeI18nFiles(dir, overrides = {}) {
   for (const [filename, content] of Object.entries(files)) {
     writeFile(path.join(dir, "src", "lib", "i18n", filename), content);
   }
+  // 文案键必须在 i18n 目录之外有引用，否则会被判为无人使用。
+  writeFile(path.join(dir, "src", "lib", "app.ts"), 'export const title = t("appName");\n');
 }
 
 withProject((dir) => {
@@ -184,6 +186,34 @@ withProject((dir) => {
   assert.equal(result.status, 1, result.stdout + result.stderr);
   assert.match(result.stdout, /i18n keys extra/);
   assert.match(result.stdout, /\bextra\b/);
+});
+
+withProject((dir) => {
+  // 三份语言文件键集一致，但有一条文案在代码里已经没人引用。
+  writeI18nFiles(dir, {
+    "zh-CN.ts": 'export const zhCN = {\n  "appName": "声写",\n  "orphanLabel": "没人用的文案"\n} as const;\n',
+    "zh-TW.ts": 'import type { TranslationCopy } from "./types";\nexport const zhTW = {\n  "appName": "聲寫",\n  "orphanLabel": "沒人用的文案"\n} satisfies TranslationCopy;\n',
+    "en.ts": 'import type { TranslationCopy } from "./types";\nexport const en = {\n  "appName": "VoxType",\n  "orphanLabel": "Unused copy"\n} satisfies TranslationCopy;\n',
+  });
+  const result = runGovernance(dir);
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  assert.match(result.stdout, /i18n keys not referenced by any source file: orphanLabel/);
+  assert.doesNotMatch(result.stdout, /appName/);
+});
+
+withProject((dir) => {
+  // 文案键通过标签映射表间接使用时，同样算作已引用。
+  writeI18nFiles(dir, {
+    "zh-CN.ts": 'export const zhCN = {\n  "appName": "声写",\n  "navHome": "首页"\n} as const;\n',
+    "zh-TW.ts": 'import type { TranslationCopy } from "./types";\nexport const zhTW = {\n  "appName": "聲寫",\n  "navHome": "首頁"\n} satisfies TranslationCopy;\n',
+    "en.ts": 'import type { TranslationCopy } from "./types";\nexport const en = {\n  "appName": "VoxType",\n  "navHome": "Home"\n} satisfies TranslationCopy;\n',
+  });
+  writeFile(
+    path.join(dir, "src", "lib", "components", "Nav.svelte"),
+    "<script>\n  const labels = { Home: 'navHome' };\n</script>\n\n{t(labels.Home)}\n",
+  );
+  const result = runGovernance(dir);
+  assert.equal(result.status, 0, result.stdout + result.stderr);
 });
 
 console.log("[test-governance] all checks passed");

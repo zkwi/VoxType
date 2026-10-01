@@ -357,12 +357,54 @@ function checkI18nKeyParity(root, failures) {
   }
 }
 
+function walkSourceFiles(dir, skipDir) {
+  const files = [];
+  if (!fs.existsSync(dir)) return files;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (path.resolve(fullPath) !== path.resolve(skipDir)) files.push(...walkSourceFiles(fullPath, skipDir));
+    } else if (/\.(ts|svelte)$/.test(entry.name)) {
+      files.push(fullPath);
+    }
+  }
+  return files;
+}
+
+// 界面改版后旧文案很容易留在三份语言文件里没人用，靠人工清理已经攒过上百条。
+// 所有文案键都以字符串字面量出现在代码里，所以可以直接按字面量查引用。
+function checkI18nKeysInUse(root, failures) {
+  const baseEntry = I18N_EXPORTS[0];
+  const filePath = path.join(root, baseEntry.file);
+  if (!fs.existsSync(filePath)) return;
+  const objectLiteral = findExportedObjectLiteral(filePath, baseEntry.exportName);
+  if (!objectLiteral) return;
+
+  const messageKeys = [];
+  for (const property of objectLiteral.properties) {
+    if (!ts.isPropertyAssignment(property)) continue;
+    const name = propertyNameText(property.name);
+    if (name && ts.isStringLiteralLike(property.initializer)) messageKeys.push(name);
+  }
+
+  const i18nDir = path.join(root, "src", "lib", "i18n");
+  const sources = walkSourceFiles(path.join(root, "src"), i18nDir).map((file) => fs.readFileSync(file, "utf8"));
+  const corpus = sources.join("\n");
+  const unused = messageKeys
+    .filter((key) => !['"', "'", "`"].some((quote) => corpus.includes(`${quote}${key}${quote}`)))
+    .sort();
+  if (unused.length) {
+    failures.push(`${baseEntry.file}: i18n keys not referenced by any source file: ${formatKeyList(unused)}`);
+  }
+}
+
 function main() {
   const root = repoRoot();
   const failures = [];
 
   checkVersionConsistency(root, failures);
   checkI18nKeyParity(root, failures);
+  checkI18nKeysInUse(root, failures);
   checkLocalMarkdownLinks(root, failures);
   checkImageReferences(root, failures);
   checkWikiMirrors(root, failures);
