@@ -20,9 +20,9 @@ VoxType is an actively maintained personal open-source project. This roadmap com
 
 ## Next
 
-- Add a repeatable clean-Windows-VM installer and first-launch smoke-test checklist ([#33](https://github.com/zkwi/VoxType/issues/33)).
-- Expand English maintenance documentation for contributors who do not read Chinese ([#32](https://github.com/zkwi/VoxType/issues/32)).
-- Design release artifact verification, signing, and provenance before changing the in-app updater trust model ([#34](https://github.com/zkwi/VoxType/issues/34)).
+- Run the [installer smoke-test checklist](docs/installer-smoke-test.md) on a clean Windows VM for each release. The checklist is documented; running it is not yet part of every release.
+- Implement release artifact verification in stages, following the [design](docs/plans/release-artifact-verification.md): length and digest checks first, then a detached signature once the trust-bootstrap question is settled.
+- Migrate the four breaking dependency upgrades one at a time with real-device regression ([#46](https://github.com/zkwi/VoxType/issues/46)), and take Tauri 2.12 in its own pull request.
 - Evaluate Windows ARM64 demand and build feasibility using real hardware or CI evidence before promising support.
 
 ## Later
