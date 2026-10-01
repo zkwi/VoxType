@@ -493,6 +493,9 @@ fn read_clipboard_backup(typing: &TypingConfig) -> Result<ClipboardBackup, Strin
 /// 文本族（CF_TEXT / CF_OEMTEXT / CF_UNICODETEXT / CF_LOCALE）内部互相合成。
 /// 剪贴板里有截图时最常见：DIB 已备份，句柄型的 CF_BITMAP 没法按内存复制，但恢复后照样可用。
 /// 把它们算成"部分格式未备份"会让每次输入都带上一条并不成立的提示。
+///
+/// 文本族只认"已备份 Unicode 文本"这一个方向：从 ANSI 文本反推 Unicode 会丢掉代码页之外的字符，
+/// 那种情况仍按丢失计。
 fn is_resynthesized_after_restore(skipped_format: u32, captured_formats: &[u32]) -> bool {
     let captured = |candidates: &[u32]| {
         candidates
@@ -501,9 +504,7 @@ fn is_resynthesized_after_restore(skipped_format: u32, captured_formats: &[u32])
     };
     match skipped_format {
         CF_BITMAP | CF_PALETTE | CF_DIB | CF_DIBV5 => captured(&[CF_DIB, CF_DIBV5]),
-        CF_TEXT | CF_OEMTEXT | CF_UNICODETEXT | CF_LOCALE => {
-            captured(&[CF_UNICODETEXT, CF_TEXT, CF_OEMTEXT])
-        }
+        CF_TEXT | CF_OEMTEXT | CF_LOCALE => captured(&[CF_UNICODETEXT]),
         _ => false,
     }
 }
@@ -864,6 +865,8 @@ mod tests {
         ));
         // 图元文件互相合成的两种格式都是句柄，一个也备份不了。
         assert!(!is_resynthesized_after_restore(CF_ENHMETAFILE, &[CF_DIB]));
+        // 从 ANSI 文本反推 Unicode 会丢字符，不能当作无损恢复。
+        assert!(!is_resynthesized_after_restore(CF_UNICODETEXT, &[CF_TEXT]));
         // 应用私有的注册格式没有合成来源。
         assert!(!is_resynthesized_after_restore(
             49350,
