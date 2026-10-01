@@ -4,6 +4,8 @@ use serde_json::json;
 use std::io::Write;
 use std::path::PathBuf;
 
+const STATS_FILE_NAME: &str = "voice_input_stats.jsonl";
+
 #[derive(Debug, Clone, Serialize)]
 pub struct UsageStats {
     pub session_count: u32,
@@ -84,35 +86,51 @@ pub fn stats_path() -> PathBuf {
             return dunce::simplified(candidate).to_path_buf();
         }
     }
-    let fallback = candidates
-        .first()
-        .cloned()
-        .unwrap_or_else(|| PathBuf::from("voice_input_stats.jsonl"));
+    let fallback = new_stats_file_path(
+        crate::config::is_development_layout(),
+        candidates.first().cloned(),
+        std::env::current_exe()
+            .ok()
+            .and_then(|exe| exe.parent().map(|dir| dir.to_path_buf())),
+    );
     dunce::simplified(&fallback).to_path_buf()
+}
+
+/// 还没有统计文件时，新文件建在哪里。
+///
+/// 安装版被开机自启动拉起时，工作目录是系统目录，往那里写会一直失败，统计也就永远记不上。
+/// 所以安装版固定建在程序所在目录，和从快捷方式启动时的位置一致；开发时仍放在工作目录。
+fn new_stats_file_path(
+    development_layout: bool,
+    working_dir_candidate: Option<PathBuf>,
+    exe_dir: Option<PathBuf>,
+) -> PathBuf {
+    let beside_exe = exe_dir.map(|dir| dir.join(STATS_FILE_NAME));
+    let preferred = if development_layout {
+        working_dir_candidate.or(beside_exe)
+    } else {
+        beside_exe.or(working_dir_candidate)
+    };
+    preferred.unwrap_or_else(|| PathBuf::from(STATS_FILE_NAME))
 }
 
 fn stats_path_candidates() -> Vec<PathBuf> {
     let mut candidates = Vec::new();
     if let Ok(cwd) = std::env::current_dir() {
-        candidates.push(cwd.join("voice_input_stats.jsonl"));
-        candidates.push(cwd.join("..").join("voice_input_stats.jsonl"));
+        candidates.push(cwd.join(STATS_FILE_NAME));
+        candidates.push(cwd.join("..").join(STATS_FILE_NAME));
     }
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
-            candidates.push(dir.join("voice_input_stats.jsonl"));
-            candidates.push(
-                dir.join("..")
-                    .join("..")
-                    .join("..")
-                    .join("voice_input_stats.jsonl"),
-            );
+            candidates.push(dir.join(STATS_FILE_NAME));
+            candidates.push(dir.join("..").join("..").join("..").join(STATS_FILE_NAME));
             candidates.push(
                 dir.join("..")
                     .join("..")
                     .join("..")
                     .join("..")
                     .join("..")
-                    .join("voice_input_stats.jsonl"),
+                    .join(STATS_FILE_NAME),
             );
         }
     }
@@ -242,9 +260,48 @@ fn read_events(path: &PathBuf) -> Vec<ParsedEvent> {
 
 #[cfg(test)]
 mod tests {
-    use super::clear_stats_paths;
+    use super::{clear_stats_paths, new_stats_file_path};
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn installed_app_creates_stats_beside_the_executable() {
+        // 回归：开机自启动拉起时工作目录是系统目录，此前新统计文件会落到那里而写入失败。
+        let path = new_stats_file_path(
+            false,
+            Some(PathBuf::from(
+                r"C:\Windows\System32\voice_input_stats.jsonl",
+            )),
+            Some(PathBuf::from(r"C:\Users\Alice\AppData\Local\VoxType")),
+        );
+
+        assert_eq!(
+            path,
+            PathBuf::from(r"C:\Users\Alice\AppData\Local\VoxType\voice_input_stats.jsonl")
+        );
+    }
+
+    #[test]
+    fn development_run_keeps_stats_in_the_working_directory() {
+        let path = new_stats_file_path(
+            true,
+            Some(PathBuf::from(r"C:\repo\src-tauri\voice_input_stats.jsonl")),
+            Some(PathBuf::from(r"C:\repo\src-tauri\target\debug")),
+        );
+
+        assert_eq!(
+            path,
+            PathBuf::from(r"C:\repo\src-tauri\voice_input_stats.jsonl")
+        );
+    }
+
+    #[test]
+    fn stats_path_still_resolves_when_no_directory_is_known() {
+        assert_eq!(
+            new_stats_file_path(false, None, None),
+            PathBuf::from("voice_input_stats.jsonl")
+        );
+    }
 
     struct TempStatsDir {
         dir: PathBuf,

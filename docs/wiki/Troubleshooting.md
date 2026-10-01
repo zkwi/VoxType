@@ -47,6 +47,14 @@ VoxType 是 Tauri 桌面应用，主窗口依赖 Microsoft Edge WebView2 Runtime
 Start-Process -Wait -Verb RunAs "C:\Temp\MicrosoftEdgeWebView2RuntimeInstallerX64.exe" -ArgumentList "/silent", "/install"
 ```
 
+## 开机后没有看到主窗口
+
+从 0.14.0 起，随 Windows 登录自动启动且语音识别已配置好时，VoxType 直接待在托盘，不再弹出主窗口。这是预期行为，语音输入照常可用。
+
+- 点击任务栏右侧的托盘图标即可打开主窗口；图标可能收在“显示隐藏的图标”里。
+- 再次从开始菜单启动 VoxType，也会唤起已在运行的主窗口。
+- 手动启动、尚未完成配置、或从托盘菜单点“重启程序”时，主窗口照常显示。
+
 ## 按 `Ctrl + Q` 没有反应
 
 可能原因：
@@ -125,13 +133,13 @@ Start-Process -Wait -Verb RunAs "C:\Temp\MicrosoftEdgeWebView2RuntimeInstallerX6
 
 ## 粘贴后原剪贴板没有完整恢复
 
-VoxType 会尽量恢复常见剪贴板格式，但图片、位图句柄、文件句柄、大体积私有格式可能无法完整备份。
+VoxType 会尽量恢复常见剪贴板格式。截图这类位图只要不超过快照上限（默认 8MB）就能恢复；超过上限的大图、文件句柄和大体积私有格式可能无法完整备份。
 
 建议：
 
 - 普通文本和常见富文本通常更稳定。
 - 大剪贴板内容容易触发快照上限。
-- 遇到不完整恢复时，VoxType 应给出提示，并保留识别文本可手动粘贴。
+- 原剪贴板完全无法恢复时，VoxType 会给出提示，并保留识别文本可手动粘贴；只是个别格式没能备份时不打扰你，只记在日志里。
 - 如果经常处理大图、大表格或文件列表，可临时关闭自动恢复或改用“仅复制到剪贴板”。
 
 ## 大模型润色没有生效
@@ -171,7 +179,7 @@ VoxType 会尽量恢复常见剪贴板格式，但图片、位图句柄、文件
 - 网络慢时再增加 LLM 超时，不要把超时当作加速手段。
 - 如果同一个模型在其他客户端更快，优先对比是否关闭了 thinking/reasoning、是否使用同一个 Base URL、是否同样没有设置过小的输出上限。
 
-参考：[LLM 润色模型测试记录](../audits/2026-05-28-llm-polishing-model-test.md) 已补充 2026-05-30 复测，说明不同服务商和思考参数对速度的影响。
+参考：[LLM 润色模型测试记录](https://github.com/zkwi/VoxType/blob/main/docs/audits/2026-05-28-llm-polishing-model-test.md) 已补充 2026-05-30 复测，说明不同服务商和思考参数对速度的影响。
 
 ## 技术路径或文件名被大模型改错
 

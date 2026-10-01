@@ -19,7 +19,7 @@ type Translate = (key: CopyKey, values?: Record<string, string>) => string;
 export function readCachedSetupStatus(isBrowser: boolean): SetupStatus | null {
   if (!isBrowser) return null;
   const params = new URLSearchParams(window.location.search);
-  if (params.has("overlay") || params.has("toast")) return null;
+  if (params.has("overlay")) return null;
   try {
     const raw = localStorage.getItem(setupStatusCacheKey);
     if (!raw) return null;
@@ -127,6 +127,20 @@ export function formatEnabledTriggers(config: AppConfig, hotkey: string, t: Tran
   if (config.triggers.middle_mouse_enabled) triggers.push(t("middleMouse"));
   if (config.triggers.right_alt_enabled) triggers.push(t("rightAlt"));
   return triggers.length > 0 ? triggers.join(" / ") : t("disabled");
+}
+
+/**
+ * 操作提示里"按 X 开始说话"的 X。
+ *
+ * 列出实际启用的触发方式，而不是固定写主快捷键：只开了右 Alt 或鼠标中键时，
+ * 提示用户去按一个已经关掉的快捷键只会让人困惑。一个都没开时退回主快捷键的写法。
+ */
+export function startTriggerHint(config: AppConfig, hotkey: string, t: Translate, formatHotkey: (value: string) => string) {
+  const anyTriggerEnabled =
+    config.triggers.hotkey_enabled ||
+    config.triggers.middle_mouse_enabled ||
+    config.triggers.right_alt_enabled;
+  return anyTriggerEnabled ? formatEnabledTriggers(config, hotkey, t, formatHotkey) : formatHotkey(hotkey);
 }
 
 export function buildSetupStatusItems(params: {

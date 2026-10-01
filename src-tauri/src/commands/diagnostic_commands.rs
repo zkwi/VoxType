@@ -204,7 +204,7 @@ pub(crate) async fn generate_hotword_candidates(
     hotword_generator::generate_candidates(config).await
 }
 
-fn enabled_trigger_summary(config: &config::AppConfig) -> String {
+pub(crate) fn enabled_trigger_summary(config: &config::AppConfig) -> String {
     let mut triggers = Vec::new();
     if config.triggers.hotkey_enabled {
         triggers.push(config.hotkey.to_uppercase());

@@ -1,6 +1,12 @@
-use chrono::Local;
+use chrono::{DateTime, Local};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
+
+// 录音、ASR、OCR、热键等线程会同时写日志；轮转和追加必须在进程内串行，否则两行会互相穿插。
+static WRITE_LOCK: Mutex<()> = Mutex::new(());
+// 日志路径在进程生命周期内不变；每行都重新探测会带来十几次无意义的文件系统查询。
+static LOG_PATH: OnceLock<PathBuf> = OnceLock::new();
 
 const MAX_LOG_BYTES: u64 = 2 * 1024 * 1024;
 const MAX_ARCHIVE_FILES: usize = 3;
@@ -21,6 +27,10 @@ const SENSITIVE_KEYS: &[&str] = &[
 ];
 
 pub fn log_path() -> PathBuf {
+    LOG_PATH.get_or_init(resolve_log_path).clone()
+}
+
+fn resolve_log_path() -> PathBuf {
     if is_development_layout() {
         return resolve_development_log_path();
     }
@@ -93,29 +103,50 @@ pub fn warn(message: impl AsRef<str>) {
 }
 
 fn write_line(level: &str, message: &str) {
-    let path = log_path();
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    rotate_if_needed(&path);
-    let Ok(mut file) = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)
-    else {
-        return;
-    };
-    let message = sanitize_message(message);
-    let _ = writeln!(
-        file,
-        "{} {} {}",
-        Local::now().format("%Y-%m-%d %H:%M:%S"),
-        level,
-        message
-    );
+    write_line_to(&log_path(), level, message);
 }
 
-fn rotate_if_needed(path: &PathBuf) {
+fn write_line_to(path: &Path, level: &str, message: &str) {
+    let message = sanitize_message(message);
+    // 写日志的线程 panic 不应让后续日志全部丢失，锁中毒时继续使用。
+    let _guard = WRITE_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    rotate_if_needed(path);
+    let Some(mut file) = open_for_append(path) else {
+        return;
+    };
+    // 时间戳在持锁后生成，保证文件内时间单调；整行一次写入，避免被其他写入切开。
+    let line = format_log_line(Local::now(), level, &message);
+    let _ = file.write_all(line.as_bytes());
+}
+
+fn open_for_append(path: &Path) -> Option<std::fs::File> {
+    let open = || {
+        std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+    };
+    if let Ok(file) = open() {
+        return Some(file);
+    }
+    // 首次写入或日志目录被清理后才需要建目录，正常路径不重复触发。
+    std::fs::create_dir_all(path.parent()?).ok()?;
+    open().ok()
+}
+
+/// 毫秒级时间戳用于还原"停止录音 → 最终包 → 润色 → 粘贴"各阶段耗时，秒级精度无法区分。
+fn format_log_line(now: DateTime<Local>, level: &str, message: &str) -> String {
+    format!(
+        "{} {} {}\n",
+        now.format("%Y-%m-%d %H:%M:%S%.3f"),
+        level,
+        message
+    )
+}
+
+fn rotate_if_needed(path: &Path) {
     let Ok(metadata) = std::fs::metadata(path) else {
         return;
     };
@@ -306,8 +337,104 @@ fn is_path_boundary(next: Option<char>) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{installed_log_path_from_localappdata, redact_path_with_profile, sanitize_message};
+    use super::{
+        archive_path, format_log_line, installed_log_path_from_localappdata,
+        redact_path_with_profile, sanitize_message, write_line_to, MAX_LOG_BYTES,
+    };
+    use chrono::{Local, TimeZone};
     use std::path::{Path, PathBuf};
+
+    struct TempLogDir {
+        dir: PathBuf,
+    }
+
+    impl TempLogDir {
+        fn new(name: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!(
+                "voxtype-app-log-test-{}-{}",
+                std::process::id(),
+                name
+            ));
+            let _ = std::fs::remove_dir_all(&dir);
+            Self { dir }
+        }
+
+        fn log_path(&self) -> PathBuf {
+            self.dir.join("logs").join("voice_input.log")
+        }
+    }
+
+    impl Drop for TempLogDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.dir);
+        }
+    }
+
+    #[test]
+    fn log_line_carries_millisecond_timestamp_and_one_newline() {
+        let now = Local
+            .with_ymd_and_hms(2026, 10, 1, 10, 19, 55)
+            .single()
+            .expect("valid local time")
+            + chrono::Duration::milliseconds(42);
+
+        assert_eq!(
+            format_log_line(now, "INFO", "ASR 首包已发送"),
+            "2026-10-01 10:19:55.042 INFO ASR 首包已发送\n"
+        );
+    }
+
+    #[test]
+    fn concurrent_writers_never_interleave_lines() {
+        // 回归：此前每行拆成多次写入且无锁，两个线程同时写会得到
+        // "2026-…2026-… INFOINFO …" 这样互相穿插的行。
+        let fixture = TempLogDir::new("concurrent");
+        let path = fixture.log_path();
+        let workers = (0..8)
+            .map(|worker| {
+                let path = path.clone();
+                std::thread::spawn(move || {
+                    for index in 0..100 {
+                        write_line_to(&path, "INFO", &format!("worker={worker} index={index}"));
+                    }
+                })
+            })
+            .collect::<Vec<_>>();
+        for worker in workers {
+            worker.join().expect("log writer thread");
+        }
+
+        let text = std::fs::read_to_string(&path).expect("log file");
+        let lines = text.lines().collect::<Vec<_>>();
+        assert_eq!(lines.len(), 800);
+        for line in lines {
+            let (timestamp, rest) = line.split_at(23);
+            assert_eq!(timestamp.matches(':').count(), 2, "line: {line}");
+            assert!(rest.starts_with(" INFO worker="), "line: {line}");
+            assert_eq!(line.matches("INFO").count(), 1, "line: {line}");
+        }
+    }
+
+    #[test]
+    fn creates_missing_log_directory_and_rotates_full_file() {
+        let fixture = TempLogDir::new("rotate");
+        let path = fixture.log_path();
+
+        write_line_to(&path, "INFO", "first");
+        assert!(path.exists());
+
+        std::fs::write(&path, vec![b'x'; MAX_LOG_BYTES as usize]).expect("fill log file");
+        write_line_to(&path, "WARNING", "after rotation");
+
+        let archived = archive_path(&path, 1);
+        assert_eq!(
+            std::fs::metadata(&archived).expect("archived log").len(),
+            MAX_LOG_BYTES
+        );
+        let current = std::fs::read_to_string(&path).expect("current log");
+        assert!(current.ends_with(" WARNING after rotation\n"));
+        assert_eq!(current.lines().count(), 1);
+    }
 
     #[test]
     fn redacts_common_secret_shapes() {

@@ -196,6 +196,7 @@ Privacy and stability:
 - The Options-page OCR test preview can be cleared immediately and is cleared automatically when the window is hidden, the app exits, or a new recording starts.
 - When included in LLM polishing, OCR is trimmed, deduplicated, budget-capped, and appended as a separate reference-information block that is explicitly marked as not text to polish or user instructions.
 - Failure or timeout is skipped automatically and does not block recording, ASR, polishing, clipboard, or paste.
+- An OCR result that arrives after the first-packet wait is too late for ASR, but it is still used as a reference for LLM polishing with no extra waiting.
 - Switch to current-window-only or disable it in Options when the screen contains sensitive content; Privacy & local data can jump back to that setting through Manage settings.
 
 ## 11. Privacy & Local Data
@@ -249,6 +250,8 @@ Tray:
 Startup:
 
 - Can be enabled from Options.
+- When Windows starts VoxType at sign-in and speech recognition is already configured, it stays in the tray without opening the main window. Click the tray icon to open it.
+- Launching it manually, or starting before setup is complete, still shows the main window.
 
 Updates:
 

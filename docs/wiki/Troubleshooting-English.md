@@ -47,6 +47,14 @@ You can also run this from an administrator PowerShell:
 Start-Process -Wait -Verb RunAs "C:\Temp\MicrosoftEdgeWebView2RuntimeInstallerX64.exe" -ArgumentList "/silent", "/install"
 ```
 
+## No Main Window After Signing In
+
+Since 0.14.0, when VoxType is launched at Windows sign-in and speech recognition is already configured, it stays in the system tray instead of opening the main window. This is expected, and dictation works as usual.
+
+- Click the tray icon at the right end of the taskbar to open the main window. The icon may be under "Show hidden icons".
+- Launching VoxType again from the Start menu also brings up the running main window.
+- Launching manually, starting before setup is complete, or choosing "Restart app" from the tray menu still shows the main window.
+
 ## `Ctrl + Q` Does Nothing
 
 Possible causes:
@@ -125,13 +133,13 @@ Fix:
 
 ## Previous Clipboard Was Not Fully Restored
 
-VoxType tries to restore common clipboard formats. Images, bitmap handles, file handles, large private formats, or very large clipboard content may not be fully backed up.
+VoxType tries to restore common clipboard formats. Bitmaps such as screenshots are restored as long as they fit within the snapshot limit (8 MB by default); larger images, file handles and large private formats may not be fully backed up.
 
 Suggestions:
 
 - Plain text and common rich text are usually more stable.
 - Large clipboard content may hit the snapshot size limit.
-- If restore is partial, VoxType should keep the recognized text available and show a warning.
+- When the previous clipboard cannot be restored at all, VoxType shows a notice and keeps the recognized text available. When only some formats could not be backed up, it stays quiet and only writes a log entry.
 - If you often handle large images, tables, or file lists, temporarily disable clipboard restore or use clipboard-only output.
 
 ## LLM Polishing Does Not Run
@@ -171,7 +179,7 @@ Try:
 - Increase timeout only for slow networks or models; timeout does not make polishing faster.
 - If the same model is faster in another client, compare whether thinking/reasoning is disabled, whether the Base URL is the same, and whether that client uses a small output limit.
 
-See [LLM polishing model test](../audits/2026-05-28-llm-polishing-model-test.md), which now includes a 2026-05-30 retest showing how providers and thinking parameters affect latency.
+See [LLM polishing model test](https://github.com/zkwi/VoxType/blob/main/docs/audits/2026-05-28-llm-polishing-model-test.md), which now includes a 2026-05-30 retest showing how providers and thinking parameters affect latency.
 
 ## Technical Paths or Filenames Are Rewritten
 

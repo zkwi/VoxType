@@ -30,6 +30,5 @@ export function settingsPanelForField(field: string) {
   if (field.startsWith("ui.")) return "settings-overlay";
   if (field.startsWith("startup.") || field === "tray.close_behavior") return "settings-window";
   if (field.startsWith("update.")) return "settings-update";
-  if (field === "tray.show_startup_message" || field === "tray.startup_message_timeout_ms") return "settings-overlay";
   return "settings-output";
 }

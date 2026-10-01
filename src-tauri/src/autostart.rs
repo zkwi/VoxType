@@ -6,6 +6,12 @@ const APP_NAME: &str = "VoxType";
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 pub fn apply(config: &StartupConfig) -> Result<(), String> {
+    // 开发版和安装版共用同一个注册表启动项。开发运行时不去动它，
+    // 否则调试用的配置会把已安装版本的开机自启动关掉，或把启动项指向调试产物。
+    if crate::config::is_development_layout() {
+        app_log::info("开发布局下不同步开机自启动注册表项。");
+        return Ok(());
+    }
     if config.launch_on_startup {
         enable()
     } else {
@@ -13,10 +19,21 @@ pub fn apply(config: &StartupConfig) -> Result<(), String> {
     }
 }
 
+/// 写入注册表 Run 项的启动命令。
+///
+/// 带上自启动参数，程序才能区分"系统登录时拉起"和"用户手动打开"：前者在配置就绪时直接待在托盘。
+fn startup_command(exe: &std::path::Path) -> String {
+    format!(
+        "\"{}\" {}",
+        exe.display(),
+        crate::main_window::AUTOSTART_ARG
+    )
+}
+
 #[cfg(windows)]
 fn enable() -> Result<(), String> {
     let exe = std::env::current_exe().map_err(|err| format!("获取程序路径失败: {}", err))?;
-    let command = format!("\"{}\"", exe.display());
+    let command = startup_command(&exe);
     let output = reg_command()
         .args([
             "add",
@@ -98,4 +115,19 @@ fn enable() -> Result<(), String> {
 #[cfg(not(windows))]
 fn disable() -> Result<(), String> {
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::startup_command;
+    use std::path::Path;
+
+    #[test]
+    fn startup_command_quotes_the_path_and_marks_the_autostart_launch() {
+        // 安装路径可能带空格，必须加引号；参数放在引号外，系统才会把它当作参数传给程序。
+        assert_eq!(
+            startup_command(Path::new(r"C:\Program Files\VoxType\voxtype-desktop.exe")),
+            r#""C:\Program Files\VoxType\voxtype-desktop.exe" --autostart"#
+        );
+    }
 }

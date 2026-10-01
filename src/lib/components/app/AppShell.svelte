@@ -23,6 +23,7 @@
   type Props = {
     children?: Snippet;
     uiCompact: boolean;
+    windowHidden: boolean;
     selectedSection: Section;
     language: Language;
     recording: boolean;
@@ -32,10 +33,9 @@
     inputStatusLabel: string;
     inputStatusDesc: string;
     micBars: number[];
-    snapshotHotkey: string;
+    startTriggerText: string;
     requiresAsrAuth: boolean;
     t: Translate;
-    formatHotkey: (value: string) => string;
     micStatusText: () => string;
     sidebarMicStatusText: () => string;
     micBarHeight: (index: number) => string;
@@ -52,6 +52,7 @@
   let {
     children,
     uiCompact,
+    windowHidden,
     selectedSection,
     language,
     recording,
@@ -61,10 +62,9 @@
     inputStatusLabel,
     inputStatusDesc,
     micBars,
-    snapshotHotkey,
+    startTriggerText,
     requiresAsrAuth,
     t,
-    formatHotkey,
     micStatusText,
     sidebarMicStatusText,
     micBarHeight,
@@ -104,7 +104,7 @@
   }
 </script>
 
-<div class:ui-compact={uiCompact} class="app-frame">
+<div class:ui-compact={uiCompact} class:window-hidden={windowHidden} class="app-frame">
   <header class="window-titlebar" data-tauri-drag-region>
     <div class="window-title" data-tauri-drag-region>
       <span class="window-title-mark" data-tauri-drag-region>
@@ -192,7 +192,9 @@
             {/each}
           {/if}
         </div>
-        <div class="shortcut-line">{t("sidebarShortcut", { hotkey: formatHotkey(snapshotHotkey) })}</div>
+        <div class="shortcut-line" title={t("sidebarShortcut", { hotkey: startTriggerText })}>
+          {t("sidebarShortcut", { hotkey: startTriggerText })}
+        </div>
       </section>
     </aside>
 

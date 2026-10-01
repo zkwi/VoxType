@@ -25,7 +25,8 @@ type NativeEventControllerOptions = {
   handleAudioDeviceFallback: (payload: AudioDeviceFallbackNotice) => void;
   showClosePrompt: (payload: CloseToTrayRequest) => void;
   showConfigExitGuard: (payload: ConfigExitGuardRequest) => void;
-  clearSensitivePreviews: () => void;
+  handleMainWindowHidden: () => void;
+  handleMainWindowShown: () => void;
   checkForUpdate: () => void;
 };
 
@@ -62,7 +63,10 @@ export function registerNativeEventController(options: NativeEventControllerOpti
       options.showConfigExitGuard(event.payload);
     }),
     listen("main-window-hidden", () => {
-      options.clearSensitivePreviews();
+      options.handleMainWindowHidden();
+    }),
+    listen("main-window-shown", () => {
+      options.handleMainWindowShown();
     }),
     listen("check-update-requested", () => {
       options.checkForUpdate();

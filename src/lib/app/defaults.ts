@@ -165,8 +165,6 @@ export const fallbackConfig: AppConfig = {
     text_color: "#ffffff",
   },
   tray: {
-    show_startup_message: true,
-    startup_message_timeout_ms: 6000,
     close_behavior: "close_to_tray",
     close_to_tray_notice_shown: false,
   },
@@ -175,7 +173,8 @@ export const fallbackConfig: AppConfig = {
 
 export const fallbackSnapshot: AppSnapshot = {
   hotkey: "ctrl+q",
-  current_version: "0.1.16",
+  // 真实版本号由后端快照提供；这里留空，界面在加载完成前显示占位符。
+  current_version: "",
 };
 
 export const emptyStats: StatsSnapshot = {

@@ -1,8 +1,9 @@
 use crate::{app_log, config::TypingConfig};
 use std::mem::size_of;
 use std::thread;
-use std::time::Duration;
-use windows::Win32::Foundation::{GlobalFree, HANDLE, HGLOBAL};
+use std::time::{Duration, Instant};
+use windows::core::{w, PCWSTR};
+use windows::Win32::Foundation::{GlobalFree, HANDLE, HGLOBAL, HWND};
 use windows::Win32::System::DataExchange::{
     CloseClipboard, CountClipboardFormats, EmptyClipboard, EnumClipboardFormats, GetClipboardData,
     IsClipboardFormatAvailable, OpenClipboard, SetClipboardData,
@@ -14,18 +15,32 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     keybd_event, MapVirtualKeyW, KEYBD_EVENT_FLAGS, KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP,
     MAPVK_VK_TO_VSC, VIRTUAL_KEY, VK_CONTROL, VK_INSERT, VK_SHIFT, VK_V,
 };
+use windows::Win32::UI::WindowsAndMessaging::{
+    CreateWindowExW, DestroyWindow, HWND_MESSAGE, WINDOW_EX_STYLE, WINDOW_STYLE,
+};
 
-const CF_UNICODETEXT: u32 = 13;
+const CF_TEXT: u32 = 1;
 const CF_BITMAP: u32 = 2;
 const CF_METAFILEPICT: u32 = 3;
+const CF_OEMTEXT: u32 = 7;
+const CF_DIB: u32 = 8;
 const CF_PALETTE: u32 = 9;
+const CF_UNICODETEXT: u32 = 13;
 const CF_ENHMETAFILE: u32 = 14;
+const CF_LOCALE: u32 = 16;
+const CF_DIBV5: u32 = 17;
 const CF_OWNERDISPLAY: u32 = 0x0080;
 const CF_DSPBITMAP: u32 = 0x0082;
 const CF_DSPMETAFILEPICT: u32 = 0x0083;
 const CF_DSPENHMETAFILE: u32 = 0x008E;
+const CF_GDIOBJFIRST: u32 = 0x0300;
+const CF_GDIOBJLAST: u32 = 0x03FF;
 const KEY_INTERVAL: Duration = Duration::from_millis(10);
 const MIN_RESTORE_DELAY_AFTER_PASTE_MS: u64 = 500;
+// 剪贴板被其他程序短暂占用时先做几次短间隔重试，再交给按配置的慢速重试。
+// 我们刚写完剪贴板，监听剪贴板的程序（远程桌面、剪贴板历史等）正好会来读，占用通常只有几毫秒。
+const CLIPBOARD_OPEN_QUICK_ATTEMPTS: u32 = 5;
+const CLIPBOARD_OPEN_QUICK_INTERVAL: Duration = Duration::from_millis(5);
 pub const WARNING_CLIPBOARD_PARTIAL_RESTORE: &str = "CLIPBOARD_PARTIAL_RESTORE";
 pub const WARNING_CLIPBOARD_NON_RESTORABLE: &str = "CLIPBOARD_NON_RESTORABLE";
 pub const WARNING_CLIPBOARD_RESTORE_FAILED: &str = "CLIPBOARD_RESTORE_FAILED";
@@ -59,7 +74,10 @@ enum ClipboardBackup {
 
 struct ClipboardSnapshot {
     formats: Vec<ClipboardFormatBackup>,
+    /// 恢复后确实拿不回来的格式数；系统能从已备份格式重新合成的不计入。
     skipped_formats: usize,
+    /// 没有备份、但恢复后系统会自动合成的格式数（例如备份了 DIB 时的 CF_BITMAP）。
+    resynthesized_formats: usize,
     total_bytes: usize,
 }
 
@@ -68,14 +86,70 @@ struct ClipboardFormatBackup {
     bytes: Vec<u8>,
 }
 
-struct ClipboardGuard;
+/// 打开剪贴板时使用的隐藏消息窗口。
+///
+/// `OpenClipboard(NULL)` 不是独占的：其他同样传 NULL 的线程可以在我们持有期间再次"打开成功"
+/// 并夺走剪贴板，此后本线程的 `GetClipboardData` 会以 `ERROR_CLIPBOARD_NOT_OPEN` 失败。
+/// 写入后立刻读回校验时最容易撞上：监听剪贴板的程序正好在这时来读我们刚写的内容。
+/// 带上属于本线程的窗口句柄后，系统才会真正拒绝并发打开，冲突表现为可重试的"拒绝访问"。
+struct ClipboardOwnerWindow(HWND);
+
+impl ClipboardOwnerWindow {
+    fn create() -> Option<Self> {
+        // 消息窗口不会出现在屏幕和任务栏上，也收不到广播消息，不需要消息循环。
+        unsafe {
+            CreateWindowExW(
+                WINDOW_EX_STYLE(0),
+                w!("STATIC"),
+                PCWSTR::null(),
+                WINDOW_STYLE(0),
+                0,
+                0,
+                0,
+                0,
+                Some(HWND_MESSAGE),
+                None,
+                None,
+                None,
+            )
+        }
+        .ok()
+        .map(Self)
+    }
+}
+
+impl Drop for ClipboardOwnerWindow {
+    fn drop(&mut self) {
+        // 写入的是真实数据而非延迟渲染，窗口销毁后剪贴板内容保留，只是不再有属主。
+        unsafe {
+            let _ = DestroyWindow(self.0);
+        }
+    }
+}
+
+struct ClipboardGuard {
+    // 字段在 `Drop::drop` 之后才析构：先关闭剪贴板，再销毁属主窗口。
+    _owner: Option<ClipboardOwnerWindow>,
+}
 
 impl ClipboardGuard {
     fn open() -> Result<Self, String> {
-        unsafe {
-            OpenClipboard(None).map_err(|err| format!("打开剪贴板失败: {}", err))?;
+        // 窗口创建失败时退回无属主打开，至少保持旧行为可用。
+        let owner = ClipboardOwnerWindow::create();
+        let owner_hwnd = owner.as_ref().map(|window| window.0);
+        let mut last_error = String::new();
+        for attempt in 0..CLIPBOARD_OPEN_QUICK_ATTEMPTS {
+            match unsafe { OpenClipboard(owner_hwnd) } {
+                Ok(()) => return Ok(Self { _owner: owner }),
+                Err(err) => {
+                    last_error = err.to_string();
+                    if attempt + 1 < CLIPBOARD_OPEN_QUICK_ATTEMPTS {
+                        thread::sleep(CLIPBOARD_OPEN_QUICK_INTERVAL);
+                    }
+                }
+            }
         }
-        Ok(Self)
+        Err(format!("打开剪贴板失败: {}", last_error))
     }
 }
 
@@ -199,21 +273,26 @@ pub fn output_text(
         };
     if let ClipboardBackup::Snapshot(snapshot) = &original_clipboard {
         app_log::info(format!(
-            "剪贴板快照完成: clipboard_snapshot_formats={}, clipboard_skipped_formats={}, clipboard_snapshot_bytes={}, clipboard_snapshot_max_bytes={}",
+            "剪贴板快照完成: clipboard_snapshot_formats={}, clipboard_skipped_formats={}, clipboard_resynthesized_formats={}, clipboard_snapshot_bytes={}, clipboard_snapshot_max_bytes={}",
             snapshot.formats.len(),
             snapshot.skipped_formats,
+            snapshot.resynthesized_formats,
             snapshot.total_bytes,
             typing.clipboard_snapshot_max_bytes
         ));
     }
 
-    write_clipboard_text_with_retry(text, typing)?;
+    let written_at = write_clipboard_text_with_retry(text, typing)?;
     if typing.paste_method == "clipboard_only" {
         app_log::info("文本已写入剪贴板: method=clipboard_only");
         on_output_sent();
         return Ok(OutputResult::ok());
     }
-    thread::sleep(Duration::from_millis(typing.paste_delay_ms));
+    // 粘贴延迟从文本写入剪贴板那一刻算起；读回校验遇到占用而重试的时间不再额外叠加。
+    thread::sleep(remaining_paste_delay(
+        typing.paste_delay_ms,
+        written_at.elapsed(),
+    ));
     ensure_clipboard_text_ready_for_paste(text, typing)?;
     match typing.paste_method.as_str() {
         "shift_insert" => send_shortcut(VK_SHIFT, VK_INSERT, true),
@@ -230,9 +309,10 @@ pub fn output_text(
         match write_clipboard_snapshot_with_retry(&original, typing) {
             Ok(()) => {
                 app_log::info(format!(
-                    "发送粘贴快捷键后已恢复原剪贴板: clipboard_snapshot_formats={}, clipboard_skipped_formats={}, clipboard_snapshot_bytes={}, clipboard_restore_delay_ms={}",
+                    "发送粘贴快捷键后已恢复原剪贴板: clipboard_snapshot_formats={}, clipboard_skipped_formats={}, clipboard_resynthesized_formats={}, clipboard_snapshot_bytes={}, clipboard_restore_delay_ms={}",
                     original.formats.len(),
                     original.skipped_formats,
+                    original.resynthesized_formats,
                     original.total_bytes,
                     typing.clipboard_restore_delay_ms
                 ));
@@ -240,7 +320,8 @@ pub fn output_text(
                     let warning =
                         "原剪贴板内容较大或包含特殊格式，已恢复可备份部分，部分格式未备份。"
                             .to_string();
-                    app_log::warn(&warning);
+                    // 静默提示：识别文本已正常粘贴，不打断用户，也不按告警级别记录。
+                    app_log::info(&warning);
                     Ok(OutputResult::warning(
                         warning,
                         WARNING_CLIPBOARD_PARTIAL_RESTORE,
@@ -279,14 +360,15 @@ pub fn is_quiet_output_warning_code(code: Option<&str>) -> bool {
 ///
 /// 用于自动粘贴失败后的兜底路径，避免在不确定目标窗口状态时继续模拟按键。
 pub fn copy_text_to_clipboard(text: &str) -> Result<(), String> {
-    write_clipboard_text_with_retry(text, &TypingConfig::default())
+    write_clipboard_text_with_retry(text, &TypingConfig::default()).map(|_| ())
 }
 
 fn read_clipboard_backup_with_retry(typing: &TypingConfig) -> Result<ClipboardBackup, String> {
     with_clipboard_retry(typing, || read_clipboard_backup(typing))
 }
 
-fn write_clipboard_text_with_retry(text: &str, typing: &TypingConfig) -> Result<(), String> {
+/// 写入并校验文本，返回文本实际写入剪贴板的时刻。
+fn write_clipboard_text_with_retry(text: &str, typing: &TypingConfig) -> Result<Instant, String> {
     with_clipboard_retry(typing, || write_clipboard_text_verified(text))
 }
 
@@ -327,16 +409,20 @@ fn ensure_clipboard_text_ready_for_paste(text: &str, typing: &TypingConfig) -> R
         Ok(actual) if clipboard_text_ready_for_paste(text, &actual) => Ok(()),
         Ok(_) => {
             app_log::warn("粘贴前剪贴板内容已变化，重新写入本次识别文本。");
-            write_clipboard_text_with_retry(text, typing)
+            write_clipboard_text_with_retry(text, typing).map(|_| ())
         }
         Err(err) => {
             app_log::warn(format!(
                 "粘贴前读取剪贴板失败，将重新写入本次识别文本: {}",
                 err
             ));
-            write_clipboard_text_with_retry(text, typing)
+            write_clipboard_text_with_retry(text, typing).map(|_| ())
         }
     }
+}
+
+fn remaining_paste_delay(paste_delay_ms: u64, elapsed_since_write: Duration) -> Duration {
+    Duration::from_millis(paste_delay_ms).saturating_sub(elapsed_since_write)
 }
 
 fn clipboard_text_ready_for_paste(expected: &str, actual: &str) -> bool {
@@ -350,49 +436,80 @@ fn read_clipboard_backup(typing: &TypingConfig) -> Result<ClipboardBackup, Strin
         return Ok(ClipboardBackup::Empty);
     }
     let mut formats = Vec::new();
-    let mut skipped_formats = 0;
+    let mut skipped_format_ids = Vec::new();
     let mut total_bytes = 0usize;
     let max_bytes = usize::try_from(typing.clipboard_snapshot_max_bytes).unwrap_or(usize::MAX);
+    let mut budget_exhausted = false;
     let mut format = 0;
     loop {
         format = unsafe { EnumClipboardFormats(format) };
         if format == 0 {
             break;
         }
-        if is_known_non_memory_clipboard_format(format) {
-            skipped_formats += 1;
+        // 额度用完后不再读取数据，但继续记下剩余格式，才能判断它们是否可由系统重新合成。
+        if budget_exhausted || is_known_non_memory_clipboard_format(format) {
+            skipped_format_ids.push(format);
             continue;
         }
-        let Some(size) = clipboard_format_size(format) else {
-            skipped_formats += 1;
+        let Some((memory, size)) = clipboard_format_memory(format) else {
+            skipped_format_ids.push(format);
             continue;
         };
         match clipboard_format_snapshot_action(total_bytes, size, max_bytes) {
-            ClipboardFormatSnapshotAction::TakeFormat => {
-                match read_clipboard_format_bytes(format) {
-                    Some(bytes) => {
-                        total_bytes += bytes.len();
-                        formats.push(ClipboardFormatBackup { format, bytes });
-                    }
-                    None => skipped_formats += 1,
+            ClipboardFormatSnapshotAction::TakeFormat => match copy_global_memory(memory, size) {
+                Some(bytes) => {
+                    total_bytes += bytes.len();
+                    formats.push(ClipboardFormatBackup { format, bytes });
                 }
-            }
-            ClipboardFormatSnapshotAction::SkipFormat => skipped_formats += 1,
+                None => skipped_format_ids.push(format),
+            },
+            ClipboardFormatSnapshotAction::SkipFormat => skipped_format_ids.push(format),
             ClipboardFormatSnapshotAction::StopSnapshot => {
-                skipped_formats += 1;
-                break;
+                skipped_format_ids.push(format);
+                budget_exhausted = true;
             }
         }
     }
 
     if formats.is_empty() {
-        Ok(ClipboardBackup::NonRestorable)
-    } else {
-        Ok(ClipboardBackup::Snapshot(ClipboardSnapshot {
-            formats,
-            skipped_formats,
-            total_bytes,
-        }))
+        return Ok(ClipboardBackup::NonRestorable);
+    }
+    let captured_format_ids = formats.iter().map(|item| item.format).collect::<Vec<_>>();
+    let resynthesized_formats = skipped_format_ids
+        .iter()
+        .filter(|format| is_resynthesized_after_restore(**format, &captured_format_ids))
+        .count();
+    Ok(ClipboardBackup::Snapshot(ClipboardSnapshot {
+        formats,
+        skipped_formats: skipped_format_ids.len() - resynthesized_formats,
+        resynthesized_formats,
+        total_bytes,
+    }))
+}
+
+/// 没有备份的格式里，哪些在恢复后会由系统从已备份格式自动合成，因而不算丢失。
+///
+/// Windows 会在位图族（CF_BITMAP / CF_DIB / CF_DIBV5，以及由它们派生的 CF_PALETTE）和
+/// 文本族（CF_TEXT / CF_OEMTEXT / CF_UNICODETEXT / CF_LOCALE）内部互相合成。
+/// 剪贴板里有截图时最常见：DIB 已备份，句柄型的 CF_BITMAP 没法按内存复制，但恢复后照样可用。
+/// 把它们算成"部分格式未备份"会让每次输入都带上一条并不成立的提示。
+///
+/// 文本族只认"已备份 Unicode 文本"这一个方向：从 ANSI 文本反推 Unicode 会丢掉代码页之外的字符，
+/// 那种情况仍按丢失计。
+///
+/// 位图族保持双向，这是已接受的差异：来源程序同时放了 CF_DIB 和带透明通道的 CF_DIBV5、
+/// 而后者因额度被跳过时，恢复后由系统合成的 V5 没有透明通道，这里不会计入丢失。
+/// API 分不出一份 V5 是程序放的还是系统合成的，按单向收紧会把截图场景的误报全部带回来。
+fn is_resynthesized_after_restore(skipped_format: u32, captured_formats: &[u32]) -> bool {
+    let captured = |candidates: &[u32]| {
+        candidates
+            .iter()
+            .any(|item| captured_formats.contains(item))
+    };
+    match skipped_format {
+        CF_BITMAP | CF_PALETTE | CF_DIB | CF_DIBV5 => captured(&[CF_DIB, CF_DIBV5]),
+        CF_TEXT | CF_OEMTEXT | CF_LOCALE => captured(&[CF_UNICODETEXT]),
+        _ => false,
     }
 }
 
@@ -408,7 +525,10 @@ fn read_clipboard_text() -> Result<String, String> {
     }
 }
 
-fn read_clipboard_format_bytes(format: u32) -> Option<Vec<u8>> {
+/// 取出某个格式的全局内存句柄和大小。
+///
+/// 每个格式只调用一次 `GetClipboardData`，大小和内容取自同一个句柄。
+fn clipboard_format_memory(format: u32) -> Option<(HGLOBAL, usize)> {
     let handle = unsafe { GetClipboardData(format) }.ok()?;
     if handle.is_invalid() {
         return None;
@@ -418,23 +538,12 @@ fn read_clipboard_format_bytes(format: u32) -> Option<Vec<u8>> {
     if size == 0 {
         return None;
     }
-    let locked = unsafe { LockedMemory::<u8>::lock(memory) }.ok()?;
-    let bytes = unsafe { std::slice::from_raw_parts(locked.as_ptr(), size) }.to_vec();
-    Some(bytes)
+    Some((memory, size))
 }
 
-fn clipboard_format_size(format: u32) -> Option<usize> {
-    unsafe {
-        let handle = GetClipboardData(format).ok()?;
-        if handle.is_invalid() {
-            return None;
-        }
-        let size = GlobalSize(HGLOBAL(handle.0));
-        if size == 0 {
-            return None;
-        }
-        Some(size)
-    }
+fn copy_global_memory(memory: HGLOBAL, size: usize) -> Option<Vec<u8>> {
+    let locked = unsafe { LockedMemory::<u8>::lock(memory) }.ok()?;
+    Some(unsafe { std::slice::from_raw_parts(locked.as_ptr(), size) }.to_vec())
 }
 
 fn clipboard_format_snapshot_action(
@@ -477,7 +586,7 @@ fn is_known_non_memory_clipboard_format(format: u32) -> bool {
             | CF_DSPBITMAP
             | CF_DSPMETAFILEPICT
             | CF_DSPENHMETAFILE
-    )
+    ) || (CF_GDIOBJFIRST..=CF_GDIOBJLAST).contains(&format)
 }
 
 fn write_clipboard_text(text: &str) -> Result<(), String> {
@@ -514,8 +623,9 @@ fn write_clipboard_snapshot(snapshot: &ClipboardSnapshot) -> Result<(), String> 
     }
 }
 
-fn write_clipboard_text_verified(text: &str) -> Result<(), String> {
+fn write_clipboard_text_verified(text: &str) -> Result<Instant, String> {
     write_clipboard_text(text)?;
+    let written_at = Instant::now();
     match clipboard_write_readback_verdict(text, read_clipboard_text())? {
         true => {
             app_log::info(format!(
@@ -527,7 +637,7 @@ fn write_clipboard_text_verified(text: &str) -> Result<(), String> {
             app_log::warn("剪贴板写入后读回校验失败，已接受写入结果继续输出。");
         }
     }
-    Ok(())
+    Ok(written_at)
 }
 
 fn clipboard_write_readback_verdict(
@@ -601,14 +711,21 @@ mod tests {
     use super::{
         clipboard_format_snapshot_action, clipboard_restore_delay, clipboard_text_ready_for_paste,
         clipboard_write_readback_verdict, effective_clipboard_restore_delay_ms,
-        is_known_non_memory_clipboard_format, is_quiet_output_warning_code, output_text,
-        ClipboardFormatSnapshotAction, LockedMemory, OwnedGlobalMemory,
-        MIN_RESTORE_DELAY_AFTER_PASTE_MS, WARNING_CLIPBOARD_NON_RESTORABLE,
+        is_known_non_memory_clipboard_format, is_quiet_output_warning_code,
+        is_resynthesized_after_restore, output_text, read_clipboard_backup_with_retry,
+        read_clipboard_text, remaining_paste_delay, write_clipboard_snapshot_with_retry,
+        write_clipboard_text_verified, ClipboardBackup, ClipboardFormatBackup,
+        ClipboardFormatSnapshotAction, ClipboardGuard, ClipboardSnapshot, LockedMemory,
+        OwnedGlobalMemory, CF_BITMAP, CF_DIB, CF_DIBV5, CF_ENHMETAFILE, CF_PALETTE, CF_TEXT,
+        CF_UNICODETEXT, MIN_RESTORE_DELAY_AFTER_PASTE_MS, WARNING_CLIPBOARD_NON_RESTORABLE,
         WARNING_CLIPBOARD_PARTIAL_RESTORE,
     };
     use crate::config::TypingConfig;
     use std::time::Duration;
     use windows::Win32::Foundation::GlobalFree;
+    use windows::Win32::System::DataExchange::{
+        CloseClipboard, EmptyClipboard, GetClipboardData, IsClipboardFormatAvailable, OpenClipboard,
+    };
 
     #[test]
     fn restore_delay_uses_independent_clipboard_restore_setting() {
@@ -719,6 +836,192 @@ mod tests {
         assert!(!is_known_non_memory_clipboard_format(13));
         assert!(!is_known_non_memory_clipboard_format(15));
         assert!(!is_known_non_memory_clipboard_format(49350));
+    }
+
+    #[test]
+    fn gdi_object_clipboard_formats_are_not_memory_snapshotted() {
+        // CF_GDIOBJFIRST..=CF_GDIOBJLAST 里放的是 GDI 对象句柄，不能当全局内存读取。
+        assert!(is_known_non_memory_clipboard_format(0x0300));
+        assert!(is_known_non_memory_clipboard_format(0x03FF));
+        assert!(!is_known_non_memory_clipboard_format(0x02FF));
+        assert!(!is_known_non_memory_clipboard_format(0x0400));
+    }
+
+    #[test]
+    fn formats_windows_resynthesizes_are_not_reported_as_lost() {
+        // 剪贴板里是截图：DIB 已按内存备份，句柄型的 CF_BITMAP/CF_PALETTE 以及
+        // 因额度没再读取的 CF_DIBV5，恢复后都能由系统从 DIB 重新合成。
+        for skipped in [CF_BITMAP, CF_PALETTE, CF_DIBV5] {
+            assert!(is_resynthesized_after_restore(skipped, &[CF_DIB]));
+        }
+        assert!(is_resynthesized_after_restore(CF_DIB, &[CF_DIBV5]));
+        assert!(is_resynthesized_after_restore(CF_TEXT, &[CF_UNICODETEXT]));
+    }
+
+    #[test]
+    fn formats_without_a_captured_source_still_count_as_lost() {
+        // 只备份了文本时，位图族拿不回来。
+        assert!(!is_resynthesized_after_restore(
+            CF_BITMAP,
+            &[CF_UNICODETEXT]
+        ));
+        // 图元文件互相合成的两种格式都是句柄，一个也备份不了。
+        assert!(!is_resynthesized_after_restore(CF_ENHMETAFILE, &[CF_DIB]));
+        // 从 ANSI 文本反推 Unicode 会丢字符，不能当作无损恢复。
+        assert!(!is_resynthesized_after_restore(CF_UNICODETEXT, &[CF_TEXT]));
+        // 应用私有的注册格式没有合成来源。
+        assert!(!is_resynthesized_after_restore(
+            49350,
+            &[CF_DIB, CF_UNICODETEXT]
+        ));
+    }
+
+    #[test]
+    fn paste_delay_counts_from_the_clipboard_write() {
+        assert_eq!(
+            remaining_paste_delay(120, Duration::from_millis(20)),
+            Duration::from_millis(100)
+        );
+        // 读回校验因剪贴板被占用而重试得比延迟还久时，不再额外等待。
+        assert_eq!(
+            remaining_paste_delay(120, Duration::from_millis(500)),
+            Duration::ZERO
+        );
+        assert_eq!(remaining_paste_delay(0, Duration::ZERO), Duration::ZERO);
+    }
+
+    /// 两条手工回归都要独占真实系统剪贴板。并行运行会互相覆盖，还可能把对方写入的测试内容
+    /// 当成"原内容"恢复回去，所以即使忘了加 `--test-threads=1` 也让它们串行。
+    static REAL_CLIPBOARD_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// 测试结束时把用户原来的剪贴板内容放回去；断言失败提前退出时同样生效。
+    struct RealClipboardRestore {
+        original: ClipboardBackup,
+        typing: TypingConfig,
+    }
+
+    impl Drop for RealClipboardRestore {
+        fn drop(&mut self) {
+            let restored = match &self.original {
+                ClipboardBackup::Snapshot(snapshot) => {
+                    write_clipboard_snapshot_with_retry(snapshot, &self.typing).is_ok()
+                }
+                _ => ClipboardGuard::open().is_ok_and(|_guard| unsafe { EmptyClipboard() }.is_ok()),
+            };
+            // 断言已经失败时不再叠加 panic，否则进程会直接中止、连失败信息都看不到。
+            if !restored && !std::thread::panicking() {
+                panic!("restore clipboard");
+            }
+        }
+    }
+
+    /// 记下当前剪贴板内容并返回负责恢复的守卫；内容无法完整恢复时返回 `None`，测试直接跳过。
+    fn take_over_real_clipboard(typing: &TypingConfig) -> Option<RealClipboardRestore> {
+        let original = read_clipboard_backup_with_retry(typing).expect("snapshot clipboard");
+        let fully_restorable = match &original {
+            ClipboardBackup::Empty => true,
+            ClipboardBackup::Snapshot(snapshot) => snapshot.skipped_formats == 0,
+            ClipboardBackup::NonRestorable => false,
+        };
+        if !fully_restorable {
+            eprintln!("skipped: 当前剪贴板内容无法完整恢复，不在其上运行测试。");
+            return None;
+        }
+        Some(RealClipboardRestore {
+            original,
+            typing: typing.clone(),
+        })
+    }
+
+    /// 手工回归：会短暂改写真实系统剪贴板（结束时恢复原内容），因此默认不运行。
+    ///
+    /// 运行：`cargo test --lib real_clipboard -- --ignored --nocapture --test-threads=1`
+    #[test]
+    #[ignore = "touches the real system clipboard; run manually"]
+    fn real_clipboard_open_is_exclusive_and_text_survives_owner_window() {
+        let _exclusive = REAL_CLIPBOARD_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let typing = TypingConfig::default();
+        let Some(_restore) = take_over_real_clipboard(&typing) else {
+            return;
+        };
+
+        let text = "VoxType 剪贴板回归 clipboard regression";
+        write_clipboard_text_verified(text).expect("write and verify text");
+        // 写入用的属主窗口此时已经销毁：内容必须还在。
+        assert_eq!(read_clipboard_text().expect("read text back"), text);
+
+        {
+            let _guard = ClipboardGuard::open().expect("open clipboard with owner window");
+            let opened_by_other_thread = std::thread::spawn(|| unsafe {
+                let opened = OpenClipboard(None).is_ok();
+                if opened {
+                    let _ = CloseClipboard();
+                }
+                opened
+            })
+            .join()
+            .expect("contending thread");
+            // 回归：用 NULL 打开时，这里会"打开成功"并夺走剪贴板，随后本线程读取报
+            // ERROR_CLIPBOARD_NOT_OPEN (0x8007058A)。
+            assert!(!opened_by_other_thread);
+            assert!(unsafe { GetClipboardData(CF_UNICODETEXT) }.is_ok());
+        }
+    }
+
+    /// 手工回归：验证"截图在剪贴板里"时快照不再误报丢失，且恢复后位图句柄格式仍可用。
+    ///
+    /// 运行：`cargo test --lib real_clipboard -- --ignored --nocapture --test-threads=1`
+    #[test]
+    #[ignore = "touches the real system clipboard; run manually"]
+    fn real_clipboard_image_snapshot_restores_bitmap_through_synthesis() {
+        let _exclusive = REAL_CLIPBOARD_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let typing = TypingConfig::default();
+        let Some(_restore) = take_over_real_clipboard(&typing) else {
+            return;
+        };
+
+        // 2x2 的 32 位 DIB：40 字节 BITMAPINFOHEADER + 16 字节像素。
+        let mut dib = Vec::new();
+        dib.extend_from_slice(&40u32.to_le_bytes());
+        dib.extend_from_slice(&2i32.to_le_bytes());
+        dib.extend_from_slice(&2i32.to_le_bytes());
+        dib.extend_from_slice(&1u16.to_le_bytes());
+        dib.extend_from_slice(&32u16.to_le_bytes());
+        dib.extend_from_slice(&0u32.to_le_bytes());
+        dib.extend_from_slice(&16u32.to_le_bytes());
+        dib.extend_from_slice(&[0u8; 16]);
+        dib.extend_from_slice(&[0x7Fu8; 16]);
+        let image_only = ClipboardSnapshot {
+            total_bytes: dib.len(),
+            formats: vec![ClipboardFormatBackup {
+                format: CF_DIB,
+                bytes: dib,
+            }],
+            skipped_formats: 0,
+            resynthesized_formats: 0,
+        };
+        write_clipboard_snapshot_with_retry(&image_only, &typing).expect("put image on clipboard");
+
+        let ClipboardBackup::Snapshot(snapshot) =
+            read_clipboard_backup_with_retry(&typing).expect("snapshot image clipboard")
+        else {
+            panic!("image clipboard should produce a snapshot");
+        };
+        // 系统枚举时会带上合成出来的 CF_BITMAP；它是句柄，备份不了，但不应算丢失。
+        assert!(snapshot.formats.iter().any(|item| item.format == CF_DIB));
+        assert!(snapshot.resynthesized_formats >= 1);
+        assert_eq!(snapshot.skipped_formats, 0);
+
+        write_clipboard_snapshot_with_retry(&snapshot, &typing).expect("restore image snapshot");
+        {
+            let _guard = ClipboardGuard::open().expect("open clipboard");
+            assert!(unsafe { IsClipboardFormatAvailable(CF_BITMAP) }.is_ok());
+            assert!(unsafe { GetClipboardData(CF_BITMAP) }.is_ok());
+        }
     }
 
     #[test]

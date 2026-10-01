@@ -13,9 +13,27 @@ updates:
       - dependencies
       - javascript
     groups:
+      # Tauri 的 npm 包和 Rust crate 必须同主次版本，否则 `tauri build` 直接报版本不匹配。
+      # 次版本升级时本组和 cargo 那边的 tauri 组单独都过不了 CI，需要手工合成一个 PR，
+      # 并做窗口、托盘和热键的真机回归。单独成组是为了不连累下面的常规分组。
+      # 分组按书写顺序匹配，本组必须排在通配分组之前。
+      tauri:
+        patterns:
+          - "@tauri-apps/*"
+      # 只把兼容更新合成一个 PR。大版本各自单独提 PR：
+      # 混在一起时只要有一个装不上，整组（包括安全补丁）都会卡住。
       frontend-dependencies:
         patterns:
           - "*"
+        update-types:
+          - minor
+          - patch
+    ignore:
+      # @sveltejs/kit 的 peer 依赖还不支持 TypeScript 7，升级会让 npm ci 直接失败。
+      # 上游放开后删除本条。
+      - dependency-name: typescript
+        update-types:
+          - version-update:semver-major
 
   - package-ecosystem: cargo
     directory: /src-tauri
@@ -30,9 +48,37 @@ updates:
       - dependencies
       - rust
     groups:
+      # 与 npm 那边的 tauri 组成对，原因见上。
+      tauri:
+        patterns:
+          - "tauri"
+          - "tauri-*"
       rust-dependencies:
         patterns:
           - "*"
+        update-types:
+          - minor
+          - patch
+    ignore:
+      # 下面四个库的下一版都有破坏性改动，分别是麦克风采集、Win32 调用、ASR WebSocket
+      # 和配置读写的底座，需要逐个升级并做真机回归，见 issue #46。
+      # 0.x 版本的次版本号变化就是破坏性升级，所以连 minor 一起忽略；补丁更新照常接收。
+      # 完成某一项升级后删除对应条目。
+      - dependency-name: cpal
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
+      - dependency-name: windows
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
+      - dependency-name: tokio-tungstenite
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
+      - dependency-name: toml
+        update-types:
+          - version-update:semver-major
 
   - package-ecosystem: github-actions
     directory: /

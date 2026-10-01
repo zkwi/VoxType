@@ -375,10 +375,11 @@
           {#if fieldError("tray.close_behavior")}<small class="field-error">{fieldError("tray.close_behavior")}</small>{/if}
         </label>
       </div>
+      <p class="field-hint">{t("closeBehaviorHint")}</p>
       <div class="toggle-grid">
         <label class="check"><input type="checkbox" bind:checked={config.startup.launch_on_startup} />{t("launchOnStartup")}</label>
       </div>
-      <p class="field-hint">{t("closeBehaviorHint")}</p>
+      <p class="field-hint">{t("launchOnStartupHint")}</p>
     </div>
     <div id="settings-update" class="form-panel update-panel">
       <div class="section-heading"><h3>{t("updatesAndDiagnostics")}</h3><p>{t("updatesAndDiagnosticsDescription")}</p></div>

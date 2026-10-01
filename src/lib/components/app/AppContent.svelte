@@ -48,6 +48,7 @@
     lastAudioQualityDiagnostic: AudioQualityDiagnostic | null;
     sessionBusy: boolean;
     snapshotHotkey: string;
+    startTriggerText: string;
     chineseTypingCharsPerMinute: number;
     configExists: boolean;
     setupChecking: boolean;
@@ -177,6 +178,7 @@
     lastAudioQualityDiagnostic,
     sessionBusy,
     snapshotHotkey,
+    startTriggerText,
     chineseTypingCharsPerMinute,
     configExists,
     setupChecking,
@@ -308,6 +310,7 @@
     {onClearLastOutcome}
     {sessionBusy}
     {snapshotHotkey}
+    {startTriggerText}
     {chineseTypingCharsPerMinute}
     {formatHotkey}
     {formatNumber}
@@ -365,7 +368,7 @@
     {setupStatusItems}
     {setupWarnings}
     {setupWarningCount}
-    {snapshotHotkey}
+    {startTriggerText}
     {requiresAsrAuth}
     {testingAsr}
     {testingLlm}
@@ -376,7 +379,6 @@
     {fieldError}
     {setupRequiredMessage}
     {setupActionText}
-    {formatHotkey}
     {formatNumber}
     onScrollToSettingsPanel={onScrollToSettingsPanel}
     onOpenSetupGuide={onOpenSetupGuide}

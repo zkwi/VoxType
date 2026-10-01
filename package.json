@@ -1,6 +1,6 @@
 {
   "name": "voxtype-desktop",
-  "version": "0.13.1",
+  "version": "0.14.0",
   "description": "VoxType desktop speech input app built with Tauri, Rust, and Svelte",
   "type": "module",
   "scripts": {
@@ -18,6 +18,7 @@
     "scan:secrets": "node scripts/scan-secrets.mjs --git-visible",
     "scan:secrets:staged": "node scripts/scan-secrets.mjs --staged",
     "test:secrets": "node scripts/test-scan-secrets.mjs",
+    "wiki:publish": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/publish-wiki.ps1",
     "ai:check": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ai-check.ps1",
     "ai:release-check": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ai-release-check.ps1",
     "tauri": "tauri"

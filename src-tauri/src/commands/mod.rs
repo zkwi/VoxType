@@ -10,6 +10,8 @@ use serde::Serialize;
 pub(crate) struct AppSnapshot {
     pub(crate) hotkey: String,
     pub(crate) current_version: String,
+    /// 主窗口此刻是否显示；开机自启动时它可能一开始就在托盘里。
+    pub(crate) main_window_visible: bool,
 }
 
 #[derive(Debug, Serialize)]

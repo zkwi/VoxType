@@ -44,26 +44,10 @@
     background: transparent;
   }
 
-  :global(html[data-voxtype-mode="toast"]),
-  :global(body[data-voxtype-mode="toast"]),
-  :global(html:has(.toast-root)),
-  :global(body:has(.toast-root)) {
-    min-width: 0;
-    width: 100vw;
-    height: 100vh;
-    overflow: hidden !important;
-    background: transparent;
-    font-size: 14px;
-  }
-
   :global(body[data-voxtype-mode="overlay"]::-webkit-scrollbar),
   :global(body[data-voxtype-mode="overlay"] *::-webkit-scrollbar),
   :global(body:has(.overlay-root)::-webkit-scrollbar),
-  :global(body:has(.overlay-root) *::-webkit-scrollbar),
-  :global(body[data-voxtype-mode="toast"]::-webkit-scrollbar),
-  :global(body[data-voxtype-mode="toast"] *::-webkit-scrollbar),
-  :global(body:has(.toast-root)::-webkit-scrollbar),
-  :global(body:has(.toast-root) *::-webkit-scrollbar) {
+  :global(body:has(.overlay-root) *::-webkit-scrollbar) {
     width: 0;
     height: 0;
     display: none;
@@ -81,6 +65,14 @@
     cursor: pointer;
     border: 0;
     background: transparent;
+  }
+
+  /* 主窗口隐藏到托盘后 WebView 仍会照常渲染；录音状态的循环动画没人看，却让 GPU 一直合成。 */
+  :global(.window-hidden),
+  :global(.window-hidden *),
+  :global(.window-hidden *::before),
+  :global(.window-hidden *::after) {
+    animation-play-state: paused !important;
   }
 
   :global(:root) {
@@ -110,8 +102,8 @@
 
   :global(html[data-voxtype-mode="main"]),
   :global(body[data-voxtype-mode="main"]),
-  :global(html:not([data-voxtype-mode]):not(:has(.overlay-root)):not(:has(.toast-root))),
-  :global(body:not([data-voxtype-mode]):not(:has(.overlay-root)):not(:has(.toast-root))) {
+  :global(html:not([data-voxtype-mode]):not(:has(.overlay-root))),
+  :global(body:not([data-voxtype-mode]):not(:has(.overlay-root))) {
     background: var(--bg-page);
     font-family: "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "SF Pro Display", "Noto Sans CJK SC", sans-serif;
   }

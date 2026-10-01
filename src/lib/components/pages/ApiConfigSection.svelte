@@ -82,7 +82,7 @@
     setupStatusItems: SetupStatusItem[];
     setupWarnings: SetupStatusWarning[];
     setupWarningCount: number;
-    snapshotHotkey: string;
+    startTriggerText: string;
     requiresAsrAuth: boolean;
     testingAsr: boolean;
     testingLlm: boolean;
@@ -93,7 +93,6 @@
     fieldError: (field: string) => string;
     setupRequiredMessage: () => string;
     setupActionText: (action: string) => string;
-    formatHotkey: (value: string) => string;
     formatNumber: (value: number) => string;
     onScrollToSettingsPanel: (id: string) => void;
     onOpenSetupGuide: () => void;
@@ -114,7 +113,7 @@
     setupStatusItems,
     setupWarnings,
     setupWarningCount,
-    snapshotHotkey,
+    startTriggerText,
     requiresAsrAuth,
     testingAsr,
     testingLlm,
@@ -125,7 +124,6 @@
     fieldError,
     setupRequiredMessage,
     setupActionText,
-    formatHotkey,
     formatNumber,
     onScrollToSettingsPanel,
     onOpenSetupGuide,
@@ -184,7 +182,7 @@
             <span>3</span>
             <div>
               <strong>{t("apiOnboardingStepStartTitle")}</strong>
-              <small>{t("apiOnboardingStepStartDescription", { hotkey: formatHotkey(snapshotHotkey) })}</small>
+              <small>{t("apiOnboardingStepStartDescription", { hotkey: startTriggerText })}</small>
             </div>
           </li>
         </ol>
@@ -211,7 +209,7 @@
       checkingTitle: t("setupHealthCheckingTitle"),
       checkingDescription: t("setupHealthCheckingDescription"),
       readyTitle: t("setupHealthReadyTitle"),
-      readyDescription: t("setupHealthReadyDescription", { hotkey: formatHotkey(snapshotHotkey) }),
+      readyDescription: t("setupHealthReadyDescription", { hotkey: startTriggerText }),
       refresh: t("refreshSetup"),
       warningSummary: (count: number) => t("setupWarningSummary", { count: String(count) }),
       actionText: setupActionText,

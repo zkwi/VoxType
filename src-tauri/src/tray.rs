@@ -1,12 +1,27 @@
 use crate::session::SessionController;
 use crate::{app_log, config, main_window};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, TrayIconBuilder, TrayIconEvent};
 use tauri::{image::Image, AppHandle, Emitter, Manager};
 use tauri_plugin_opener::OpenerExt;
+use windows::core::BOOL;
+use windows::Win32::Foundation::{HWND, LPARAM};
+use windows::Win32::System::Threading::GetCurrentThreadId;
+use windows::Win32::UI::WindowsAndMessaging::{EnumThreadWindows, GetClassNameW, KillTimer};
 
 const TRAY_ID: &str = "voxtype";
+/// 托盘库 tray-icon 放托盘图标的隐藏窗口的窗口类名，以及它检测"鼠标离开图标"的定时器编号。
+/// 两者都是该库的内部常量（按 tray-icon 0.24.1 和 2026-10 的上游 dev 分支核对），
+/// 升级 Tauri 带动 tray-icon 变化后需要复核；对不上时下面的清理只是不起作用，不会误伤别的窗口。
+const TRAY_LIBRARY_WINDOW_CLASS: &str = "tray_icon_app";
+const TRAY_LIBRARY_LEAVE_TIMER_ID: usize = 6008;
+/// 托盘图标安静这么久之后才清理残留定时器：鼠标还在图标上移动时，库自己的离开检测照常工作。
+const TRAY_QUIET_BEFORE_TIMER_CLEANUP: Duration = Duration::from_secs(2);
+static TRAY_LAST_EVENT: Mutex<Option<Instant>> = Mutex::new(None);
+static TRAY_TIMER_CLEANUP_PENDING: AtomicBool = AtomicBool::new(false);
 const TRAY_ICON_SIZE: usize = 32;
 const TRAY_ICON_RGBA: &[u8] = include_bytes!("../icons/32x32.rgba");
 
@@ -62,16 +77,19 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), String> {
             EXIT_ID => request_exit(app),
             _ => {}
         })
-        .on_tray_icon_event(move |_tray, event| match event {
-            TrayIconEvent::Click {
-                button: MouseButton::Left,
-                ..
+        .on_tray_icon_event(move |_tray, event| {
+            schedule_tray_timer_cleanup(&app_for_event);
+            match event {
+                TrayIconEvent::Click {
+                    button: MouseButton::Left,
+                    ..
+                }
+                | TrayIconEvent::DoubleClick {
+                    button: MouseButton::Left,
+                    ..
+                } => show_main_window(&app_for_event),
+                _ => {}
             }
-            | TrayIconEvent::DoubleClick {
-                button: MouseButton::Left,
-                ..
-            } => show_main_window(&app_for_event),
-            _ => {}
         });
     let icon = normal_tray_icon();
     builder = builder.icon(icon);
@@ -164,20 +182,6 @@ pub fn set_input_active(app: &AppHandle, active: bool) {
     if let Err(err) = tray.set_tooltip(Some(tooltip)) {
         app_log::warn(format!("更新托盘提示失败: {}", err));
     }
-}
-
-pub fn show_startup_message() {
-    let Ok(loaded) = config::load_config() else {
-        return;
-    };
-    if !loaded.data.tray.show_startup_message {
-        return;
-    }
-    // Tauri v2 未内置 Windows 气泡通知；这里先写日志，后续可换成 notification 插件。
-    app_log::info(format!(
-        "声写已启动，按 {} / 右Alt / 鼠标中键 开始/停止语音输入",
-        loaded.data.hotkey.to_uppercase()
-    ));
 }
 
 fn tray_labels(language: &str) -> TrayLabels {
@@ -301,6 +305,7 @@ fn restart_app(app: &AppHandle) {
     crate::hotkey::stop_input_threads();
     let controller = app.state::<SessionController>().inner().clone();
     controller.abort_from_worker(app, "Application restarting.");
+    main_window::mark_user_restart();
     app.request_restart();
 }
 
@@ -329,6 +334,94 @@ fn request_update_check(app: &AppHandle) {
     if let Err(err) = app.emit(CHECK_UPDATE_EVENT, ()) {
         app_log::warn(format!("发送托盘检查更新事件失败: {}", err));
     }
+}
+
+/// 托盘图标安静一段时间后，替托盘库停掉它可能残留的"鼠标离开检测"定时器。
+///
+/// tray-icon 在鼠标滑过图标时启动一个 15ms 定时器，用来判断鼠标何时离开。它只在"最近一次移动之后
+/// 的第一个节拍"检查一次位置：如果那一刻鼠标还停在图标上（比如正在点击），之后鼠标没有在图标范围内
+/// 再移动就离开了，这个定时器就再也不会停。主线程因此每秒被唤醒约 64 次，常驻约 0.75% 单核，
+/// 直到进程退出；实测从托盘打开过主窗口之后应用就处于这个状态。排查记录见 0.14.0 发布审计。
+///
+/// 停掉它是安全的：定时器只在鼠标移动后的下一个节拍有用，鼠标再次滑过图标时库会重新启动它。
+fn schedule_tray_timer_cleanup(app: &AppHandle) {
+    if let Ok(mut last_event) = TRAY_LAST_EVENT.lock() {
+        *last_event = Some(Instant::now());
+    }
+    if TRAY_TIMER_CLEANUP_PENDING.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    let app = app.clone();
+    std::thread::spawn(move || {
+        loop {
+            let since_last_event = TRAY_LAST_EVENT
+                .lock()
+                .ok()
+                .and_then(|last_event| *last_event)
+                .map(|at| at.elapsed());
+            match remaining_tray_quiet_time(since_last_event, TRAY_QUIET_BEFORE_TIMER_CLEANUP) {
+                Some(wait) => std::thread::sleep(wait),
+                None => break,
+            }
+        }
+        TRAY_TIMER_CLEANUP_PENDING.store(false, Ordering::Release);
+        // 定时器属于创建托盘窗口的主线程，只能在主线程上停。
+        if let Err(err) = app.run_on_main_thread(|| {
+            let stopped = stop_timer_on_current_thread_windows(
+                TRAY_LIBRARY_WINDOW_CLASS,
+                TRAY_LIBRARY_LEAVE_TIMER_ID,
+            );
+            if stopped > 0 {
+                app_log::info("已停止托盘图标残留的鼠标离开检测定时器。");
+            }
+        }) {
+            app_log::warn(format!("清理托盘定时器失败: {}", err));
+        }
+    });
+}
+
+/// 距离"托盘图标已经安静够久"还差多久；`None` 表示现在就可以清理。
+fn remaining_tray_quiet_time(
+    since_last_event: Option<Duration>,
+    quiet: Duration,
+) -> Option<Duration> {
+    let elapsed = since_last_event?;
+    (elapsed < quiet).then(|| quiet - elapsed)
+}
+
+/// 在当前线程创建的顶层窗口里，找出窗口类名匹配的那些并停掉指定编号的定时器；返回实际停掉的个数。
+fn stop_timer_on_current_thread_windows(class_name: &str, timer_id: usize) -> usize {
+    struct Request<'a> {
+        class_name: &'a str,
+        timer_id: usize,
+        stopped: usize,
+    }
+
+    unsafe extern "system" fn visit(hwnd: HWND, lparam: LPARAM) -> BOOL {
+        let request = unsafe { &mut *(lparam.0 as *mut Request<'_>) };
+        let mut buffer = [0u16; 64];
+        let length = unsafe { GetClassNameW(hwnd, &mut buffer) }.max(0) as usize;
+        if String::from_utf16_lossy(&buffer[..length]) == request.class_name
+            && unsafe { KillTimer(Some(hwnd), request.timer_id) }.is_ok()
+        {
+            request.stopped += 1;
+        }
+        BOOL(1)
+    }
+
+    let mut request = Request {
+        class_name,
+        timer_id,
+        stopped: 0,
+    };
+    unsafe {
+        let _ = EnumThreadWindows(
+            GetCurrentThreadId(),
+            Some(visit),
+            LPARAM(&mut request as *mut Request<'_> as isize),
+        );
+    }
+    request.stopped
 }
 
 fn normal_tray_icon() -> Image<'static> {
@@ -367,7 +460,107 @@ fn paint_status_dot(rgba: &mut [u8]) {
 
 #[cfg(test)]
 mod tests {
-    use super::{tray_labels, tray_tooltip};
+    use super::{
+        remaining_tray_quiet_time, stop_timer_on_current_thread_windows, tray_labels, tray_tooltip,
+    };
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::{Duration, Instant};
+    use windows::core::w;
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        CreateWindowExW, DestroyWindow, DispatchMessageW, GetClassNameW, PeekMessageW, SetTimer,
+        MSG, PM_REMOVE, WINDOW_EX_STYLE, WINDOW_STYLE,
+    };
+
+    #[test]
+    fn tray_timer_cleanup_waits_for_the_icon_to_go_quiet() {
+        let quiet = Duration::from_secs(2);
+        // 刚收到过托盘事件：等满剩下的时间再清理。
+        assert_eq!(
+            remaining_tray_quiet_time(Some(Duration::from_millis(500)), quiet),
+            Some(Duration::from_millis(1500))
+        );
+        assert_eq!(remaining_tray_quiet_time(Some(quiet), quiet), None);
+        assert_eq!(
+            remaining_tray_quiet_time(Some(Duration::from_secs(5)), quiet),
+            None
+        );
+        assert_eq!(remaining_tray_quiet_time(None, quiet), None);
+    }
+
+    static TEST_TIMER_TICKS: AtomicUsize = AtomicUsize::new(0);
+
+    unsafe extern "system" fn count_tick(_: HWND, _: u32, _: usize, _: u32) {
+        TEST_TIMER_TICKS.fetch_add(1, Ordering::SeqCst);
+    }
+
+    fn pump_messages_for(duration: Duration) {
+        let deadline = Instant::now() + duration;
+        let mut message = MSG::default();
+        while Instant::now() < deadline {
+            while unsafe { PeekMessageW(&mut message, None, 0, 0, PM_REMOVE) }.as_bool() {
+                unsafe { DispatchMessageW(&message) };
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+    }
+
+    #[test]
+    fn stops_a_running_timer_on_matching_windows_of_this_thread() {
+        const TIMER_ID: usize = 4242;
+        // 隐藏的顶层窗口，和托盘库的托盘窗口是同一种形态（不是 message-only，线程窗口枚举能找到）。
+        let hwnd = unsafe {
+            CreateWindowExW(
+                WINDOW_EX_STYLE(0),
+                w!("STATIC"),
+                w!(""),
+                WINDOW_STYLE(0),
+                0,
+                0,
+                0,
+                0,
+                None,
+                None,
+                None,
+                None,
+            )
+        }
+        .expect("create hidden window");
+        let mut buffer = [0u16; 64];
+        let length = unsafe { GetClassNameW(hwnd, &mut buffer) } as usize;
+        let class_name = String::from_utf16_lossy(&buffer[..length]);
+
+        assert_ne!(
+            unsafe { SetTimer(Some(hwnd), TIMER_ID, 15, Some(count_tick)) },
+            0
+        );
+        pump_messages_for(Duration::from_millis(150));
+        assert!(
+            TEST_TIMER_TICKS.load(Ordering::SeqCst) > 0,
+            "timer should be ticking before the cleanup"
+        );
+
+        // 窗口类名对不上的窗口不受影响。
+        assert_eq!(
+            stop_timer_on_current_thread_windows("no_such_class", TIMER_ID),
+            0
+        );
+        assert_eq!(
+            stop_timer_on_current_thread_windows(&class_name, TIMER_ID),
+            1
+        );
+
+        TEST_TIMER_TICKS.store(0, Ordering::SeqCst);
+        pump_messages_for(Duration::from_millis(150));
+        assert_eq!(TEST_TIMER_TICKS.load(Ordering::SeqCst), 0);
+        // 定时器已经不在时再清理一次，什么都不做。
+        assert_eq!(
+            stop_timer_on_current_thread_windows(&class_name, TIMER_ID),
+            0
+        );
+
+        unsafe { DestroyWindow(hwnd) }.expect("destroy window");
+    }
 
     #[test]
     fn tray_labels_follow_selected_language() {

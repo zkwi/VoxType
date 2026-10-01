@@ -68,6 +68,25 @@ By default, never write any of the following into logs, diagnostic reports, rele
 
 Statistics store non-body metrics only. Even when recent context and automatic hotword history are enabled, they may only enter their own local data files — never write them back into `config.toml`.
 
+## Clipboard and background cost
+
+Clipboard code lives only in `text_output.rs`. Keep two constraints intact:
+
+- The clipboard must be opened with an owner window that belongs to the calling thread; do not fall back to `OpenClipboard(NULL)`. A NULL open can be taken over by any other program that also passes NULL, which surfaces as "Thread does not have a clipboard open" on the next read.
+- Before reporting "some formats were not backed up", exclude formats that Windows re-synthesizes from a captured one. Otherwise every dictation reports a false warning whenever a screenshot is on the clipboard.
+
+Each has a manual regression test that rewrites the real system clipboard and restores it afterwards. They are ignored by default; run them after touching clipboard logic:
+
+```powershell
+cargo test --lib real_clipboard -- --ignored --nocapture --test-threads=1
+```
+
+VoxType lives in the tray, and a hidden WebView keeps running. When adding a timer, a poll, or a looping animation, make sure it stops while the window is hidden. To check background cost, look at the CPU-time delta of the app and its WebView processes; it should be close to zero when idle.
+
+Check the main process as well: look at per-thread CPU time and context switches per second; an idle main thread should show single digits. The `tray-icon` library's "mouse left the icon" timer has an upstream defect and may never stop, which shows up as the main thread sitting at over two hundred switches per second and about 0.75% of one core. `tray.rs` stops that timer once the tray icon has been quiet for 2 seconds and writes an info log line. The workaround depends on two internals of the library: the window class name `tray_icon_app` and the timer id `6008`. After a Tauri upgrade changes the `tray-icon` version, re-check both constants against the new source, and remove the workaround once upstream fixes the timer.
+
+Every log line carries a millisecond timestamp, so the time between two stages (for example "stop requested" to "paste shortcut sent") is the difference between two lines.
+
 ## Pre-release checks
 
 Day-to-day changes:
@@ -99,6 +118,12 @@ Release version numbers should reflect impact:
 - major: breaking compatibility or requiring users to relearn the core workflow.
 
 On release, keep `package.json`, `package-lock.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, `src-tauri/tauri.conf.json`, `CHANGELOG.md`, `docs/audits/`, and the current release-audit entry in `docs/README.md` in sync.
+
+The online GitHub Wiki is a separate git repository and is not updated by merges into the main repository, yet the setup guide the app opens on first launch is an online wiki page. After a release is merged, publish `docs/wiki/`; append `-- -DryRun` to preview the difference first. Wiki drafts must use absolute URLs when they reference other files in the repository: relative links stop working once published, and the governance check rejects them:
+
+```powershell
+npm run wiki:publish
+```
 
 ## Configuration sync, secrets scan, and rollback
 

@@ -3,8 +3,8 @@ use session::SessionController;
 use tauri::{AppHandle, State};
 
 #[tauri::command]
-pub(crate) fn get_overlay_text() -> overlay::OverlayText {
-    overlay::current_payload()
+pub(crate) fn get_overlay_text() -> overlay::OverlayTextSnapshot {
+    overlay::current_snapshot()
 }
 
 #[tauri::command]

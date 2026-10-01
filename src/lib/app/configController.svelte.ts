@@ -161,8 +161,8 @@ export function createConfigController(options: ConfigControllerOptions) {
     return options.getValidationErrors()[field] ?? "";
   }
 
-  function configSaveState(isOverlay: boolean, isToast: boolean): ConfigSaveState {
-    if (!options.getConfigLoaded() || !options.hasTauriApi() || isOverlay || isToast) return "idle";
+  function configSaveState(isOverlay: boolean): ConfigSaveState {
+    if (!options.getConfigLoaded() || !options.hasTauriApi() || isOverlay) return "idle";
     return resolveConfigSaveState({
       loaded: true,
       dirty: options.getSettingsDirty(),

@@ -30,6 +30,7 @@
 
 - 更新日志：[CHANGELOG.md](../CHANGELOG.md)
 - 发布审计记录：[docs/audits/](audits/)
+- 基于真实使用的精修与工程治理发布审计：[2026-10-01 VoxType 0.14.0 基于真实使用的精修与工程治理发布审计](audits/2026-10-01-release-0.14.0-usage-driven-polish-audit.md)
 - 审计整理与屏幕 OCR 缩放修复发布审计：[2026-09-16 VoxType 0.13.1 审计整理与屏幕 OCR 缩放修复发布审计](audits/2026-09-16-release-0.13.1-audit-cleanup-audit.md)
 - 输入延迟与豆包 API Key 接入发布审计：[2026-09-16 VoxType 0.13.0 输入延迟优化与豆包 API Key 接入发布审计](audits/2026-09-16-release-0.13.0-input-latency-and-api-key-audit.md)
 - serde_with 安全补丁发布审计：[2026-08-10 VoxType 0.12.1 serde_with 安全补丁发布审计](audits/2026-08-10-release-0.12.1-serde-with-security-audit.md)
@@ -71,7 +72,7 @@
 
 ## 同步规则
 
-- 用户可见行为变化：同步 README、英文 README、相关 Wiki 草稿和必要的线上 Wiki。
+- 用户可见行为变化：同步 README、英文 README、相关 Wiki 草稿和必要的线上 Wiki。线上 Wiki 不会随合并自动更新，发布后用 `npm run wiki:publish` 把 `docs/wiki/` 推上去。
 - 配置字段变化：同步 Rust 默认值、配置模板、前端设置项、三语言文案、README 和 Wiki 配置指南。
 - 排障流程变化：同步 SUPPORT、Troubleshooting 草稿和 README 中的关键入口。
 - 隐私、安全或日志脱敏变化：同步 SECURITY、README 和相关 Wiki 段落。
@@ -92,7 +93,7 @@ npm run ai:check
 npm run check:governance
 ```
 
-该检查会验证 `package.json`、两个 lockfile、Cargo 和 Tauri 版本号一致性，当前版本 CHANGELOG、发布审计与本文索引是否齐全，以及本地 Markdown 链接、截图引用、三语言 key 和 GitHub Wiki 镜像是否同步。
+该检查会验证 `package.json`、两个 lockfile、Cargo 和 Tauri 版本号一致性，当前版本 CHANGELOG、发布审计与本文索引是否齐全，以及本地 Markdown 链接、截图引用、三语言 key 和 GitHub Wiki 镜像是否同步；三语言文案键还必须在代码里有引用，界面改版后遗留的无用文案会被直接拦下。
 
 治理检查脚本自身的最小回归测试：
 

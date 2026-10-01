@@ -90,7 +90,6 @@ pub fn spawn_asr_worker(input: AsrWorkerInput) {
                 activity,
             })
             .await?;
-            let screen_context_text = screen_context.resolve().await;
             if text.trim().is_empty() {
                 return Ok::<llm_post_edit::PolishOutcome, String>(llm_post_edit::PolishOutcome {
                     text,
@@ -98,6 +97,9 @@ pub fn spawn_asr_worker(input: AsrWorkerInput) {
                 });
             }
             if llm_post_edit::should_polish(&config, &text) {
+                // 首包等待超时的 OCR 结果到这里通常已经返回，润色仍可拿来做参考。
+                // 只在确实要润色时才取：取用会记一条"已用于润色参考"的日志，不润色时不能记。
+                let screen_context_text = screen_context.resolve_for_post_edit().await;
                 Ok::<llm_post_edit::PolishOutcome, String>(
                     polish_with_delayed_status(
                         &config,
@@ -220,11 +222,11 @@ pub fn spawn_asr_worker(input: AsrWorkerInput) {
                             overlay::hide(&app);
                         }
                     }
-                    if output_warning.is_some() {
-                        app_log::warn(format!(
-                            "输出文本完成但存在提示: {}",
-                            output_warning.as_deref().unwrap_or_default()
-                        ));
+                    // 静默提示已由输出层记录；这里只把需要用户处理的提示记为告警。
+                    if should_hold_overlay {
+                        if let Some(warning) = output_warning.as_deref() {
+                            app_log::warn(format!("输出文本完成但存在提示: {}", warning));
+                        }
                     }
                     app_log::info(format!(
                         "ASR session finished: chars={}",

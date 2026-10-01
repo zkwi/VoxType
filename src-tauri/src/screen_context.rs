@@ -5,7 +5,7 @@ use std::{
     mem,
     sync::{
         mpsc::{self, Receiver, RecvTimeoutError},
-        Arc, Mutex,
+        Arc, Mutex, OnceLock,
     },
     thread,
     time::{Duration, Instant},
@@ -94,6 +94,15 @@ pub struct PendingScreenContext {
     receiver: Mutex<Option<ScreenContextReceiver>>,
     timeout_ms: u64,
     resolved: OnceCell<Option<String>>,
+    late: OnceLock<Option<String>>,
+}
+
+/// 首包阶段等待 OCR 的结果。
+enum ContextWait {
+    /// 在等待上限内有了结论；`None` 表示识别为空或失败。
+    Finished(Option<ScreenContextSnapshot>),
+    /// 等待上限已到但 OCR 还在跑，结果稍后仍可能到达。
+    TimedOut,
 }
 
 impl PendingScreenContext {
@@ -102,34 +111,76 @@ impl PendingScreenContext {
             receiver: Mutex::new(receiver),
             timeout_ms,
             resolved: OnceCell::new(),
+            late: OnceLock::new(),
         })
     }
 
+    /// ASR 首包使用：最多等待配置的上限，只等一次。
     pub async fn resolve(&self) -> Option<String> {
         self.resolved
             .get_or_init(|| async {
-                let receiver = self.receiver.lock().ok().and_then(|mut slot| slot.take())?;
+                let receiver = self.take_receiver()?;
                 let timeout_ms = self.timeout_ms;
                 // OCR 等待是阻塞的 recv_timeout，放到 blocking 线程，避免占住 ASR 的 runtime。
-                tokio::task::spawn_blocking(move || wait_for_context(Some(receiver), timeout_ms))
-                    .await
-                    .unwrap_or_default()
-                    .map(|snapshot| snapshot.text)
+                let (wait, receiver) = tokio::task::spawn_blocking(move || {
+                    let wait = wait_for_context(&receiver, timeout_ms);
+                    (wait, receiver)
+                })
+                .await
+                .ok()?;
+                match wait {
+                    ContextWait::Finished(snapshot) => snapshot.map(|snapshot| snapshot.text),
+                    ContextWait::TimedOut => {
+                        // 迟到的结果赶不上首包，但润色发生在说完话之后，留着接收端给它用。
+                        if let Ok(mut slot) = self.receiver.lock() {
+                            *slot = Some(receiver);
+                        }
+                        None
+                    }
+                }
             })
             .await
             .clone()
     }
+
+    /// LLM 润色使用：首包阶段拿到的文本直接复用；首包等待超时的，取此后已经到达的结果。
+    ///
+    /// 这里不做任何等待。大画幅截图的 OCR 常常只比等待上限慢一两百毫秒，
+    /// 而润色在几秒之后才开始，没有理由让它也丢掉这份参考。
+    pub async fn resolve_for_post_edit(&self) -> Option<String> {
+        if let Some(text) = self.resolve().await {
+            return Some(text);
+        }
+        self.late
+            .get_or_init(|| {
+                let receiver = self.take_receiver()?;
+                match receiver.try_recv() {
+                    Ok(Ok(snapshot)) if !snapshot.text.trim().is_empty() => {
+                        app_log::info(format!(
+                            "屏幕 OCR 迟到结果已用于润色参考: chars={}, elapsed_ms={}",
+                            snapshot.text.chars().count(),
+                            snapshot.elapsed_ms
+                        ));
+                        Some(snapshot.text)
+                    }
+                    _ => None,
+                }
+            })
+            .clone()
+    }
+
+    fn take_receiver(&self) -> Option<ScreenContextReceiver> {
+        self.receiver.lock().ok().and_then(|mut slot| slot.take())
+    }
 }
 
-pub fn wait_for_context(
-    receiver: Option<ScreenContextReceiver>,
-    timeout_ms: u64,
-) -> Option<ScreenContextSnapshot> {
-    let receiver = receiver?;
+fn wait_for_context(receiver: &ScreenContextReceiver, timeout_ms: u64) -> ContextWait {
     // 500ms 是近期实测的命中率/首字延迟折中：OCR 超时只跳过上下文，不应阻断录音或最终输出。
     // 维护依据见 docs/asr-quality-latency-guardrails.md。
     match receiver.recv_timeout(Duration::from_millis(timeout_ms.max(1))) {
-        Ok(Ok(snapshot)) if !snapshot.text.trim().is_empty() => Some(snapshot),
+        Ok(Ok(snapshot)) if !snapshot.text.trim().is_empty() => {
+            ContextWait::Finished(Some(snapshot))
+        }
         Ok(Ok(snapshot)) => {
             app_log::info(format!(
                 "屏幕 OCR 上下文为空，已跳过: elapsed_ms={}, language={}, image={}x{}",
@@ -138,19 +189,22 @@ pub fn wait_for_context(
                 snapshot.image_width,
                 snapshot.image_height
             ));
-            None
+            ContextWait::Finished(None)
         }
         Ok(Err(err)) => {
             app_log::warn(format!("屏幕 OCR 上下文不可用，已跳过: {}", err));
-            None
+            ContextWait::Finished(None)
         }
         Err(RecvTimeoutError::Timeout) => {
-            app_log::info(format!("屏幕 OCR 超过 {}ms 未返回，已跳过。", timeout_ms));
-            None
+            app_log::info(format!(
+                "屏幕 OCR 超过 {}ms 未返回，ASR 首包不带屏幕上下文。",
+                timeout_ms
+            ));
+            ContextWait::TimedOut
         }
         Err(RecvTimeoutError::Disconnected) => {
             app_log::warn("屏幕 OCR 线程提前结束，已跳过。");
-            None
+            ContextWait::Finished(None)
         }
     }
 }
@@ -685,11 +739,28 @@ mod tests {
         assert_eq!(text, "abc");
     }
 
+    fn snapshot_with_text(text: &str) -> ScreenContextSnapshot {
+        ScreenContextSnapshot {
+            text: text.to_string(),
+            elapsed_ms: 640,
+            selected_language: "zh-Hans-CN".to_string(),
+            available_languages: vec!["zh-Hans-CN".to_string()],
+            image_width: 3864,
+            image_height: 2100,
+        }
+    }
+
+    fn block_on<T>(future: impl std::future::Future<Output = T>) -> T {
+        tokio::runtime::Runtime::new()
+            .expect("test runtime")
+            .block_on(future)
+    }
+
     #[test]
     fn wait_for_context_times_out_without_result() {
         let (_tx, rx) = mpsc::channel::<Result<ScreenContextSnapshot, String>>();
 
-        assert!(wait_for_context(Some(rx), 1).is_none());
+        assert!(matches!(wait_for_context(&rx, 1), ContextWait::TimedOut));
     }
 
     #[test]
@@ -697,7 +768,72 @@ mod tests {
         let (tx, rx) = mpsc::channel();
         tx.send(Err("Windows OCR unavailable".to_string())).unwrap();
 
-        assert!(wait_for_context(Some(rx), 500).is_none());
+        assert!(matches!(
+            wait_for_context(&rx, 500),
+            ContextWait::Finished(None)
+        ));
+    }
+
+    #[test]
+    fn timely_result_is_shared_by_first_packet_and_post_edit() {
+        let (tx, rx) = mpsc::channel();
+        tx.send(Ok(snapshot_with_text("VoxType 设置页"))).unwrap();
+        let pending = PendingScreenContext::new(Some(rx), 500);
+
+        block_on(async {
+            assert_eq!(pending.resolve().await.as_deref(), Some("VoxType 设置页"));
+            assert_eq!(
+                pending.resolve_for_post_edit().await.as_deref(),
+                Some("VoxType 设置页")
+            );
+        });
+    }
+
+    #[test]
+    fn late_result_reaches_post_edit_without_changing_first_packet() {
+        // 回归：首包等待超时后接收端被直接丢弃，稍后到达的 OCR 结果连润色也用不上。
+        let (tx, rx) = mpsc::channel();
+        let pending = PendingScreenContext::new(Some(rx), 5);
+
+        block_on(async {
+            assert_eq!(pending.resolve().await, None);
+            tx.send(Ok(snapshot_with_text("迟到的屏幕文字"))).unwrap();
+
+            assert_eq!(
+                pending.resolve_for_post_edit().await.as_deref(),
+                Some("迟到的屏幕文字")
+            );
+            // 首包语义不变：超时就是不带上下文，不会因为结果迟到而回头改写。
+            assert_eq!(pending.resolve().await, None);
+            // 结果只取一次并缓存，重复取用得到同一份文本。
+            assert_eq!(
+                pending.resolve_for_post_edit().await.as_deref(),
+                Some("迟到的屏幕文字")
+            );
+        });
+    }
+
+    #[test]
+    fn post_edit_never_waits_for_unfinished_ocr() {
+        let (_tx, rx) = mpsc::channel::<Result<ScreenContextSnapshot, String>>();
+        let pending = PendingScreenContext::new(Some(rx), 5);
+
+        block_on(async {
+            assert_eq!(pending.resolve().await, None);
+            let started = Instant::now();
+            assert_eq!(pending.resolve_for_post_edit().await, None);
+            assert!(started.elapsed() < Duration::from_millis(200));
+        });
+    }
+
+    #[test]
+    fn disabled_screen_context_resolves_to_none_everywhere() {
+        let pending = PendingScreenContext::new(None, 500);
+
+        block_on(async {
+            assert_eq!(pending.resolve().await, None);
+            assert_eq!(pending.resolve_for_post_edit().await, None);
+        });
     }
 
     #[test]

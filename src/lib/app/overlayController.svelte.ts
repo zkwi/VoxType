@@ -12,6 +12,7 @@ import {
   overlayAvailableTextHeight as getOverlayAvailableTextHeight,
   resolveOverlayDisplayText,
 } from "$lib/utils/overlayLayout";
+import { createAdaptivePoller } from "$lib/utils/adaptivePoller";
 import { overlayStatusText } from "$lib/utils/statusCodes";
 import type { CopyKey } from "$lib/i18n";
 
@@ -38,21 +39,23 @@ export function createOverlayController(options: OverlayControllerOptions) {
   let fontSize = $state(20);
   let displayLines = $state<string[]>([""]);
   let textElement = $state<HTMLDivElement | null>(null);
-  let pollPending = false;
   let configPollPending = false;
   let lastConfigPollAt = 0;
   const configPollIntervalMs = 1000;
+  // 字幕和外观主要靠事件推送，轮询只是兜底：字幕窗可见时保持 250ms，
+  // 隐藏时降为 2 秒心跳，避免常驻托盘时每秒数次无意义的后端往返。
+  const poller = createAdaptivePoller({
+    poll: pollVisibleOverlay,
+    liveIntervalMs: 250,
+    idleIntervalMs: 2000,
+  });
 
-  async function refreshText() {
-    if (pollPending) return;
-    pollPending = true;
-    try {
-      const result = await options.safeInvoke<OverlayText>("get_overlay_text");
-      const nextText = result?.text ?? "";
-      if (nextText.trim()) applyPayload(result!);
-    } finally {
-      pollPending = false;
-    }
+  async function pollVisibleOverlay() {
+    const result = await options.safeInvoke<OverlayText>("get_overlay_text", undefined, true);
+    if (result?.text?.trim()) applyOverlayText(result);
+    const visible = result?.visible === true;
+    if (visible) void refreshConfig();
+    return visible;
   }
 
   async function refreshConfig(force = false) {
@@ -75,6 +78,8 @@ export function createOverlayController(options: OverlayControllerOptions) {
 
   function applyConfig(ui: AppConfig["ui"]) {
     if (!options.isOverlay()) return;
+    // 后端在显示字幕窗前会先推送一次外观，借这个事件立刻恢复快速轮询。
+    poller.wake();
     if (!uiConfigChanged(ui)) return;
     options.updateUi(ui);
     applyText(text, true);
@@ -109,6 +114,13 @@ export function createOverlayController(options: OverlayControllerOptions) {
   }
 
   function applyPayload(payload: OverlayText) {
+    // 字幕事件会广播给所有窗口；主窗口不渲染字幕，没必要跟着每条实时字幕做一遍排版测量。
+    if (!options.isOverlay()) return;
+    poller.wake();
+    applyOverlayText(payload);
+  }
+
+  function applyOverlayText(payload: OverlayText) {
     applyText(
       overlayStatusText(
         payload.status_code,
@@ -118,7 +130,13 @@ export function createOverlayController(options: OverlayControllerOptions) {
     );
   }
 
-  function dispose() {}
+  function startPolling() {
+    if (options.isOverlay()) poller.start();
+  }
+
+  function dispose() {
+    poller.stop();
+  }
 
   function textContentWidth() {
     if (!textElement) {
@@ -214,7 +232,7 @@ export function createOverlayController(options: OverlayControllerOptions) {
     get rootStyle() {
       return `--overlay-bg: ${backgroundColor()}; --overlay-bg-rgb: ${backgroundRgb()}; --overlay-opacity: ${opacity()}; --overlay-text: ${textColor()};`;
     },
-    refreshText,
+    startPolling,
     refreshConfig,
     refreshLayout,
     applyConfig,

@@ -108,6 +108,7 @@ import {
   pasteMethodLabel as getPasteMethodLabel,
   readCachedSetupStatus,
   setupActionText as getSetupActionText,
+  startTriggerHint as getStartTriggerHint,
   type SetupStatus,
 } from "$lib/utils/setupStatus";
 import { invoke } from "@tauri-apps/api/core";
@@ -152,11 +153,13 @@ export function createVoxTypeController() {
   let configLoadState = $state<ConfigLoadState>("not_loaded");
   let configLoaded = $derived(canEditLoadedConfig(configLoadState));
   let audioLevel = $state(0);
+  // 隐藏到托盘的主窗口仍会继续渲染；录音时的动画和电平条没人看，却会一直占用 CPU 和 GPU。
+  let mainWindowVisible = $state(true);
+  // 显示/隐藏事件的累计次数。快照在路上时如果来过事件，事件更新，快照里的可见性就作废。
+  let mainWindowVisibilityEvents = 0;
   const initialParams = browser ? new URLSearchParams(window.location.search) : new URLSearchParams();
   let audioDevices = $state<AudioDeviceInfo[]>([]);
   let isOverlay = $state(initialParams.has("overlay"));
-  let isToast = $state(initialParams.has("toast"));
-  let toastHotkey = $state(initialParams.get("hotkey") || "Ctrl + Q");
   const notifications = createNotificationController({
     t,
     setStatusMessage: (message) => {
@@ -216,7 +219,7 @@ export function createVoxTypeController() {
   const updates = createUpdateController({
     t,
     safeInvoke,
-    canAutoCheck: () => !isOverlay && !isToast && configExists && config.update.auto_check_on_startup,
+    canAutoCheck: () => !isOverlay && configExists && config.update.auto_check_on_startup,
     currentVersion: () => snapshot.current_version,
     getStatusMessage: () => statusMessage,
     setStatusMessage: (message) => {
@@ -282,7 +285,6 @@ export function createVoxTypeController() {
       configLoaded &&
       hotkeyCapture.isIdle &&
       !isOverlay &&
-      !isToast &&
       hasTauriApi(),
     logFrontendError,
     onConfigSaved: (loaded) => {
@@ -295,7 +297,7 @@ export function createVoxTypeController() {
     safeInvoke,
     retryFailedSave: configController.retryFailedSave,
     discardUnsavedChanges: configController.discardUnsavedChanges,
-    onHidden: clearSensitivePreviews,
+    onHidden: handleMainWindowHidden,
   });
   const setup = createSetupController({
     t,
@@ -415,8 +417,6 @@ export function createVoxTypeController() {
     document.getElementById("boot-fallback")?.remove();
     const params = new URLSearchParams(window.location.search);
     isOverlay = params.has("overlay");
-    isToast = params.has("toast");
-    toastHotkey = params.get("hotkey") || toastHotkey;
     applyDocumentMode();
     refreshMainDensity();
     window.addEventListener("resize", refreshMainDensity);
@@ -430,15 +430,11 @@ export function createVoxTypeController() {
       syncTrayLanguage(savedLanguage);
     }
     void bootstrapApp();
-    let overlayPoll: number | undefined;
     if (isOverlay) {
       overlay.applyText("", true);
       void overlay.refreshConfig(true);
       window.addEventListener("resize", overlay.refreshLayout);
-      overlayPoll = window.setInterval(() => {
-        void overlay.refreshText();
-        void overlay.refreshConfig();
-      }, 250);
+      overlay.startPolling();
     }
     let unlisteners: ReturnType<typeof registerNativeEventController> = [];
     if (hasTauriApi()) {
@@ -452,12 +448,14 @@ export function createVoxTypeController() {
           overlay.applyConfig(payload.ui);
         },
         applyStats: (payload) => {
-          if (!isOverlay && !isToast) {
+          if (!isOverlay) {
             stats.apply(payload);
             void autoHotwords.refreshStatus();
           }
         },
         applyAudioLevel: (payload) => {
+          // 主窗口在托盘里时没人看电平条，跳过更新，避免隐藏的窗口在录音期间持续重绘。
+          if (!isOverlay && !mainWindowVisible) return;
           audioLevel = clampAudioLevel(payload.level);
         },
         applyAudioQuality: (payload) => {
@@ -469,7 +467,8 @@ export function createVoxTypeController() {
         },
         showClosePrompt: windows.showClosePrompt,
         showConfigExitGuard: windows.showSaveFailurePrompt,
-        clearSensitivePreviews,
+        handleMainWindowHidden,
+        handleMainWindowShown,
         checkForUpdate: () => {
           void updates.check(true);
         },
@@ -477,7 +476,6 @@ export function createVoxTypeController() {
       logFrontendEvent(`listeners registered mode=${frontendMode()}`);
     }
     return () => {
-      if (overlayPoll !== undefined) window.clearInterval(overlayPoll);
       notifications.dispose();
       if (succeededIdleTimer !== undefined) window.clearTimeout(succeededIdleTimer);
       configController.dispose();
@@ -498,7 +496,6 @@ export function createVoxTypeController() {
       configLoaded &&
       hotkeyCapture.isIdle &&
       !isOverlay &&
-      !isToast &&
       hasTauriApi();
 
     if (shouldSave) {
@@ -509,7 +506,7 @@ export function createVoxTypeController() {
   });
 
   $effect(() => {
-    if (isOverlay || isToast || !hasTauriApi()) return;
+    if (isOverlay || !hasTauriApi()) return;
     const active = shouldProtectUnsavedChanges(settingsDirty, configController.lastSaveError);
     void safeInvoke<void>("set_config_exit_guard", { active }, true);
   });
@@ -521,7 +518,7 @@ export function createVoxTypeController() {
     configController.scheduleAutoSaveConfig();
   }
   function refreshMainDensity() {
-    if (isOverlay || isToast) {
+    if (isOverlay) {
       uiCompact = false;
       return;
     }
@@ -543,7 +540,7 @@ export function createVoxTypeController() {
     }
   }
   function frontendMode() {
-    return getFrontendMode(isOverlay, isToast);
+    return getFrontendMode(isOverlay);
   }
   function applyDocumentMode() {
     const mode = frontendMode();
@@ -604,7 +601,7 @@ export function createVoxTypeController() {
   }
 
   async function maybeMigrateLegacyConfig() {
-    if (!browser || isOverlay || isToast || !hasTauriApi()) return;
+    if (!browser || isOverlay || !hasTauriApi()) return;
     const candidate = await safeInvoke<ConfigMigrationCandidate | null>(
       "get_config_migration_candidate",
       undefined,
@@ -665,7 +662,7 @@ export function createVoxTypeController() {
   }
 
   function rememberSetupStatus(status: SetupStatus) {
-    if (!browser || isOverlay || isToast) return;
+    if (!browser || isOverlay) return;
     try {
       localStorage.setItem(setupStatusCacheKey, JSON.stringify(status));
     } catch {
@@ -690,7 +687,8 @@ export function createVoxTypeController() {
 
   async function loadAll() {
     logFrontendEvent(`loadAll started mode=${frontendMode()}`);
-    if (!isOverlay && !isToast && !setupStatus) setupStatusLoading = true;
+    if (!isOverlay && !setupStatus) setupStatusLoading = true;
+    const visibilityEventsBeforeLoad = mainWindowVisibilityEvents;
     const [snapshotResult, configResult, statsResult, devicesResult, setupResult, localDataResult] = await Promise.all([
       safeInvoke<AppSnapshot>("get_app_snapshot"),
       loadAppConfig(),
@@ -701,13 +699,19 @@ export function createVoxTypeController() {
     ]);
     await autoHotwords.refreshStatus();
     const loadedAny = Boolean(snapshotResult || configResult || statsResult || devicesResult || setupResult);
-    if (snapshotResult) snapshot = snapshotResult;
+    if (snapshotResult) {
+      snapshot = snapshotResult;
+      // 自启动隐藏后，用户可能在首屏加载期间就从托盘打开主窗口；这时不能用旧快照把它盖回"隐藏"。
+      if (mainWindowVisibilityEvents === visibilityEventsBeforeLoad) {
+        mainWindowVisible = snapshotResult.main_window_visible ?? true;
+      }
+    }
     if (configResult) {
       applyLoadedConfig(configResult);
       const setupMessage = configSetupMessage(configResult);
       if (setupMessage) {
         statusMessage = setupMessage;
-        if (!isOverlay && !isToast && requiresAsrAuth(configResult.data, configResult.exists)) {
+        if (!isOverlay && requiresAsrAuth(configResult.data, configResult.exists)) {
           settingsNav.showApiConfigIntro();
         }
       }
@@ -720,7 +724,7 @@ export function createVoxTypeController() {
     } else if (!setupStatus && configResult) {
       setupStatus = localSetupStatusFromConfig(configResult.data, devicesResult ?? audioDevices);
     }
-    if (!isOverlay && !isToast) setupStatusLoading = false;
+    if (!isOverlay) setupStatusLoading = false;
     if (
       configLoadState !== "failed" &&
       (snapshotResult || configResult || statsResult) &&
@@ -747,7 +751,7 @@ export function createVoxTypeController() {
       configLoadState = "failed";
       statusMessage = t("configLoadFailed");
       logFrontendError(`load config failed: ${formatFrontendError(error)}`);
-      if (!isOverlay && !isToast) {
+      if (!isOverlay) {
         notifications.show(statusMessage, "error", {
           label: t("configLoadRetry"),
           onClick: retryLoadConfig,
@@ -791,8 +795,10 @@ export function createVoxTypeController() {
     }, 2000);
   }
   function sessionPhaseMessage(phase: SessionPhase) {
-    const hotkey = formatHotkey(snapshot.hotkey);
-    return t(sessionPhaseMessageKey(phase), { hotkey });
+    return t(sessionPhaseMessageKey(phase), { hotkey: startTriggerText() });
+  }
+  function startTriggerText() {
+    return getStartTriggerHint(config, snapshot.hotkey, t, formatHotkey);
   }
 
   async function refreshStats() {
@@ -873,6 +879,17 @@ export function createVoxTypeController() {
   function clearSensitivePreviews() {
     lastSessionOutcome = null;
     screenContextTestResult = null;
+  }
+  function handleMainWindowHidden() {
+    mainWindowVisibilityEvents += 1;
+    mainWindowVisible = false;
+    // 字幕窗也会收到这个事件，但它的电平条仍在显示，不能清零。
+    if (!isOverlay) audioLevel = 0;
+    clearSensitivePreviews();
+  }
+  function handleMainWindowShown() {
+    mainWindowVisibilityEvents += 1;
+    mainWindowVisible = true;
   }
   function clearLastOutcome() {
     lastSessionOutcome = null;
@@ -1123,7 +1140,7 @@ export function createVoxTypeController() {
     return sessionPhaseMessage(sessionPhase);
   }
   function configSaveState() {
-    return configController.configSaveState(isOverlay, isToast);
+    return configController.configSaveState(isOverlay);
   }
   function formatSavedHours(hours: number) {
     return formatSavedHoursForLanguage(hours, language);
@@ -1209,6 +1226,7 @@ export function createVoxTypeController() {
   function appShellProps() {
     return {
       uiCompact,
+      windowHidden: !mainWindowVisible,
       selectedSection: settingsNav.selectedSection,
       language,
       recording,
@@ -1218,10 +1236,9 @@ export function createVoxTypeController() {
       inputStatusLabel: inputStatusLabel(),
       inputStatusDesc: inputStatusDesc(),
       micBars,
-      snapshotHotkey: snapshot.hotkey,
+      startTriggerText: startTriggerText(),
       requiresAsrAuth: requiresAsrAuth(),
       t,
-      formatHotkey,
       micStatusText,
       sidebarMicStatusText,
       micBarHeight,
@@ -1256,6 +1273,7 @@ export function createVoxTypeController() {
       lastAudioQualityDiagnostic,
       sessionBusy: isSessionBusy(),
       snapshotHotkey: snapshot.hotkey,
+      startTriggerText: startTriggerText(),
       chineseTypingCharsPerMinute,
       configExists,
       setupChecking: setupStatusLoading && !setupStatus,
@@ -1380,7 +1398,6 @@ export function createVoxTypeController() {
 
   return {
     get isOverlay() { return isOverlay; },
-    get isToast() { return isToast; },
     get recording() { return recording; },
     get overlayMode() { return overlay.mode; },
     get overlayFontSize() { return overlay.fontSize; },
@@ -1388,8 +1405,6 @@ export function createVoxTypeController() {
     get overlayTextElement() { return overlay.textElement; },
     set overlayTextElement(value: HTMLDivElement | null) { overlay.textElement = value; },
     get overlayRootStyle() { return overlay.rootStyle; },
-    get toastTitle() { return t("startupToastTitle"); },
-    get toastHint() { return t("startupToastHint").replace("{hotkey}", formatHotkey(toastHotkey)); },
     get actionNotice() { return notifications.message; },
     get actionNoticeKind() { return notifications.kind; },
     get actionNoticeActionLabel() { return notifications.actionLabel; },

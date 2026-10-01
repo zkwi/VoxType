@@ -329,10 +329,6 @@ pub struct UiConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TrayConfig {
-    #[serde(default = "default_true")]
-    pub show_startup_message: bool,
-    #[serde(default = "default_startup_message_timeout_ms")]
-    pub startup_message_timeout_ms: u64,
     #[serde(default = "default_close_behavior")]
     pub close_behavior: String,
     #[serde(default)]
@@ -571,8 +567,6 @@ impl Default for UiConfig {
 impl Default for TrayConfig {
     fn default() -> Self {
         Self {
-            show_startup_message: true,
-            startup_message_timeout_ms: default_startup_message_timeout_ms(),
             close_behavior: default_close_behavior(),
             close_to_tray_notice_shown: false,
         }
@@ -668,7 +662,7 @@ fn installed_config_path_from_appdata(base: &Path) -> PathBuf {
     normalize_path(base.join(APP_DATA_DIR_NAME).join("config.toml"))
 }
 
-fn is_development_layout() -> bool {
+pub(crate) fn is_development_layout() -> bool {
     if let Ok(cwd) = std::env::current_dir() {
         if cwd.ancestors().any(looks_like_project_root) {
             return true;
@@ -1199,9 +1193,6 @@ fn default_overlay_text_color() -> String {
 }
 fn default_scroll_interval_ms() -> u64 {
     1200
-}
-fn default_startup_message_timeout_ms() -> u64 {
-    6000
 }
 fn default_close_behavior() -> String {
     "close_to_tray".to_string()
@@ -1753,6 +1744,36 @@ stop_grace_ms = 800
 
         assert!(!saved.contains("silence_auto_stop_seconds"));
         assert!(!saved.contains("silence_level_threshold"));
+        remove_temp_dir(&dir);
+    }
+
+    #[test]
+    fn removed_startup_message_fields_are_ignored_and_not_saved_back() {
+        // 这两个字段对应的启动提示窗早已移除，开关不再有任何效果；
+        // 旧配置里留着它们时必须照常加载，其余托盘设置不受影响。
+        let dir = temp_test_dir("legacy-startup-message-fields");
+        let path = dir.join("config.toml");
+        std::fs::write(
+            &path,
+            r#"
+[tray]
+show_startup_message = true
+startup_message_timeout_ms = 6000
+close_behavior = "ask_every_time"
+close_to_tray_notice_shown = true
+"#,
+        )
+        .unwrap();
+
+        let loaded = load_config_from_path(path.clone()).unwrap();
+        assert_eq!(loaded.data.tray.close_behavior, "ask_every_time");
+        assert!(loaded.data.tray.close_to_tray_notice_shown);
+        write_config_file(&path, &loaded.data).unwrap();
+        let saved = std::fs::read_to_string(&path).unwrap();
+
+        assert!(!saved.contains("show_startup_message"));
+        assert!(!saved.contains("startup_message_timeout_ms"));
+        assert!(saved.contains("close_behavior = \"ask_every_time\""));
         remove_temp_dir(&dir);
     }
 

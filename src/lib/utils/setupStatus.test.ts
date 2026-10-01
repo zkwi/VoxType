@@ -6,6 +6,7 @@ import {
   currentAsrConnectionStatus,
   mergeSetupStatusFromConfig,
   pasteMethodLabel,
+  startTriggerHint,
 } from "./setupStatus";
 
 function configuredApp(): AppConfig {
@@ -57,6 +58,29 @@ describe("setup status", () => {
       testedFingerprint: "same",
       asrConnectionStatus: "tested_failed",
     })).toBe("tested_failed");
+  });
+
+  it("tells the user to press the triggers that are actually enabled", () => {
+    const t = (key: string) => (key === "rightAlt" ? "右 Alt 键" : key === "middleMouse" ? "鼠标中键" : key);
+    const formatHotkey = (value: string) => value.toUpperCase();
+    const config = configuredApp();
+
+    expect(startTriggerHint(config, "ctrl+q", t as never, formatHotkey)).toBe("CTRL+Q");
+
+    config.triggers.right_alt_enabled = true;
+    expect(startTriggerHint(config, "ctrl+q", t as never, formatHotkey)).toBe("CTRL+Q / 右 Alt 键");
+
+    // 回归：主快捷键关掉、只用右 Alt 时，提示仍然写着"按 Ctrl + Q"。
+    config.triggers.hotkey_enabled = false;
+    expect(startTriggerHint(config, "ctrl+q", t as never, formatHotkey)).toBe("右 Alt 键");
+  });
+
+  it("falls back to the main hotkey wording when every trigger is off", () => {
+    const t = (key: string) => key;
+    const config = configuredApp();
+    config.triggers.hotkey_enabled = false;
+
+    expect(startTriggerHint(config, "ctrl+q", t as never, (value) => value.toUpperCase())).toBe("CTRL+Q");
   });
 
   it("labels paste methods without translation ambiguity", () => {
