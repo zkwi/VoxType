@@ -139,13 +139,15 @@ pub fn run() {
                 app_log::warn(err);
             }
             app_log::info("startup stage: setup tray done");
-            app_log::info("startup stage: startup message begin");
-            tray::show_startup_message();
-            app_log::info("startup stage: startup message done");
             app_log::info("startup stage: setup guide check begin");
             setup_guide::open_if_config_missing(app.handle());
             app_log::info("startup stage: setup guide check done");
             if let Some(loaded) = startup_config {
+                // 如实记录本次启动实际可用的触发方式，排查"按了没反应"时不用再猜配置。
+                app_log::info(format!(
+                    "已启用的启动方式: {}",
+                    commands::diagnostic_commands::enabled_trigger_summary(&loaded.data)
+                ));
                 apply_autostart_in_background(loaded.data.startup);
             }
             app_log::info("startup stage: global hotkey thread start");

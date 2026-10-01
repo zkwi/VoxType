@@ -594,9 +594,7 @@ export const zhCN = {
   "settingsSaved": "设置已保存",
   "settingsSaveFailed": "保存失败",
   "settingsSaveRetry": "保存失败，点击重试",
-  "configSaved": "保存成功。",
-  "startupToastTitle": "声写已启动",
-  "startupToastHint": "{hotkey} / 右 Alt / 鼠标中键"
+  "configSaved": "保存成功。"
 } as const;
 
 export const zhCNUserErrorDetails = {

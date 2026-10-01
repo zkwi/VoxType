@@ -595,9 +595,7 @@ export const zhTW = {
   "settingsSaved": "設定已儲存",
   "settingsSaveFailed": "儲存失敗",
   "settingsSaveRetry": "儲存失敗，點擊重試",
-  "configSaved": "儲存成功。",
-  "startupToastTitle": "聲寫已啟動",
-  "startupToastHint": "{hotkey} / 右 Alt / 滑鼠中鍵"
+  "configSaved": "儲存成功。"
 } satisfies TranslationCopy;
 
 export const zhTWUserErrorDetails = {

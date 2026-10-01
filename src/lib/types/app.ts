@@ -313,8 +313,6 @@ export type AppConfig = {
     text_color: string;
   };
   tray: {
-    show_startup_message: boolean;
-    startup_message_timeout_ms: number;
     close_behavior: string;
     close_to_tray_notice_shown: boolean;
   };

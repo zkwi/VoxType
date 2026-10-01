@@ -166,20 +166,6 @@ pub fn set_input_active(app: &AppHandle, active: bool) {
     }
 }
 
-pub fn show_startup_message() {
-    let Ok(loaded) = config::load_config() else {
-        return;
-    };
-    if !loaded.data.tray.show_startup_message {
-        return;
-    }
-    // Tauri v2 未内置 Windows 气泡通知；这里先写日志，后续可换成 notification 插件。
-    app_log::info(format!(
-        "声写已启动，按 {} / 右Alt / 鼠标中键 开始/停止语音输入",
-        loaded.data.hotkey.to_uppercase()
-    ));
-}
-
 fn tray_labels(language: &str) -> TrayLabels {
     match normalize_tray_language(language) {
         "en" => TrayLabels {

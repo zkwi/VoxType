@@ -1,9 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 
-export function frontendMode(isOverlay: boolean, isToast: boolean) {
-  if (isOverlay) return "overlay";
-  if (isToast) return "toast";
-  return "main";
+export function frontendMode(isOverlay: boolean) {
+  return isOverlay ? "overlay" : "main";
 }
 
 export function hasTauriApi() {

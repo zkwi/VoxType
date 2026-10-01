@@ -158,8 +158,6 @@ export function createVoxTypeController() {
   const initialParams = browser ? new URLSearchParams(window.location.search) : new URLSearchParams();
   let audioDevices = $state<AudioDeviceInfo[]>([]);
   let isOverlay = $state(initialParams.has("overlay"));
-  let isToast = $state(initialParams.has("toast"));
-  let toastHotkey = $state(initialParams.get("hotkey") || "Ctrl + Q");
   const notifications = createNotificationController({
     t,
     setStatusMessage: (message) => {
@@ -219,7 +217,7 @@ export function createVoxTypeController() {
   const updates = createUpdateController({
     t,
     safeInvoke,
-    canAutoCheck: () => !isOverlay && !isToast && configExists && config.update.auto_check_on_startup,
+    canAutoCheck: () => !isOverlay && configExists && config.update.auto_check_on_startup,
     currentVersion: () => snapshot.current_version,
     getStatusMessage: () => statusMessage,
     setStatusMessage: (message) => {
@@ -285,7 +283,6 @@ export function createVoxTypeController() {
       configLoaded &&
       hotkeyCapture.isIdle &&
       !isOverlay &&
-      !isToast &&
       hasTauriApi(),
     logFrontendError,
     onConfigSaved: (loaded) => {
@@ -418,8 +415,6 @@ export function createVoxTypeController() {
     document.getElementById("boot-fallback")?.remove();
     const params = new URLSearchParams(window.location.search);
     isOverlay = params.has("overlay");
-    isToast = params.has("toast");
-    toastHotkey = params.get("hotkey") || toastHotkey;
     applyDocumentMode();
     refreshMainDensity();
     window.addEventListener("resize", refreshMainDensity);
@@ -451,7 +446,7 @@ export function createVoxTypeController() {
           overlay.applyConfig(payload.ui);
         },
         applyStats: (payload) => {
-          if (!isOverlay && !isToast) {
+          if (!isOverlay) {
             stats.apply(payload);
             void autoHotwords.refreshStatus();
           }
@@ -499,7 +494,6 @@ export function createVoxTypeController() {
       configLoaded &&
       hotkeyCapture.isIdle &&
       !isOverlay &&
-      !isToast &&
       hasTauriApi();
 
     if (shouldSave) {
@@ -510,7 +504,7 @@ export function createVoxTypeController() {
   });
 
   $effect(() => {
-    if (isOverlay || isToast || !hasTauriApi()) return;
+    if (isOverlay || !hasTauriApi()) return;
     const active = shouldProtectUnsavedChanges(settingsDirty, configController.lastSaveError);
     void safeInvoke<void>("set_config_exit_guard", { active }, true);
   });
@@ -522,7 +516,7 @@ export function createVoxTypeController() {
     configController.scheduleAutoSaveConfig();
   }
   function refreshMainDensity() {
-    if (isOverlay || isToast) {
+    if (isOverlay) {
       uiCompact = false;
       return;
     }
@@ -544,7 +538,7 @@ export function createVoxTypeController() {
     }
   }
   function frontendMode() {
-    return getFrontendMode(isOverlay, isToast);
+    return getFrontendMode(isOverlay);
   }
   function applyDocumentMode() {
     const mode = frontendMode();
@@ -605,7 +599,7 @@ export function createVoxTypeController() {
   }
 
   async function maybeMigrateLegacyConfig() {
-    if (!browser || isOverlay || isToast || !hasTauriApi()) return;
+    if (!browser || isOverlay || !hasTauriApi()) return;
     const candidate = await safeInvoke<ConfigMigrationCandidate | null>(
       "get_config_migration_candidate",
       undefined,
@@ -666,7 +660,7 @@ export function createVoxTypeController() {
   }
 
   function rememberSetupStatus(status: SetupStatus) {
-    if (!browser || isOverlay || isToast) return;
+    if (!browser || isOverlay) return;
     try {
       localStorage.setItem(setupStatusCacheKey, JSON.stringify(status));
     } catch {
@@ -691,7 +685,7 @@ export function createVoxTypeController() {
 
   async function loadAll() {
     logFrontendEvent(`loadAll started mode=${frontendMode()}`);
-    if (!isOverlay && !isToast && !setupStatus) setupStatusLoading = true;
+    if (!isOverlay && !setupStatus) setupStatusLoading = true;
     const [snapshotResult, configResult, statsResult, devicesResult, setupResult, localDataResult] = await Promise.all([
       safeInvoke<AppSnapshot>("get_app_snapshot"),
       loadAppConfig(),
@@ -711,7 +705,7 @@ export function createVoxTypeController() {
       const setupMessage = configSetupMessage(configResult);
       if (setupMessage) {
         statusMessage = setupMessage;
-        if (!isOverlay && !isToast && requiresAsrAuth(configResult.data, configResult.exists)) {
+        if (!isOverlay && requiresAsrAuth(configResult.data, configResult.exists)) {
           settingsNav.showApiConfigIntro();
         }
       }
@@ -724,7 +718,7 @@ export function createVoxTypeController() {
     } else if (!setupStatus && configResult) {
       setupStatus = localSetupStatusFromConfig(configResult.data, devicesResult ?? audioDevices);
     }
-    if (!isOverlay && !isToast) setupStatusLoading = false;
+    if (!isOverlay) setupStatusLoading = false;
     if (
       configLoadState !== "failed" &&
       (snapshotResult || configResult || statsResult) &&
@@ -751,7 +745,7 @@ export function createVoxTypeController() {
       configLoadState = "failed";
       statusMessage = t("configLoadFailed");
       logFrontendError(`load config failed: ${formatFrontendError(error)}`);
-      if (!isOverlay && !isToast) {
+      if (!isOverlay) {
         notifications.show(statusMessage, "error", {
           label: t("configLoadRetry"),
           onClick: retryLoadConfig,
@@ -1138,7 +1132,7 @@ export function createVoxTypeController() {
     return sessionPhaseMessage(sessionPhase);
   }
   function configSaveState() {
-    return configController.configSaveState(isOverlay, isToast);
+    return configController.configSaveState(isOverlay);
   }
   function formatSavedHours(hours: number) {
     return formatSavedHoursForLanguage(hours, language);
@@ -1396,7 +1390,6 @@ export function createVoxTypeController() {
 
   return {
     get isOverlay() { return isOverlay; },
-    get isToast() { return isToast; },
     get recording() { return recording; },
     get overlayMode() { return overlay.mode; },
     get overlayFontSize() { return overlay.fontSize; },
@@ -1404,8 +1397,6 @@ export function createVoxTypeController() {
     get overlayTextElement() { return overlay.textElement; },
     set overlayTextElement(value: HTMLDivElement | null) { overlay.textElement = value; },
     get overlayRootStyle() { return overlay.rootStyle; },
-    get toastTitle() { return t("startupToastTitle"); },
-    get toastHint() { return t("startupToastHint").replace("{hotkey}", formatHotkey(toastHotkey)); },
     get actionNotice() { return notifications.message; },
     get actionNoticeKind() { return notifications.kind; },
     get actionNoticeActionLabel() { return notifications.actionLabel; },

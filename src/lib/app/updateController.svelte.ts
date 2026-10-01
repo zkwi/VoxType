@@ -106,10 +106,11 @@ export function createUpdateController(options: UpdateControllerOptions) {
   }
 
   function metaText() {
-    const current = status?.current_version ?? options.currentVersion();
+    // 后端快照还没返回时不知道真实版本，显示占位符，而不是一个写死的旧版本号。
+    const current = status?.current_version || options.currentVersion();
     const latest = status?.latest_version ?? "-";
     const size = status?.asset_size ? ` · ${formatFileSize(status.asset_size)}` : "";
-    return `${options.t("currentVersion")} v${current} · ${options.t("latestVersion")} ${latest === "-" ? "-" : `v${latest}`}${size}`;
+    return `${options.t("currentVersion")} ${current ? `v${current}` : "-"} · ${options.t("latestVersion")} ${latest === "-" ? "-" : `v${latest}`}${size}`;
   }
 
   function formatFileSize(bytes: number) {

@@ -9,7 +9,6 @@
   import PromptPreviewDialog from "$lib/components/common/PromptPreviewDialog.svelte";
   import SaveFailureDialog from "$lib/components/common/SaveFailureDialog.svelte";
   import OverlayWindow from "$lib/components/overlay/OverlayWindow.svelte";
-  import StartupToast from "$lib/components/overlay/StartupToast.svelte";
 
   const app = createVoxTypeController();
 
@@ -44,8 +43,6 @@
     meterBarOpacity={app.overlayMeterBarOpacity}
     bind:textElement={app.overlayTextElement}
   />
-{:else if app.isToast}
-  <StartupToast title={app.toastTitle} hint={app.toastHint} />
 {:else}
   <AppShell {...app.appShellProps()}>
     <div class="config-editable-region" inert={!app.configEditable} aria-disabled={!app.configEditable}>

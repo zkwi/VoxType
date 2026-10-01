@@ -595,9 +595,7 @@ export const en = {
   "settingsSaved": "Settings saved",
   "settingsSaveFailed": "Save failed",
   "settingsSaveRetry": "Save failed. Click to retry",
-  "configSaved": "Saved.",
-  "startupToastTitle": "VoxType is running",
-  "startupToastHint": "{hotkey} / Right Alt / Middle click"
+  "configSaved": "Saved."
 } satisfies TranslationCopy;
 
 export const enUserErrorDetails = {

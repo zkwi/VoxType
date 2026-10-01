@@ -19,7 +19,7 @@ type Translate = (key: CopyKey, values?: Record<string, string>) => string;
 export function readCachedSetupStatus(isBrowser: boolean): SetupStatus | null {
   if (!isBrowser) return null;
   const params = new URLSearchParams(window.location.search);
-  if (params.has("overlay") || params.has("toast")) return null;
+  if (params.has("overlay")) return null;
   try {
     const raw = localStorage.getItem(setupStatusCacheKey);
     if (!raw) return null;
