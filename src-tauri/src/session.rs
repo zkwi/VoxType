@@ -21,6 +21,9 @@ use crate::tray;
 // 尾字偶发截断时优先收更完整的真实尾音，不用中间 ASR 文本或尾部静音兜底。
 // 维护依据见 docs/asr-quality-latency-guardrails.md。
 const STOP_TAIL_MIN_CAPTURE_MS: u64 = 250;
+// 最长录音时长看门狗检查会话是否已结束的间隔；只决定线程多快退出，不影响时长上限本身。
+const MAX_DURATION_WATCHDOG_POLL: Duration = Duration::from_millis(500);
+
 #[derive(Debug, Clone, Serialize)]
 pub struct SessionState {
     pub recording: bool,
@@ -312,7 +315,14 @@ impl SessionController {
 
         let controller = self.clone();
         thread::spawn(move || {
-            thread::sleep(Duration::from_secs(max_seconds.max(1)));
+            if !wait_for_max_record_duration(
+                &controller,
+                generation,
+                Duration::from_secs(max_seconds.max(1)),
+                MAX_DURATION_WATCHDOG_POLL,
+            ) {
+                return;
+            }
             let stopped = controller.force_stop_generation(
                 generation,
                 SessionPhase::WaitingFinalResult,
@@ -624,6 +634,13 @@ impl SessionController {
         inner.generation == generation
     }
 
+    fn is_recording_generation(&self, generation: u64) -> bool {
+        self.inner
+            .lock()
+            .map(|inner| inner.recording && inner.generation == generation)
+            .unwrap_or(false)
+    }
+
     pub fn set_phase_for_generation(
         &self,
         generation: u64,
@@ -839,6 +856,29 @@ fn spawn_audio_error_listener(
             }
         }
     });
+}
+
+/// 等到本轮录音达到最长时长时返回 `true`；录音提前结束则返回 `false`。
+///
+/// 绝大多数录音只有几秒。此前看门狗线程每轮都睡满最长时长（默认 5 分钟），
+/// 连续输入时会堆出几十个只是在睡觉的线程。
+fn wait_for_max_record_duration(
+    controller: &SessionController,
+    generation: u64,
+    max_duration: Duration,
+    poll_interval: Duration,
+) -> bool {
+    let deadline = Instant::now() + max_duration;
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return true;
+        }
+        thread::sleep(remaining.min(poll_interval));
+        if !controller.is_recording_generation(generation) {
+            return false;
+        }
+    }
 }
 
 fn wait_for_stop_tail(grace_ms: u64) {
@@ -1247,6 +1287,75 @@ mod tests {
         let state = controller.current_state();
         assert!(state.recording);
         assert_eq!(state.phase, SessionPhase::Recording);
+    }
+
+    #[test]
+    fn max_duration_watchdog_exits_as_soon_as_recording_ends() {
+        let controller = SessionController::default();
+        {
+            let mut inner = controller.inner.lock().unwrap();
+            inner.recording = true;
+            inner.phase = SessionPhase::Recording;
+            inner.generation = 40;
+        }
+        let watchdog_controller = controller.clone();
+        let watchdog = std::thread::spawn(move || {
+            let started = std::time::Instant::now();
+            let reached = super::wait_for_max_record_duration(
+                &watchdog_controller,
+                40,
+                Duration::from_secs(300),
+                Duration::from_millis(5),
+            );
+            (reached, started.elapsed())
+        });
+
+        std::thread::sleep(Duration::from_millis(20));
+        controller
+            .force_stop_generation(40, SessionPhase::WaitingFinalResult, "Stopped.", None)
+            .unwrap();
+        let (reached, waited) = watchdog.join().unwrap();
+
+        assert!(!reached);
+        // 不再睡满 5 分钟上限；留足余量避免在高负载机器上误报。
+        assert!(waited < Duration::from_secs(5));
+    }
+
+    #[test]
+    fn max_duration_watchdog_fires_when_recording_outlasts_the_limit() {
+        let controller = SessionController::default();
+        {
+            let mut inner = controller.inner.lock().unwrap();
+            inner.recording = true;
+            inner.phase = SessionPhase::Recording;
+            inner.generation = 41;
+        }
+
+        assert!(super::wait_for_max_record_duration(
+            &controller,
+            41,
+            Duration::from_millis(30),
+            Duration::from_millis(5),
+        ));
+    }
+
+    #[test]
+    fn max_duration_watchdog_ignores_a_newer_recording_generation() {
+        // 旧会话的看门狗不能把后来开始的新一轮录音当成自己的。
+        let controller = SessionController::default();
+        {
+            let mut inner = controller.inner.lock().unwrap();
+            inner.recording = true;
+            inner.phase = SessionPhase::Recording;
+            inner.generation = 43;
+        }
+
+        assert!(!super::wait_for_max_record_duration(
+            &controller,
+            42,
+            Duration::from_secs(300),
+            Duration::from_millis(5),
+        ));
     }
 
     #[test]
