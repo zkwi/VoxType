@@ -492,6 +492,7 @@ export const en = {
   "extraTriggerEnabledNotice": "Extra start options are enabled. If they conflict with other apps, you can turn them off anytime.",
   "recentContextEnabledNotice": "Recent context is enabled. Voice input snippets stay local and can be turned off anytime.",
   "launchOnStartup": "Launch at startup",
+  "launchOnStartupHint": "When Windows starts VoxType at sign-in and speech recognition is already configured, it stays in the tray without opening the main window. Click the tray icon to open it.",
   "recordingTroubleshooting": "Recording troubleshooting",
   "recordingTroubleshootingDescription": "Adjust only when the network is unstable, ASR stays silent too long, or the mic remains too quiet.",
   "recordingTroubleshootingActiveHint": "Non-default recording troubleshooting settings are active; restore or fine-tune them here.",

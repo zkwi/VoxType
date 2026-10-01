@@ -68,6 +68,23 @@ By default, never write any of the following into logs, diagnostic reports, rele
 
 Statistics store non-body metrics only. Even when recent context and automatic hotword history are enabled, they may only enter their own local data files — never write them back into `config.toml`.
 
+## Clipboard and background cost
+
+Clipboard code lives only in `text_output.rs`. Keep two constraints intact:
+
+- The clipboard must be opened with an owner window that belongs to the calling thread; do not fall back to `OpenClipboard(NULL)`. A NULL open can be taken over by any other program that also passes NULL, which surfaces as "Thread does not have a clipboard open" on the next read.
+- Before reporting "some formats were not backed up", exclude formats that Windows re-synthesizes from a captured one. Otherwise every dictation reports a false warning whenever a screenshot is on the clipboard.
+
+Each has a manual regression test that rewrites the real system clipboard and restores it afterwards. They are ignored by default; run them after touching clipboard logic:
+
+```powershell
+cargo test --lib real_clipboard -- --ignored --nocapture --test-threads=1
+```
+
+VoxType lives in the tray, and a hidden WebView keeps running. When adding a timer, a poll, or a looping animation, make sure it stops while the window is hidden. To check background cost, look at the CPU-time delta of the app and its WebView processes; it should be close to zero when idle.
+
+Every log line carries a millisecond timestamp, so the time between two stages (for example "stop requested" to "paste shortcut sent") is the difference between two lines.
+
 ## Pre-release checks
 
 Day-to-day changes:

@@ -161,8 +161,12 @@ src-tauri/
 docs/
 ├── README.md
 ├── architecture.md
+├── asr-quality-latency-guardrails.md
 ├── code-style.md
 ├── directory-structure.md
+├── installer-smoke-test.md
+├── maintenance-guide.md
+├── maintenance-guide.en.md
 ├── wiki/
 │   ├── Home.md
 │   ├── Setup-Guide.md
@@ -173,6 +177,7 @@ docs/
 │   └── Troubleshooting-English.md
 ├── audits/
 ├── plans/
+├── superpowers/
 └── 豆包流式语音识别参考文档.md
 ```
 

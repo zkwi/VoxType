@@ -491,6 +491,7 @@ export const zhCN = {
   "extraTriggerEnabledNotice": "额外触发方式已开启，如与其他软件操作冲突，可随时关闭。",
   "recentContextEnabledNotice": "最近上下文已开启，识别片段仅保存在本地，可随时关闭。",
   "launchOnStartup": "开机自动启动",
+  "launchOnStartupHint": "随 Windows 登录自动启动且语音识别已配置好时，VoxType 直接待在托盘，不弹出主窗口；点击托盘图标即可打开。",
   "recordingTroubleshooting": "低频录音排障",
   "recordingTroubleshootingDescription": "只有在网络不稳定、识别长时间无反馈或麦克风声音持续偏小时再调整。",
   "recordingTroubleshootingActiveHint": "当前使用了非默认录音排障参数，可在这里恢复或微调。",

@@ -492,6 +492,7 @@ export const zhTW = {
   "extraTriggerEnabledNotice": "額外觸發方式已開啟，如與其他軟體操作衝突，可隨時關閉。",
   "recentContextEnabledNotice": "最近上下文已開啟，識別片段僅保存在本地，可隨時關閉。",
   "launchOnStartup": "開機自動啟動",
+  "launchOnStartupHint": "隨 Windows 登入自動啟動且語音辨識已設定好時，VoxType 會直接待在系統匣，不彈出主視窗；點擊系統匣圖示即可開啟。",
   "recordingTroubleshooting": "低頻錄音排障",
   "recordingTroubleshootingDescription": "只有在網路不穩、辨識長時間無回饋或麥克風聲音持續偏小時再調整。",
   "recordingTroubleshootingActiveHint": "目前使用了非預設錄音排障參數，可在這裡恢復或微調。",
