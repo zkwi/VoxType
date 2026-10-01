@@ -1,5 +1,6 @@
 use crate::config::{UiConfig, MIN_UI_HEIGHT};
 use serde::Serialize;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 use tauri::{
     utils::config::Color, AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Monitor,
@@ -18,12 +19,22 @@ const DEFAULT_TEXT: &str = RECORDING_TEXT;
 const TRANSPARENT_BACKGROUND: Color = Color(0, 0, 0, 0);
 static OVERLAY_TEXT: OnceLock<Mutex<OverlayText>> = OnceLock::new();
 static OVERLAY_UI: OnceLock<Mutex<UiConfig>> = OnceLock::new();
+// 字幕页据此决定兜底轮询的快慢：隐藏时没有内容可更新，不需要每秒问好几次。
+static OVERLAY_VISIBLE: AtomicBool = AtomicBool::new(false);
 
 #[derive(Debug, Clone, Serialize)]
 pub struct OverlayText {
     pub text: String,
     pub status_code: Option<String>,
     pub fallback_text: Option<String>,
+}
+
+/// `get_overlay_text` 的返回：当前字幕内容，以及字幕窗此刻是否显示。
+#[derive(Debug, Clone, Serialize)]
+pub struct OverlayTextSnapshot {
+    #[serde(flatten)]
+    pub text: OverlayText,
+    pub visible: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -94,6 +105,8 @@ fn show_with_payload(app: &AppHandle, ui: &UiConfig, payload: OverlayText) {
             + (monitor_height - effective_height as f64 - ui.margin_bottom as f64).max(0.0);
         let _ = window.set_position(LogicalPosition::new(x, y));
     }
+    // 先置位再推送：字幕页收到下面的事件会立刻回查一次，必须已经能看到"正在显示"。
+    OVERLAY_VISIBLE.store(true, Ordering::Release);
     update_config(app, ui);
     update_payload(app, payload);
     if let Err(err) = window.set_focusable(false) {
@@ -101,6 +114,7 @@ fn show_with_payload(app: &AppHandle, ui: &UiConfig, payload: OverlayText) {
     }
 
     if let Err(err) = window.show() {
+        OVERLAY_VISIBLE.store(false, Ordering::Release);
         crate::app_log::warn(format!("显示悬浮字幕窗失败: {}", err));
     } else {
         let _ = window.set_focusable(false);
@@ -203,6 +217,7 @@ pub fn update_config(app: &AppHandle, ui: &UiConfig) {
 }
 
 pub fn hide(app: &AppHandle) {
+    OVERLAY_VISIBLE.store(false, Ordering::Release);
     if let Some(window) = app.get_webview_window(OVERLAY_LABEL) {
         let _ = window.hide();
     }
@@ -214,6 +229,13 @@ pub fn current_payload() -> OverlayText {
         .lock()
         .map(|text| text.clone())
         .unwrap_or_else(|_| status_payload("recording", DEFAULT_TEXT))
+}
+
+pub fn current_snapshot() -> OverlayTextSnapshot {
+    OverlayTextSnapshot {
+        text: current_payload(),
+        visible: OVERLAY_VISIBLE.load(Ordering::Acquire),
+    }
 }
 
 pub fn current_config() -> UiConfig {
@@ -264,7 +286,23 @@ fn set_current_config(ui: &UiConfig) {
 
 #[cfg(test)]
 mod tests {
-    use super::{effective_overlay_height, status_payload};
+    use super::{effective_overlay_height, status_payload, OverlayTextSnapshot};
+
+    #[test]
+    fn snapshot_keeps_payload_fields_flat_next_to_visibility() {
+        // 字幕页把这个返回当作普通字幕载荷使用，字段必须和事件载荷保持同一层级。
+        let snapshot = OverlayTextSnapshot {
+            text: status_payload("recording", "正在听你说话..."),
+            visible: true,
+        };
+
+        let value = serde_json::to_value(&snapshot).expect("serialize overlay snapshot");
+
+        assert_eq!(value["text"], "正在听你说话...");
+        assert_eq!(value["status_code"], "recording");
+        assert_eq!(value["fallback_text"], "正在听你说话...");
+        assert_eq!(value["visible"], true);
+    }
 
     #[test]
     fn clamps_legacy_low_height_for_two_lines() {

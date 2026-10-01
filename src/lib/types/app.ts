@@ -3,6 +3,8 @@ export type Section = "Home" | "Hotwords" | "ApiConfig" | "Options" | "Privacy" 
 export type AppSnapshot = {
   hotkey: string;
   current_version: string;
+  /** 主窗口此刻是否显示；开机自启动时可能一开始就在托盘里。 */
+  main_window_visible?: boolean;
 };
 
 export type UsageStats = {
@@ -323,6 +325,8 @@ export type OverlayText = {
   text: string;
   status_code?: string | null;
   fallback_text?: string | null;
+  /** 仅 `get_overlay_text` 的返回带有：字幕窗当前是否显示。 */
+  visible?: boolean;
 };
 export type OverlayConfig = { ui: AppConfig["ui"] };
 

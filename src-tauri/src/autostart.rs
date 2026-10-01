@@ -13,10 +13,21 @@ pub fn apply(config: &StartupConfig) -> Result<(), String> {
     }
 }
 
+/// 写入注册表 Run 项的启动命令。
+///
+/// 带上自启动参数，程序才能区分"系统登录时拉起"和"用户手动打开"：前者在配置就绪时直接待在托盘。
+fn startup_command(exe: &std::path::Path) -> String {
+    format!(
+        "\"{}\" {}",
+        exe.display(),
+        crate::main_window::AUTOSTART_ARG
+    )
+}
+
 #[cfg(windows)]
 fn enable() -> Result<(), String> {
     let exe = std::env::current_exe().map_err(|err| format!("获取程序路径失败: {}", err))?;
-    let command = format!("\"{}\"", exe.display());
+    let command = startup_command(&exe);
     let output = reg_command()
         .args([
             "add",
@@ -98,4 +109,19 @@ fn enable() -> Result<(), String> {
 #[cfg(not(windows))]
 fn disable() -> Result<(), String> {
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::startup_command;
+    use std::path::Path;
+
+    #[test]
+    fn startup_command_quotes_the_path_and_marks_the_autostart_launch() {
+        // 安装路径可能带空格，必须加引号；参数放在引号外，系统才会把它当作参数传给程序。
+        assert_eq!(
+            startup_command(Path::new(r"C:\Program Files\VoxType\voxtype-desktop.exe")),
+            r#""C:\Program Files\VoxType\voxtype-desktop.exe" --autostart"#
+        );
+    }
 }

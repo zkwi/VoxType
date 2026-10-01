@@ -114,9 +114,21 @@ pub fn run() {
                 "VoxType Tauri client started. version={}",
                 env!("CARGO_PKG_VERSION")
             ));
-            if let Some(window) = app.get_webview_window("main") {
+            let startup_config = config::load_config().ok();
+            let setup_ready = startup_config.as_ref().is_some_and(|loaded| {
+                asr_provider::start_configuration_error(&loaded.data, loaded.exists).is_none()
+            });
+            let start_hidden =
+                main_window::should_start_hidden(main_window::launched_by_autostart(), setup_ready);
+            if let Some(window) = app.get_webview_window(main_window::MAIN_LABEL) {
                 if let Err(err) = window.set_icon(APP_WINDOW_ICON.clone()) {
                     app_log::warn(format!("设置主窗口图标失败: {}", err));
+                }
+                // 主窗口在 tauri.conf.json 里默认不可见，由这里决定是否显示。
+                if start_hidden {
+                    app_log::info("开机自启动且配置已就绪，主窗口保持在托盘。");
+                } else if let Err(err) = window.show() {
+                    app_log::warn(format!("显示主窗口失败: {}", err));
                 }
             }
             app_log::info("startup stage: create overlay begin");
@@ -133,7 +145,7 @@ pub fn run() {
             app_log::info("startup stage: setup guide check begin");
             setup_guide::open_if_config_missing(app.handle());
             app_log::info("startup stage: setup guide check done");
-            if let Ok(loaded) = config::load_config() {
+            if let Some(loaded) = startup_config {
                 apply_autostart_in_background(loaded.data.startup);
             }
             app_log::info("startup stage: global hotkey thread start");

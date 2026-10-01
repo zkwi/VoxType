@@ -7,12 +7,13 @@ use config::{AppConfig, LoadedConfig};
 use tauri::AppHandle;
 
 #[tauri::command]
-pub(crate) fn get_app_snapshot() -> Result<AppSnapshot, String> {
+pub(crate) fn get_app_snapshot(app: AppHandle) -> Result<AppSnapshot, String> {
     let loaded = config::load_config()?;
 
     Ok(AppSnapshot {
         hotkey: loaded.data.hotkey,
         current_version: env!("CARGO_PKG_VERSION").to_string(),
+        main_window_visible: crate::main_window::is_visible(&app),
     })
 }
 

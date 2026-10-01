@@ -4,7 +4,26 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{AppHandle, Emitter, Manager};
 
 pub const MAIN_LABEL: &str = "main";
+/// 开机自启动注册表项携带的参数：带着它启动，说明是系统登录时拉起的，而不是用户手动打开。
+pub const AUTOSTART_ARG: &str = "--autostart";
 static CONFIG_EXIT_GUARD: AtomicBool = AtomicBool::new(false);
+
+pub fn launched_by_autostart() -> bool {
+    std::env::args().any(|arg| arg == AUTOSTART_ARG)
+}
+
+/// 开机自启动且已经可以直接使用时，主窗口留在托盘，不打断登录后的操作。
+///
+/// 尚未配置好时仍然显示主窗口，否则用户看不到需要先完成设置的提示。
+pub fn should_start_hidden(launched_by_autostart: bool, setup_ready: bool) -> bool {
+    launched_by_autostart && setup_ready
+}
+
+pub fn is_visible(app: &AppHandle) -> bool {
+    app.get_webview_window(MAIN_LABEL)
+        .and_then(|window| window.is_visible().ok())
+        .unwrap_or(true)
+}
 
 pub fn set_config_exit_guard(active: bool) {
     CONFIG_EXIT_GUARD.store(active, Ordering::SeqCst);
@@ -50,6 +69,8 @@ pub fn show_existing(app: &AppHandle, source: &str) {
     if let Err(err) = window.show() {
         app_log::warn(format!("{}显示主窗口失败: {}", source, err));
     }
+    // 主窗口隐藏期间前端会暂停动画和电平更新，重新显示时要通知它恢复。
+    let _ = window.emit("main-window-shown", ());
     if let Err(err) = window.set_focus() {
         app_log::warn(format!("{}聚焦主窗口失败: {}", source, err));
     }
@@ -57,7 +78,7 @@ pub fn show_existing(app: &AppHandle, source: &str) {
 
 #[cfg(test)]
 mod tests {
-    use super::{config_exit_guard_active, set_config_exit_guard};
+    use super::{config_exit_guard_active, set_config_exit_guard, should_start_hidden};
 
     #[test]
     fn config_exit_guard_tracks_failed_unsaved_changes() {
@@ -66,5 +87,15 @@ mod tests {
 
         set_config_exit_guard(false);
         assert!(!config_exit_guard_active());
+    }
+
+    #[test]
+    fn only_a_ready_autostart_launch_stays_in_the_tray() {
+        assert!(should_start_hidden(true, true));
+        // 手动打开时用户就是想看到主窗口。
+        assert!(!should_start_hidden(false, true));
+        // 还没配置好时必须显示主窗口，否则首次使用的提示无处可见。
+        assert!(!should_start_hidden(true, false));
+        assert!(!should_start_hidden(false, false));
     }
 }

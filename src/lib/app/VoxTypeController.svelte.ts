@@ -152,6 +152,8 @@ export function createVoxTypeController() {
   let configLoadState = $state<ConfigLoadState>("not_loaded");
   let configLoaded = $derived(canEditLoadedConfig(configLoadState));
   let audioLevel = $state(0);
+  // 隐藏到托盘的主窗口仍会继续渲染；录音时的动画和电平条没人看，却会一直占用 CPU 和 GPU。
+  let mainWindowVisible = $state(true);
   const initialParams = browser ? new URLSearchParams(window.location.search) : new URLSearchParams();
   let audioDevices = $state<AudioDeviceInfo[]>([]);
   let isOverlay = $state(initialParams.has("overlay"));
@@ -295,7 +297,7 @@ export function createVoxTypeController() {
     safeInvoke,
     retryFailedSave: configController.retryFailedSave,
     discardUnsavedChanges: configController.discardUnsavedChanges,
-    onHidden: clearSensitivePreviews,
+    onHidden: handleMainWindowHidden,
   });
   const setup = createSetupController({
     t,
@@ -430,15 +432,11 @@ export function createVoxTypeController() {
       syncTrayLanguage(savedLanguage);
     }
     void bootstrapApp();
-    let overlayPoll: number | undefined;
     if (isOverlay) {
       overlay.applyText("", true);
       void overlay.refreshConfig(true);
       window.addEventListener("resize", overlay.refreshLayout);
-      overlayPoll = window.setInterval(() => {
-        void overlay.refreshText();
-        void overlay.refreshConfig();
-      }, 250);
+      overlay.startPolling();
     }
     let unlisteners: ReturnType<typeof registerNativeEventController> = [];
     if (hasTauriApi()) {
@@ -458,6 +456,8 @@ export function createVoxTypeController() {
           }
         },
         applyAudioLevel: (payload) => {
+          // 主窗口在托盘里时没人看电平条，跳过更新，避免隐藏的窗口在录音期间持续重绘。
+          if (!isOverlay && !mainWindowVisible) return;
           audioLevel = clampAudioLevel(payload.level);
         },
         applyAudioQuality: (payload) => {
@@ -469,7 +469,8 @@ export function createVoxTypeController() {
         },
         showClosePrompt: windows.showClosePrompt,
         showConfigExitGuard: windows.showSaveFailurePrompt,
-        clearSensitivePreviews,
+        handleMainWindowHidden,
+        handleMainWindowShown,
         checkForUpdate: () => {
           void updates.check(true);
         },
@@ -477,7 +478,6 @@ export function createVoxTypeController() {
       logFrontendEvent(`listeners registered mode=${frontendMode()}`);
     }
     return () => {
-      if (overlayPoll !== undefined) window.clearInterval(overlayPoll);
       notifications.dispose();
       if (succeededIdleTimer !== undefined) window.clearTimeout(succeededIdleTimer);
       configController.dispose();
@@ -701,7 +701,10 @@ export function createVoxTypeController() {
     ]);
     await autoHotwords.refreshStatus();
     const loadedAny = Boolean(snapshotResult || configResult || statsResult || devicesResult || setupResult);
-    if (snapshotResult) snapshot = snapshotResult;
+    if (snapshotResult) {
+      snapshot = snapshotResult;
+      mainWindowVisible = snapshotResult.main_window_visible ?? true;
+    }
     if (configResult) {
       applyLoadedConfig(configResult);
       const setupMessage = configSetupMessage(configResult);
@@ -873,6 +876,15 @@ export function createVoxTypeController() {
   function clearSensitivePreviews() {
     lastSessionOutcome = null;
     screenContextTestResult = null;
+  }
+  function handleMainWindowHidden() {
+    mainWindowVisible = false;
+    // 字幕窗也会收到这个事件，但它的电平条仍在显示，不能清零。
+    if (!isOverlay) audioLevel = 0;
+    clearSensitivePreviews();
+  }
+  function handleMainWindowShown() {
+    mainWindowVisible = true;
   }
   function clearLastOutcome() {
     lastSessionOutcome = null;
@@ -1209,6 +1221,7 @@ export function createVoxTypeController() {
   function appShellProps() {
     return {
       uiCompact,
+      windowHidden: !mainWindowVisible,
       selectedSection: settingsNav.selectedSection,
       language,
       recording,

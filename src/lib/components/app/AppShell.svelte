@@ -23,6 +23,7 @@
   type Props = {
     children?: Snippet;
     uiCompact: boolean;
+    windowHidden: boolean;
     selectedSection: Section;
     language: Language;
     recording: boolean;
@@ -52,6 +53,7 @@
   let {
     children,
     uiCompact,
+    windowHidden,
     selectedSection,
     language,
     recording,
@@ -104,7 +106,7 @@
   }
 </script>
 
-<div class:ui-compact={uiCompact} class="app-frame">
+<div class:ui-compact={uiCompact} class:window-hidden={windowHidden} class="app-frame">
   <header class="window-titlebar" data-tauri-drag-region>
     <div class="window-title" data-tauri-drag-region>
       <span class="window-title-mark" data-tauri-drag-region>

@@ -83,6 +83,14 @@
     background: transparent;
   }
 
+  /* 主窗口隐藏到托盘后 WebView 仍会照常渲染；录音状态的循环动画没人看，却让 GPU 一直合成。 */
+  :global(.window-hidden),
+  :global(.window-hidden *),
+  :global(.window-hidden *::before),
+  :global(.window-hidden *::after) {
+    animation-play-state: paused !important;
+  }
+
   :global(:root) {
     --primary: #2f80ed;
     --primary-hover: #256fe0;
