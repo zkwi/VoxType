@@ -61,10 +61,11 @@ updates:
           - minor
           - patch
     ignore:
-      # 下面几个库的下一版都有破坏性改动，分别是麦克风采集、ASR WebSocket 和配置读写的底座，
-      # 需要逐个升级并做真机回归，见 issue #46。
+      # cpal 是麦克风采集的底座，0.18 不能机械升级，见 issue #46：它改了 Windows 上设备名称的来源
+      # （已保存的麦克风选择会对不上），并开始通过错误回调上报采集不连续，而 VoxType 把任何流错误
+      # 都当作致命错误，录音中的一次小卡顿就会让整次输入失败。需要先定策略并做真机录音回归。
       # 0.x 版本的次版本号变化就是破坏性升级，所以连 minor 一起忽略；补丁更新照常接收。
-      # 完成某一项升级后删除对应条目。
+      # 完成升级后删除本条。
       - dependency-name: cpal
         update-types:
           - version-update:semver-major
@@ -75,13 +76,6 @@ updates:
         update-types:
           - version-update:semver-major
           - version-update:semver-minor
-      - dependency-name: tokio-tungstenite
-        update-types:
-          - version-update:semver-major
-          - version-update:semver-minor
-      - dependency-name: toml
-        update-types:
-          - version-update:semver-major
 
   - package-ecosystem: github-actions
     directory: /
