@@ -255,7 +255,7 @@ fn recognize_image_context(
     let result = engine
         .RecognizeAsync(&bitmap)
         .map_err(|err| windows_error("启动 Windows OCR 识别失败", err))?
-        .get()
+        .join()
         .map_err(|err| windows_error("等待 Windows OCR 识别结果失败", err))?;
     let raw_text = result
         .Text()

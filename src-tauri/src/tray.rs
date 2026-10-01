@@ -13,11 +13,13 @@ use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::Win32::UI::WindowsAndMessaging::{EnumThreadWindows, GetClassNameW, KillTimer};
 
 const TRAY_ID: &str = "voxtype";
-/// 托盘库 tray-icon 放托盘图标的隐藏窗口的窗口类名，以及它检测"鼠标离开图标"的定时器编号。
-/// 两者都是该库的内部常量（按 tray-icon 0.24.1 和 2026-10 的上游 dev 分支核对），
-/// 升级 Tauri 带动 tray-icon 变化后需要复核；对不上时下面的清理只是不起作用，不会误伤别的窗口。
+/// 托盘库 tray-icon 放托盘图标的隐藏窗口的窗口类名。这是该库的内部常量，升级 Tauri 带动 tray-icon
+/// 变化后需要复核；对不上时下面的清理只是不起作用，不会误伤别的窗口。
 const TRAY_LIBRARY_WINDOW_CLASS: &str = "tray_icon_app";
-const TRAY_LIBRARY_LEAVE_TIMER_ID: usize = 6008;
+/// tray-icon 内部编号所在的区间，它检测"鼠标离开图标"的定时器编号就在其中，而且随版本变过：
+/// 0.24.1 是 6008，0.25.1 是 6007。托盘窗口上只有这一个定时器，所以整段都停一遍，
+/// 免得库再调整编号时规避悄悄失效。
+const TRAY_LIBRARY_TIMER_IDS: std::ops::RangeInclusive<usize> = 6000..=6031;
 /// 托盘图标安静这么久之后才清理残留定时器：鼠标还在图标上移动时，库自己的离开检测照常工作。
 const TRAY_QUIET_BEFORE_TIMER_CLEANUP: Duration = Duration::from_secs(2);
 static TRAY_LAST_EVENT: Mutex<Option<Instant>> = Mutex::new(None);
@@ -342,6 +344,8 @@ fn request_update_check(app: &AppHandle) {
 /// 的第一个节拍"检查一次位置：如果那一刻鼠标还停在图标上（比如正在点击），之后鼠标没有在图标范围内
 /// 再移动就离开了，这个定时器就再也不会停。主线程因此每秒被唤醒约 64 次，常驻约 0.75% 单核，
 /// 直到进程退出；实测从托盘打开过主窗口之后应用就处于这个状态。排查记录见 0.14.0 发布审计。
+/// 上游对应 tauri-apps/tray-icon 的 issue #292 和修复 PR #371（2026-10-01 时尚未合并，
+/// 0.25.1 里缺陷仍在）；修复随 Tauri 升级进来后删除这段规避。
 ///
 /// 停掉它是安全的：定时器只在鼠标移动后的下一个节拍有用，鼠标再次滑过图标时库会重新启动它。
 fn schedule_tray_timer_cleanup(app: &AppHandle) {
@@ -367,9 +371,9 @@ fn schedule_tray_timer_cleanup(app: &AppHandle) {
         TRAY_TIMER_CLEANUP_PENDING.store(false, Ordering::Release);
         // 定时器属于创建托盘窗口的主线程，只能在主线程上停。
         if let Err(err) = app.run_on_main_thread(|| {
-            let stopped = stop_timer_on_current_thread_windows(
+            let stopped = stop_timers_on_current_thread_windows(
                 TRAY_LIBRARY_WINDOW_CLASS,
-                TRAY_LIBRARY_LEAVE_TIMER_ID,
+                TRAY_LIBRARY_TIMER_IDS,
             );
             if stopped > 0 {
                 app_log::info("已停止托盘图标残留的鼠标离开检测定时器。");
@@ -389,11 +393,15 @@ fn remaining_tray_quiet_time(
     (elapsed < quiet).then(|| quiet - elapsed)
 }
 
-/// 在当前线程创建的顶层窗口里，找出窗口类名匹配的那些并停掉指定编号的定时器；返回实际停掉的个数。
-fn stop_timer_on_current_thread_windows(class_name: &str, timer_id: usize) -> usize {
+/// 在当前线程创建的顶层窗口里，找出窗口类名匹配的那些，停掉编号落在给定区间内的定时器；
+/// 返回实际停掉的个数。区间里不存在的编号只是停表失败，没有副作用。
+fn stop_timers_on_current_thread_windows(
+    class_name: &str,
+    timer_ids: std::ops::RangeInclusive<usize>,
+) -> usize {
     struct Request<'a> {
         class_name: &'a str,
-        timer_id: usize,
+        timer_ids: std::ops::RangeInclusive<usize>,
         stopped: usize,
     }
 
@@ -401,17 +409,19 @@ fn stop_timer_on_current_thread_windows(class_name: &str, timer_id: usize) -> us
         let request = unsafe { &mut *(lparam.0 as *mut Request<'_>) };
         let mut buffer = [0u16; 64];
         let length = unsafe { GetClassNameW(hwnd, &mut buffer) }.max(0) as usize;
-        if String::from_utf16_lossy(&buffer[..length]) == request.class_name
-            && unsafe { KillTimer(Some(hwnd), request.timer_id) }.is_ok()
-        {
-            request.stopped += 1;
+        if String::from_utf16_lossy(&buffer[..length]) == request.class_name {
+            for timer_id in request.timer_ids.clone() {
+                if unsafe { KillTimer(Some(hwnd), timer_id) }.is_ok() {
+                    request.stopped += 1;
+                }
+            }
         }
         BOOL(1)
     }
 
     let mut request = Request {
         class_name,
-        timer_id,
+        timer_ids,
         stopped: 0,
     };
     unsafe {
@@ -461,7 +471,8 @@ fn paint_status_dot(rgba: &mut [u8]) {
 #[cfg(test)]
 mod tests {
     use super::{
-        remaining_tray_quiet_time, stop_timer_on_current_thread_windows, tray_labels, tray_tooltip,
+        remaining_tray_quiet_time, stop_timers_on_current_thread_windows, tray_labels,
+        tray_tooltip, TRAY_LIBRARY_TIMER_IDS,
     };
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::{Duration, Instant};
@@ -540,13 +551,20 @@ mod tests {
             "timer should be ticking before the cleanup"
         );
 
+        // 定时器编号落在区间中间：库调整编号时，只要还在区间内就照样能停掉。
+        let timer_ids = TIMER_ID - 3..=TIMER_ID + 3;
         // 窗口类名对不上的窗口不受影响。
         assert_eq!(
-            stop_timer_on_current_thread_windows("no_such_class", TIMER_ID),
+            stop_timers_on_current_thread_windows("no_such_class", timer_ids.clone()),
+            0
+        );
+        // 区间不包含这个编号时也不受影响。
+        assert_eq!(
+            stop_timers_on_current_thread_windows(&class_name, TIMER_ID + 1..=TIMER_ID + 3),
             0
         );
         assert_eq!(
-            stop_timer_on_current_thread_windows(&class_name, TIMER_ID),
+            stop_timers_on_current_thread_windows(&class_name, timer_ids.clone()),
             1
         );
 
@@ -555,11 +573,18 @@ mod tests {
         assert_eq!(TEST_TIMER_TICKS.load(Ordering::SeqCst), 0);
         // 定时器已经不在时再清理一次，什么都不做。
         assert_eq!(
-            stop_timer_on_current_thread_windows(&class_name, TIMER_ID),
+            stop_timers_on_current_thread_windows(&class_name, timer_ids),
             0
         );
 
         unsafe { DestroyWindow(hwnd) }.expect("destroy window");
+    }
+
+    #[test]
+    fn tray_timer_id_range_covers_the_known_library_versions() {
+        // tray-icon 0.24.1 用 6008，0.25.1 用 6007；两者都必须落在清理区间里。
+        assert!(TRAY_LIBRARY_TIMER_IDS.contains(&6008));
+        assert!(TRAY_LIBRARY_TIMER_IDS.contains(&6007));
     }
 
     #[test]
