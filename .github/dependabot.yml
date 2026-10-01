@@ -13,6 +13,13 @@ updates:
       - dependencies
       - javascript
     groups:
+      # Tauri 的 npm 包和 Rust crate 必须同主次版本，否则 `tauri build` 直接报版本不匹配。
+      # 次版本升级时本组和 cargo 那边的 tauri 组单独都过不了 CI，需要手工合成一个 PR，
+      # 并做窗口、托盘和热键的真机回归。单独成组是为了不连累下面的常规分组。
+      # 分组按书写顺序匹配，本组必须排在通配分组之前。
+      tauri:
+        patterns:
+          - "@tauri-apps/*"
       # 只把兼容更新合成一个 PR。大版本各自单独提 PR：
       # 混在一起时只要有一个装不上，整组（包括安全补丁）都会卡住。
       frontend-dependencies:
@@ -41,6 +48,11 @@ updates:
       - dependencies
       - rust
     groups:
+      # 与 npm 那边的 tauri 组成对，原因见上。
+      tauri:
+        patterns:
+          - "tauri"
+          - "tauri-*"
       rust-dependencies:
         patterns:
           - "*"
