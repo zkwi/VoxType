@@ -61,10 +61,9 @@ updates:
           - minor
           - patch
     ignore:
-      # 下面几个库的下一版都有破坏性改动，分别是麦克风采集和 ASR WebSocket 的底座，
-      # 需要逐个升级并做真机回归，见 issue #46。
+      # cpal 是麦克风采集的底座，下一版有破坏性改动，升级后需要真机录音回归，见 issue #46。
       # 0.x 版本的次版本号变化就是破坏性升级，所以连 minor 一起忽略；补丁更新照常接收。
-      # 完成某一项升级后删除对应条目。
+      # 完成升级后删除本条。
       - dependency-name: cpal
         update-types:
           - version-update:semver-major
@@ -72,10 +71,6 @@ updates:
       # windows 必须和 Tauri 自己依赖的 windows 版本一致：两者不一致时窗口句柄不是同一个类型，
       # 编译直接失败。它只跟着 Tauri 的次版本一起手工升级，不单独接收。
       - dependency-name: windows
-        update-types:
-          - version-update:semver-major
-          - version-update:semver-minor
-      - dependency-name: tokio-tungstenite
         update-types:
           - version-update:semver-major
           - version-update:semver-minor
