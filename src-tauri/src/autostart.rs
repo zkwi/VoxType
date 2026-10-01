@@ -6,6 +6,12 @@ const APP_NAME: &str = "VoxType";
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 pub fn apply(config: &StartupConfig) -> Result<(), String> {
+    // 开发版和安装版共用同一个注册表启动项。开发运行时不去动它，
+    // 否则调试用的配置会把已安装版本的开机自启动关掉，或把启动项指向调试产物。
+    if crate::config::is_development_layout() {
+        app_log::info("开发布局下不同步开机自启动注册表项。");
+        return Ok(());
+    }
     if config.launch_on_startup {
         enable()
     } else {
