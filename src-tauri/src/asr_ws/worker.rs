@@ -220,11 +220,11 @@ pub fn spawn_asr_worker(input: AsrWorkerInput) {
                             overlay::hide(&app);
                         }
                     }
-                    if output_warning.is_some() {
-                        app_log::warn(format!(
-                            "输出文本完成但存在提示: {}",
-                            output_warning.as_deref().unwrap_or_default()
-                        ));
+                    // 静默提示已由输出层记录；这里只把需要用户处理的提示记为告警。
+                    if should_hold_overlay {
+                        if let Some(warning) = output_warning.as_deref() {
+                            app_log::warn(format!("输出文本完成但存在提示: {}", warning));
+                        }
                     }
                     app_log::info(format!(
                         "ASR session finished: chars={}",
