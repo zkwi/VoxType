@@ -153,7 +153,7 @@ VoxType 的主链路依赖一个可用的流式 ASR 服务。默认仍使用豆�
 
 DashScope 关闭 thinking 时必须显式发送 `enable_thinking=false`，省略字段不代表关闭。OpenRouter 模型在支持时会发送 `reasoning.effort=none`；如果模型强制思考，测试会继续尝试低档 reasoning。仅返回思考内容、没有最终正文的响应不会被判定为润色可用。`qwen3.7-max-preview` 和 `qwen3.7-max-2026-05-17` 属于仅思考模型，无法关闭思考；VoxType 会阻止这类慢请求并提示改用 `qwen3.7-max`、`qwen3.7-max-2026-05-20` 或 `qwen3.7-max-2026-06-08`。
 
-DashScope 模型选择可参考 [2026-05-28 LLM 润色模型测试记录](../audits/2026-05-28-llm-polishing-model-test.md)。其中 2026-05-30 复测修正了旧结论：日常仍优先考虑 `qwen3.7-max`；低延迟优先可考虑 `qwen3.6-flash-2026-04-16`，但它对提示词样式文本和技术路径更容易改偏；不要仅因技术文本切换到 `deepseek-v4-pro`，当前简化 prompt 下它也会改写代码路径。实际能否调用取决于当前账号和地域权限。
+DashScope 模型选择可参考 [2026-05-28 LLM 润色模型测试记录](https://github.com/zkwi/VoxType/blob/main/docs/audits/2026-05-28-llm-polishing-model-test.md)。其中 2026-05-30 复测修正了旧结论：日常仍优先考虑 `qwen3.7-max`；低延迟优先可考虑 `qwen3.6-flash-2026-04-16`，但它对提示词样式文本和技术路径更容易改偏；不要仅因技术文本切换到 `deepseek-v4-pro`，当前简化 prompt 下它也会改写代码路径。实际能否调用取决于当前账号和地域权限。
 
 性能建议：
 

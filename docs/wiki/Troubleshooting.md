@@ -171,7 +171,7 @@ VoxType 会尽量恢复常见剪贴板格式，但图片、位图句柄、文件
 - 网络慢时再增加 LLM 超时，不要把超时当作加速手段。
 - 如果同一个模型在其他客户端更快，优先对比是否关闭了 thinking/reasoning、是否使用同一个 Base URL、是否同样没有设置过小的输出上限。
 
-参考：[LLM 润色模型测试记录](../audits/2026-05-28-llm-polishing-model-test.md) 已补充 2026-05-30 复测，说明不同服务商和思考参数对速度的影响。
+参考：[LLM 润色模型测试记录](https://github.com/zkwi/VoxType/blob/main/docs/audits/2026-05-28-llm-polishing-model-test.md) 已补充 2026-05-30 复测，说明不同服务商和思考参数对速度的影响。
 
 ## 技术路径或文件名被大模型改错
 

@@ -170,6 +170,19 @@ function checkWikiMirrors(root, failures) {
       }
     }
   }
+
+  // docs/wiki 会原样推到线上 Wiki，而线上 Wiki 是独立仓库。指向仓库其他目录的相对链接
+  // 在这里能打开，推上去之后就失效了，所以镜像页引用仓库里的文件只能用绝对地址。
+  if (!fs.existsSync(wikiDir)) return;
+  for (const filename of fs.readdirSync(wikiDir)) {
+    if (!filename.endsWith(".md")) continue;
+    const text = fs.readFileSync(path.join(wikiDir, filename), "utf8");
+    for (const match of text.matchAll(/(?<!!)\[[^\]]+\]\(((?:\.\.\/|\/)[^)\s]*)\)/g)) {
+      failures.push(
+        `docs/wiki/${filename}: relative link leaves the Wiki and breaks online: ${match[1]}`,
+      );
+    }
+  }
 }
 
 function readJson(filePath) {

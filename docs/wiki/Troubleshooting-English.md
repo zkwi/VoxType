@@ -171,7 +171,7 @@ Try:
 - Increase timeout only for slow networks or models; timeout does not make polishing faster.
 - If the same model is faster in another client, compare whether thinking/reasoning is disabled, whether the Base URL is the same, and whether that client uses a small output limit.
 
-See [LLM polishing model test](../audits/2026-05-28-llm-polishing-model-test.md), which now includes a 2026-05-30 retest showing how providers and thinking parameters affect latency.
+See [LLM polishing model test](https://github.com/zkwi/VoxType/blob/main/docs/audits/2026-05-28-llm-polishing-model-test.md), which now includes a 2026-05-30 retest showing how providers and thinking parameters affect latency.
 
 ## Technical Paths or Filenames Are Rewritten
 

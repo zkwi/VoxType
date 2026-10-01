@@ -169,6 +169,23 @@ withProject((dir) => {
 });
 
 withProject((dir) => {
+  // 目标文件在仓库里存在，本地链接检查能过；但 Wiki 镜像页推到线上后这个相对链接会失效。
+  writeFile(path.join(dir, "docs", "audits", "note.md"), "# note\n");
+  writeFile(
+    path.join(dir, "docs", "wiki", "Setup-Guide.md"),
+    "# Setup-Guide\n\n[note](../audits/note.md)\n\n[home](Home)\n",
+  );
+  const result = runGovernance(dir);
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  assert.match(
+    result.stdout,
+    /docs\/wiki\/Setup-Guide\.md: relative link leaves the Wiki and breaks online: \.\.\/audits\/note\.md/,
+  );
+  // 同一 Wiki 内的页面互链不受影响。
+  assert.doesNotMatch(result.stdout, /breaks online: Home/);
+});
+
+withProject((dir) => {
   writeI18nFiles(dir, {
     "en.ts": 'import type { TranslationCopy } from "./types";\nexport const en = {\n  "appName": "VoxType",\n  "setup": {\n    "title": "Setup"\n  }\n} satisfies TranslationCopy;\n',
   });
