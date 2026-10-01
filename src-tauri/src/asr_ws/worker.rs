@@ -90,7 +90,8 @@ pub fn spawn_asr_worker(input: AsrWorkerInput) {
                 activity,
             })
             .await?;
-            let screen_context_text = screen_context.resolve().await;
+            // 首包等待超时的 OCR 结果到这里通常已经返回，润色仍可拿来做参考。
+            let screen_context_text = screen_context.resolve_for_post_edit().await;
             if text.trim().is_empty() {
                 return Ok::<llm_post_edit::PolishOutcome, String>(llm_post_edit::PolishOutcome {
                     text,
