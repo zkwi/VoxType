@@ -6,6 +6,15 @@
 
 ## [未发布]
 
+### 依赖
+
+- 升级到 Tauri 2.12：`tauri 2.12.1`、`@tauri-apps/api 2.12.1`、`@tauri-apps/cli 2.12.1`、`plugin-opener 2.7.0`、`plugin-single-instance 2.5.2`，连带 `tao 0.37`、`wry 0.57`、`tray-icon 0.25.1`、`muda 0.20`。同时把项目直接依赖的 `windows` 从 `0.61` 升到 `0.62`：Tauri 2.12 改用 `windows 0.62`，两者不一致时窗口句柄不是同一个类型，编译直接失败，所以必须一起升。代码侧唯一的适配是屏幕 OCR 等待 WinRT 异步结果的调用由 `get()` 改名为 `join()`。
+- `tray-icon 0.25.1` 把“鼠标离开图标”定时器的编号从 `6008` 改成了 `6007`，缺陷本身没有修（上游 [tauri-apps/tray-icon#292](https://github.com/tauri-apps/tray-icon/issues/292)，修复 PR [#371](https://github.com/tauri-apps/tray-icon/pull/371) 尚未合并）。托盘残留定时器的规避改为按编号区间清理，不再依赖具体编号；只升级不改的话规避会悄悄失效。
+- Dependabot 的 `windows` 忽略规则保留，理由改为“只跟着 Tauri 的次版本一起手工升级”。
+- 合并 Dependabot 的常规更新：`serde 1.0.229`、`futures-util 0.3.34`、`vitest 5.0.2`、`@types/node 26.6.3`。
+
+验证：`npm run ai:release-check` 通过（Rust 287 个用例）；两条真实剪贴板手工回归通过；release 构建在真实应用上核对了窗口显示/隐藏/唤起、静默自启动、托盘定时器清理、屏幕 OCR 自测、ASR 与大模型连接测试、音频设备枚举，以及热键和输入钩子的注册。没有做的：真实按键触发、麦克风录音和粘贴到目标应用，下次发布前需要按手工回归清单补上。
+
 ## [0.14.0] - 2026-10-01
 
 本版改动全部来自对最近两个月真实使用日志（约 3300 次语音输入）和已安装版本运行状态的复盘。

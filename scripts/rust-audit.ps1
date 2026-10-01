@@ -15,7 +15,7 @@ if ($LASTEXITCODE -ne 0) {
 Push-Location ".\src-tauri"
 try {
   $global:LASTEXITCODE = 0
-  # Tauri 2.11.x still reaches quick-xml through plist 1.9.0, which currently
+  # Tauri 2.12.x still reaches quick-xml through plist 1.9.0, which currently
   # pins quick-xml below RustSec's fixed 0.41.0 line. VoxType does not parse
   # untrusted plist/XML at runtime; keep these two upstream advisories explicit
   # so any new vulnerability still fails the release check.
