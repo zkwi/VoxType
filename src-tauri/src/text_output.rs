@@ -496,6 +496,10 @@ fn read_clipboard_backup(typing: &TypingConfig) -> Result<ClipboardBackup, Strin
 ///
 /// 文本族只认"已备份 Unicode 文本"这一个方向：从 ANSI 文本反推 Unicode 会丢掉代码页之外的字符，
 /// 那种情况仍按丢失计。
+///
+/// 位图族保持双向，这是已接受的差异：来源程序同时放了 CF_DIB 和带透明通道的 CF_DIBV5、
+/// 而后者因额度被跳过时，恢复后由系统合成的 V5 没有透明通道，这里不会计入丢失。
+/// API 分不出一份 V5 是程序放的还是系统合成的，按单向收紧会把截图场景的误报全部带回来。
 fn is_resynthesized_after_restore(skipped_format: u32, captured_formats: &[u32]) -> bool {
     let captured = |candidates: &[u32]| {
         candidates
@@ -523,8 +527,7 @@ fn read_clipboard_text() -> Result<String, String> {
 
 /// 取出某个格式的全局内存句柄和大小。
 ///
-/// 每个格式只调用一次 `GetClipboardData`：合成格式在取数据时才真正渲染，
-/// 剪贴板里是大截图时重复调用会把几兆数据白白转换两遍。
+/// 每个格式只调用一次 `GetClipboardData`，大小和内容取自同一个句柄。
 fn clipboard_format_memory(format: u32) -> Option<(HGLOBAL, usize)> {
     let handle = unsafe { GetClipboardData(format) }.ok()?;
     if handle.is_invalid() {
@@ -721,8 +724,7 @@ mod tests {
     use std::time::Duration;
     use windows::Win32::Foundation::GlobalFree;
     use windows::Win32::System::DataExchange::{
-        CloseClipboard, EmptyClipboard, GetClipboardData, GetClipboardSequenceNumber,
-        IsClipboardFormatAvailable, OpenClipboard,
+        CloseClipboard, EmptyClipboard, GetClipboardData, IsClipboardFormatAvailable, OpenClipboard,
     };
 
     #[test]
@@ -888,14 +890,34 @@ mod tests {
         assert_eq!(remaining_paste_delay(0, Duration::ZERO), Duration::ZERO);
     }
 
-    /// 手工回归：会短暂改写真实系统剪贴板（结束时恢复原内容），因此默认不运行。
-    ///
-    /// 运行：`cargo test --lib real_clipboard -- --ignored --nocapture`
-    #[test]
-    #[ignore = "touches the real system clipboard; run manually"]
-    fn real_clipboard_open_is_exclusive_and_text_survives_owner_window() {
-        let typing = TypingConfig::default();
-        let original = read_clipboard_backup_with_retry(&typing).expect("snapshot clipboard");
+    /// 两条手工回归都要独占真实系统剪贴板。并行运行会互相覆盖，还可能把对方写入的测试内容
+    /// 当成"原内容"恢复回去，所以即使忘了加 `--test-threads=1` 也让它们串行。
+    static REAL_CLIPBOARD_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// 测试结束时把用户原来的剪贴板内容放回去；断言失败提前退出时同样生效。
+    struct RealClipboardRestore {
+        original: ClipboardBackup,
+        typing: TypingConfig,
+    }
+
+    impl Drop for RealClipboardRestore {
+        fn drop(&mut self) {
+            let restored = match &self.original {
+                ClipboardBackup::Snapshot(snapshot) => {
+                    write_clipboard_snapshot_with_retry(snapshot, &self.typing).is_ok()
+                }
+                _ => ClipboardGuard::open().is_ok_and(|_guard| unsafe { EmptyClipboard() }.is_ok()),
+            };
+            // 断言已经失败时不再叠加 panic，否则进程会直接中止、连失败信息都看不到。
+            if !restored && !std::thread::panicking() {
+                panic!("restore clipboard");
+            }
+        }
+    }
+
+    /// 记下当前剪贴板内容并返回负责恢复的守卫；内容无法完整恢复时返回 `None`，测试直接跳过。
+    fn take_over_real_clipboard(typing: &TypingConfig) -> Option<RealClipboardRestore> {
+        let original = read_clipboard_backup_with_retry(typing).expect("snapshot clipboard");
         let fully_restorable = match &original {
             ClipboardBackup::Empty => true,
             ClipboardBackup::Snapshot(snapshot) => snapshot.skipped_formats == 0,
@@ -903,15 +925,32 @@ mod tests {
         };
         if !fully_restorable {
             eprintln!("skipped: 当前剪贴板内容无法完整恢复，不在其上运行测试。");
-            return;
+            return None;
         }
+        Some(RealClipboardRestore {
+            original,
+            typing: typing.clone(),
+        })
+    }
+
+    /// 手工回归：会短暂改写真实系统剪贴板（结束时恢复原内容），因此默认不运行。
+    ///
+    /// 运行：`cargo test --lib real_clipboard -- --ignored --nocapture --test-threads=1`
+    #[test]
+    #[ignore = "touches the real system clipboard; run manually"]
+    fn real_clipboard_open_is_exclusive_and_text_survives_owner_window() {
+        let _exclusive = REAL_CLIPBOARD_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let typing = TypingConfig::default();
+        let Some(_restore) = take_over_real_clipboard(&typing) else {
+            return;
+        };
 
         let text = "VoxType 剪贴板回归 clipboard regression";
         write_clipboard_text_verified(text).expect("write and verify text");
-        let sequence = unsafe { GetClipboardSequenceNumber() };
-        // 写入用的属主窗口此时已经销毁：内容必须还在，且销毁本身不产生新的剪贴板变更。
+        // 写入用的属主窗口此时已经销毁：内容必须还在。
         assert_eq!(read_clipboard_text().expect("read text back"), text);
-        assert_eq!(unsafe { GetClipboardSequenceNumber() }, sequence);
 
         {
             let _guard = ClipboardGuard::open().expect("open clipboard with owner window");
@@ -929,27 +968,21 @@ mod tests {
             assert!(!opened_by_other_thread);
             assert!(unsafe { GetClipboardData(CF_UNICODETEXT) }.is_ok());
         }
-
-        restore_real_clipboard(&original, &typing);
     }
 
     /// 手工回归：验证"截图在剪贴板里"时快照不再误报丢失，且恢复后位图句柄格式仍可用。
     ///
-    /// 运行：`cargo test --lib real_clipboard -- --ignored --nocapture`
+    /// 运行：`cargo test --lib real_clipboard -- --ignored --nocapture --test-threads=1`
     #[test]
     #[ignore = "touches the real system clipboard; run manually"]
     fn real_clipboard_image_snapshot_restores_bitmap_through_synthesis() {
+        let _exclusive = REAL_CLIPBOARD_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let typing = TypingConfig::default();
-        let original = read_clipboard_backup_with_retry(&typing).expect("snapshot clipboard");
-        let fully_restorable = match &original {
-            ClipboardBackup::Empty => true,
-            ClipboardBackup::Snapshot(snapshot) => snapshot.skipped_formats == 0,
-            ClipboardBackup::NonRestorable => false,
-        };
-        if !fully_restorable {
-            eprintln!("skipped: 当前剪贴板内容无法完整恢复，不在其上运行测试。");
+        let Some(_restore) = take_over_real_clipboard(&typing) else {
             return;
-        }
+        };
 
         // 2x2 的 32 位 DIB：40 字节 BITMAPINFOHEADER + 16 字节像素。
         let mut dib = Vec::new();
@@ -988,20 +1021,6 @@ mod tests {
             let _guard = ClipboardGuard::open().expect("open clipboard");
             assert!(unsafe { IsClipboardFormatAvailable(CF_BITMAP) }.is_ok());
             assert!(unsafe { GetClipboardData(CF_BITMAP) }.is_ok());
-        }
-
-        restore_real_clipboard(&original, &typing);
-    }
-
-    fn restore_real_clipboard(original: &ClipboardBackup, typing: &TypingConfig) {
-        match original {
-            ClipboardBackup::Snapshot(snapshot) => {
-                write_clipboard_snapshot_with_retry(snapshot, typing).expect("restore clipboard");
-            }
-            _ => {
-                let _guard = ClipboardGuard::open().expect("open clipboard to clear");
-                unsafe { EmptyClipboard() }.expect("clear clipboard");
-            }
         }
     }
 

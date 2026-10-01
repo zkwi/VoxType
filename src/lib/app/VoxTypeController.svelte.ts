@@ -155,6 +155,8 @@ export function createVoxTypeController() {
   let audioLevel = $state(0);
   // 隐藏到托盘的主窗口仍会继续渲染；录音时的动画和电平条没人看，却会一直占用 CPU 和 GPU。
   let mainWindowVisible = $state(true);
+  // 显示/隐藏事件的累计次数。快照在路上时如果来过事件，事件更新，快照里的可见性就作废。
+  let mainWindowVisibilityEvents = 0;
   const initialParams = browser ? new URLSearchParams(window.location.search) : new URLSearchParams();
   let audioDevices = $state<AudioDeviceInfo[]>([]);
   let isOverlay = $state(initialParams.has("overlay"));
@@ -686,6 +688,7 @@ export function createVoxTypeController() {
   async function loadAll() {
     logFrontendEvent(`loadAll started mode=${frontendMode()}`);
     if (!isOverlay && !setupStatus) setupStatusLoading = true;
+    const visibilityEventsBeforeLoad = mainWindowVisibilityEvents;
     const [snapshotResult, configResult, statsResult, devicesResult, setupResult, localDataResult] = await Promise.all([
       safeInvoke<AppSnapshot>("get_app_snapshot"),
       loadAppConfig(),
@@ -698,7 +701,10 @@ export function createVoxTypeController() {
     const loadedAny = Boolean(snapshotResult || configResult || statsResult || devicesResult || setupResult);
     if (snapshotResult) {
       snapshot = snapshotResult;
-      mainWindowVisible = snapshotResult.main_window_visible ?? true;
+      // 自启动隐藏后，用户可能在首屏加载期间就从托盘打开主窗口；这时不能用旧快照把它盖回"隐藏"。
+      if (mainWindowVisibilityEvents === visibilityEventsBeforeLoad) {
+        mainWindowVisible = snapshotResult.main_window_visible ?? true;
+      }
     }
     if (configResult) {
       applyLoadedConfig(configResult);
@@ -875,12 +881,14 @@ export function createVoxTypeController() {
     screenContextTestResult = null;
   }
   function handleMainWindowHidden() {
+    mainWindowVisibilityEvents += 1;
     mainWindowVisible = false;
     // 字幕窗也会收到这个事件，但它的电平条仍在显示，不能清零。
     if (!isOverlay) audioLevel = 0;
     clearSensitivePreviews();
   }
   function handleMainWindowShown() {
+    mainWindowVisibilityEvents += 1;
     mainWindowVisible = true;
   }
   function clearLastOutcome() {

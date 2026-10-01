@@ -114,6 +114,8 @@ export function createOverlayController(options: OverlayControllerOptions) {
   }
 
   function applyPayload(payload: OverlayText) {
+    // 字幕事件会广播给所有窗口；主窗口不渲染字幕，没必要跟着每条实时字幕做一遍排版测量。
+    if (!options.isOverlay()) return;
     poller.wake();
     applyOverlayText(payload);
   }

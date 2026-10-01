@@ -6,10 +6,25 @@ use tauri::{AppHandle, Emitter, Manager};
 pub const MAIN_LABEL: &str = "main";
 /// 开机自启动注册表项携带的参数：带着它启动，说明是系统登录时拉起的，而不是用户手动打开。
 pub const AUTOSTART_ARG: &str = "--autostart";
+/// 托盘"重启程序"会把原进程的启动参数原样带给新进程，其中可能就有 `--autostart`。
+/// 重启是用户自己点的，不是系统登录时拉起，所以重启前设这个环境变量，新进程据此照常显示主窗口。
+const USER_RESTART_ENV: &str = "VOXTYPE_USER_RESTART";
 static CONFIG_EXIT_GUARD: AtomicBool = AtomicBool::new(false);
 
 pub fn launched_by_autostart() -> bool {
-    std::env::args().any(|arg| arg == AUTOSTART_ARG)
+    is_autostart_launch(
+        std::env::args().any(|arg| arg == AUTOSTART_ARG),
+        std::env::var_os(USER_RESTART_ENV).is_some(),
+    )
+}
+
+fn is_autostart_launch(has_autostart_arg: bool, restarted_by_user: bool) -> bool {
+    has_autostart_arg && !restarted_by_user
+}
+
+/// 在请求重启之前调用；新进程会继承当前进程的环境变量。
+pub fn mark_user_restart() {
+    std::env::set_var(USER_RESTART_ENV, "1");
 }
 
 /// 开机自启动且已经可以直接使用时，主窗口留在托盘，不打断登录后的操作。
@@ -78,7 +93,9 @@ pub fn show_existing(app: &AppHandle, source: &str) {
 
 #[cfg(test)]
 mod tests {
-    use super::{config_exit_guard_active, set_config_exit_guard, should_start_hidden};
+    use super::{
+        config_exit_guard_active, is_autostart_launch, set_config_exit_guard, should_start_hidden,
+    };
 
     #[test]
     fn config_exit_guard_tracks_failed_unsaved_changes() {
@@ -97,5 +114,14 @@ mod tests {
         // 还没配置好时必须显示主窗口，否则首次使用的提示无处可见。
         assert!(!should_start_hidden(true, false));
         assert!(!should_start_hidden(false, false));
+    }
+
+    #[test]
+    fn a_user_restart_is_not_an_autostart_launch() {
+        assert!(is_autostart_launch(true, false));
+        // 托盘重启会带着原来的 --autostart 参数，但这是用户主动操作，主窗口应当显示。
+        assert!(!is_autostart_launch(true, true));
+        assert!(!is_autostart_launch(false, false));
+        assert!(!is_autostart_launch(false, true));
     }
 }

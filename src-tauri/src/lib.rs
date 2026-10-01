@@ -137,6 +137,10 @@ pub fn run() {
             app_log::info("startup stage: setup tray begin");
             if let Err(err) = tray::setup_tray(app.handle()) {
                 app_log::warn(err);
+                if start_hidden {
+                    // 没有托盘图标时主窗口是唯一的入口，不能再保持隐藏。
+                    main_window::show_existing(app.handle(), "托盘创建失败后");
+                }
             }
             app_log::info("startup stage: setup tray done");
             app_log::info("startup stage: setup guide check begin");

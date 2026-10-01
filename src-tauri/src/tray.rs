@@ -287,6 +287,7 @@ fn restart_app(app: &AppHandle) {
     crate::hotkey::stop_input_threads();
     let controller = app.state::<SessionController>().inner().clone();
     controller.abort_from_worker(app, "Application restarting.");
+    main_window::mark_user_restart();
     app.request_restart();
 }
 
