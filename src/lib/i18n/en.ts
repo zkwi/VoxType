@@ -37,7 +37,7 @@ export const en = {
   "micUnavailable": "No microphone detected",
   "sidebarMicConnected": "Mic: connected",
   "sidebarMicUnavailable": "Mic: unavailable",
-  "sidebarShortcut": "Shortcut: {hotkey}",
+  "sidebarShortcut": "Start with: {hotkey}",
   "usageTipEmpty": "After one voice input, real usage stats will appear here.",
   "usageTipData": "{sessions} voice inputs, {chars} chars total.",
   "sessionIdleHint": "Click an input box, then press {hotkey}.",

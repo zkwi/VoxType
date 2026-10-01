@@ -45,6 +45,7 @@
     lastAudioQualityDiagnostic: AudioQualityDiagnostic | null;
     sessionBusy: boolean;
     snapshotHotkey: string;
+    startTriggerText: string;
     chineseTypingCharsPerMinute: number;
     formatHotkey: (value: string) => string;
     formatNumber: (value: number) => string;
@@ -81,6 +82,7 @@
     lastAudioQualityDiagnostic,
     sessionBusy,
     snapshotHotkey,
+    startTriggerText,
     chineseTypingCharsPerMinute,
     formatHotkey,
     formatNumber,
@@ -296,23 +298,16 @@
       </div>
     {/if}
   </section>
-{:else}
+{:else if !requiresAsrAuth}
+  <!-- 未配置时上方的提示条已经说明了要做什么并给了入口，这里不再重复一遍。 -->
   <section class="last-outcome-card standby-outcome-card">
     <div class="last-outcome-header">
       <div class="last-outcome-copy">
-        <strong>{requiresAsrAuth ? t("setupRequired") : inputStatus === "idle" ? t("setupHealthReadyTitle") : inputStatusLabel}</strong>
+        <strong>{inputStatus === "idle" ? t("setupHealthReadyTitle") : inputStatusLabel}</strong>
       </div>
-      {#if requiresAsrAuth || inputStatus === "idle"}
-        <div class="last-outcome-actions">
-          <button type="button" class="link-action compact" onclick={requiresAsrAuth ? onOpenSettings : () => onSelectSection("Options")}>
-            {requiresAsrAuth ? t("setupCta") : t("shortcutSettings")}
-            <ChevronRight size={14} />
-          </button>
-        </div>
-      {/if}
     </div>
     <p class="last-outcome-description">
-      {requiresAsrAuth ? setupRequiredMessage : inputStatus === "idle" ? t("setupHealthReadyDescription", { hotkey: formatHotkey(snapshotHotkey) }) : inputStatusDesc}
+      {inputStatus === "idle" ? t("setupHealthReadyDescription", { hotkey: startTriggerText }) : inputStatusDesc}
     </p>
   </section>
 {/if}

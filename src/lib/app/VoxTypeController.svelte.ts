@@ -108,6 +108,7 @@ import {
   pasteMethodLabel as getPasteMethodLabel,
   readCachedSetupStatus,
   setupActionText as getSetupActionText,
+  startTriggerHint as getStartTriggerHint,
   type SetupStatus,
 } from "$lib/utils/setupStatus";
 import { invoke } from "@tauri-apps/api/core";
@@ -794,8 +795,10 @@ export function createVoxTypeController() {
     }, 2000);
   }
   function sessionPhaseMessage(phase: SessionPhase) {
-    const hotkey = formatHotkey(snapshot.hotkey);
-    return t(sessionPhaseMessageKey(phase), { hotkey });
+    return t(sessionPhaseMessageKey(phase), { hotkey: startTriggerText() });
+  }
+  function startTriggerText() {
+    return getStartTriggerHint(config, snapshot.hotkey, t, formatHotkey);
   }
 
   async function refreshStats() {
@@ -1231,10 +1234,9 @@ export function createVoxTypeController() {
       inputStatusLabel: inputStatusLabel(),
       inputStatusDesc: inputStatusDesc(),
       micBars,
-      snapshotHotkey: snapshot.hotkey,
+      startTriggerText: startTriggerText(),
       requiresAsrAuth: requiresAsrAuth(),
       t,
-      formatHotkey,
       micStatusText,
       sidebarMicStatusText,
       micBarHeight,
@@ -1269,6 +1271,7 @@ export function createVoxTypeController() {
       lastAudioQualityDiagnostic,
       sessionBusy: isSessionBusy(),
       snapshotHotkey: snapshot.hotkey,
+      startTriggerText: startTriggerText(),
       chineseTypingCharsPerMinute,
       configExists,
       setupChecking: setupStatusLoading && !setupStatus,

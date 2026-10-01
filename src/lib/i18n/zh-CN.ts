@@ -36,7 +36,7 @@ export const zhCN = {
   "micUnavailable": "未检测到麦克风",
   "sidebarMicConnected": "麦克风：已连接",
   "sidebarMicUnavailable": "麦克风：未连接",
-  "sidebarShortcut": "快捷键：{hotkey}",
+  "sidebarShortcut": "启动方式：{hotkey}",
   "usageTipEmpty": "完成一次语音输入后，这里会显示真实使用统计。",
   "usageTipData": "已记录 {sessions} 次语音输入，共 {chars} 字。",
   "sessionIdleHint": "把光标放到输入框，然后按 {hotkey} 开始说话。",

@@ -129,6 +129,20 @@ export function formatEnabledTriggers(config: AppConfig, hotkey: string, t: Tran
   return triggers.length > 0 ? triggers.join(" / ") : t("disabled");
 }
 
+/**
+ * 操作提示里"按 X 开始说话"的 X。
+ *
+ * 列出实际启用的触发方式，而不是固定写主快捷键：只开了右 Alt 或鼠标中键时，
+ * 提示用户去按一个已经关掉的快捷键只会让人困惑。一个都没开时退回主快捷键的写法。
+ */
+export function startTriggerHint(config: AppConfig, hotkey: string, t: Translate, formatHotkey: (value: string) => string) {
+  const anyTriggerEnabled =
+    config.triggers.hotkey_enabled ||
+    config.triggers.middle_mouse_enabled ||
+    config.triggers.right_alt_enabled;
+  return anyTriggerEnabled ? formatEnabledTriggers(config, hotkey, t, formatHotkey) : formatHotkey(hotkey);
+}
+
 export function buildSetupStatusItems(params: {
   loading: boolean;
   configLoaded: boolean;

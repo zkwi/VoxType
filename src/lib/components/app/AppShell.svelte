@@ -33,10 +33,9 @@
     inputStatusLabel: string;
     inputStatusDesc: string;
     micBars: number[];
-    snapshotHotkey: string;
+    startTriggerText: string;
     requiresAsrAuth: boolean;
     t: Translate;
-    formatHotkey: (value: string) => string;
     micStatusText: () => string;
     sidebarMicStatusText: () => string;
     micBarHeight: (index: number) => string;
@@ -63,10 +62,9 @@
     inputStatusLabel,
     inputStatusDesc,
     micBars,
-    snapshotHotkey,
+    startTriggerText,
     requiresAsrAuth,
     t,
-    formatHotkey,
     micStatusText,
     sidebarMicStatusText,
     micBarHeight,
@@ -194,7 +192,9 @@
             {/each}
           {/if}
         </div>
-        <div class="shortcut-line">{t("sidebarShortcut", { hotkey: formatHotkey(snapshotHotkey) })}</div>
+        <div class="shortcut-line" title={t("sidebarShortcut", { hotkey: startTriggerText })}>
+          {t("sidebarShortcut", { hotkey: startTriggerText })}
+        </div>
       </section>
     </aside>
 

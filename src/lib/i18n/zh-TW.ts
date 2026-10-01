@@ -37,7 +37,7 @@ export const zhTW = {
   "micUnavailable": "未偵測到麥克風",
   "sidebarMicConnected": "麥克風：已連接",
   "sidebarMicUnavailable": "麥克風：未連接",
-  "sidebarShortcut": "快捷鍵：{hotkey}",
+  "sidebarShortcut": "啟動方式：{hotkey}",
   "usageTipEmpty": "完成一次語音輸入後，這裡會顯示真實使用統計。",
   "usageTipData": "已記錄 {sessions} 次語音輸入，共 {chars} 字。",
   "sessionIdleHint": "把游標放到輸入框，然後按 {hotkey} 開始說話。",
