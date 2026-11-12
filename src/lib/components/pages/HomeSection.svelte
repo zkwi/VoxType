@@ -3,6 +3,7 @@
     AppConfig,
     AudioQualityDiagnostic,
     LastSessionOutcome,
+    Section,
     StatsSnapshot,
     UsageStats,
     UserErrorAction,
@@ -10,11 +11,15 @@
   import ActionPanel from "$lib/components/common/ActionPanel.svelte";
   import type { CopyKey, UserErrorDetail } from "$lib/i18n";
   import { savedHoursForUsage } from "$lib/utils/stats";
+  import { isAliyunAsrProvider } from "$lib/utils/asrProvider";
+  import { pasteMethodLabel } from "$lib/utils/setupStatus";
   import {
     CalendarDays,
     ChevronRight,
     Clock3,
     Copy,
+    Eye,
+    EyeOff,
     Keyboard,
     Mic,
     MousePointerClick,
@@ -45,7 +50,8 @@
     lastAudioQualityDiagnostic: AudioQualityDiagnostic | null;
     sessionBusy: boolean;
     snapshotHotkey: string;
-    startTriggerText: string;
+    effectiveHotwordCount: number;
+    hasLlmApiConfig: boolean;
     chineseTypingCharsPerMinute: number;
     formatHotkey: (value: string) => string;
     formatNumber: (value: number) => string;
@@ -53,7 +59,7 @@
     formatSavedHours: (hours: number) => string;
     weeklySavedHours: () => number;
     usageTipText: () => string;
-    triggerLabel: (enabled: boolean) => string;
+    weeklyActivityText: () => string;
     onOpenSettings: () => void;
     onOpenSetupGuide: () => void;
     onOpenRecordingTroubleshooting: () => void;
@@ -61,7 +67,8 @@
     onCopyLastOutcomeText: (text: string) => Promise<boolean>;
     onClearLastOutcome: () => void;
     onToggleRecording: () => void;
-    onSelectSection: (section: "Options") => void;
+    onSelectSection: (section: Section) => void;
+    onScrollToSettingsPanel: (id: string) => void;
   };
 
   let {
@@ -82,7 +89,8 @@
     lastAudioQualityDiagnostic,
     sessionBusy,
     snapshotHotkey,
-    startTriggerText,
+    effectiveHotwordCount,
+    hasLlmApiConfig,
     chineseTypingCharsPerMinute,
     formatHotkey,
     formatNumber,
@@ -90,7 +98,7 @@
     formatSavedHours,
     weeklySavedHours,
     usageTipText,
-    triggerLabel,
+    weeklyActivityText,
     onOpenSettings,
     onOpenSetupGuide,
     onOpenRecordingTroubleshooting,
@@ -99,7 +107,21 @@
     onClearLastOutcome,
     onToggleRecording,
     onSelectSection,
+    onScrollToSettingsPanel,
   }: Props = $props();
+
+  const primaryTriggerPanel = "settings-output";
+  const backupTriggerPanel = "settings-backup-triggers";
+  let triggers = $derived([
+    { label: formatHotkey(snapshotHotkey), enabled: config.triggers.hotkey_enabled, icon: Keyboard, panel: primaryTriggerPanel },
+    { label: t("middleMouse"), enabled: config.triggers.middle_mouse_enabled, icon: MousePointerClick, panel: backupTriggerPanel },
+    { label: t("rightAlt"), enabled: config.triggers.right_alt_enabled, icon: Keyboard, panel: backupTriggerPanel },
+    { label: t("rightCtrl"), enabled: config.triggers.right_ctrl_enabled, icon: Keyboard, panel: backupTriggerPanel },
+  ]);
+
+  let llmStatus = $derived(
+    !config.llm_post_edit.enabled ? t("disabled") : t(hasLlmApiConfig ? "enabled" : "llmApiMissing"),
+  );
 
   const outcomePreviewLimit = 500;
   let lastOutcomeExpanded = $state(false);
@@ -220,52 +242,42 @@
     </div>
   {/if}
   <div class:listening={recording || sessionBusy} class:error={inputStatus === "error"} class:locked={requiresAsrAuth} class="voice-hero">
-    <button class:listening={recording || sessionBusy} class="mic-orb" aria-label={requiresAsrAuth ? t("authGateTitle") : recording ? t("clickStop") : t("clickStart")} onclick={onToggleRecording} disabled={sessionBusy || requiresAsrAuth}>
-      <span class="mic-ring"><Mic size={uiCompact ? 34 : 42} strokeWidth={2.15} /></span>
-    </button>
-    <div class="voice-copy">
-      <div class="hero-status">
-        <span class="hero-dot" class:listening={recording} class:error={inputStatus === "error"}></span>
-        <strong>{inputStatusLabel}</strong>
-      </div>
-      <h4>{requiresAsrAuth ? t("authGateTitle") : recording ? t("clickStop") : sessionBusy ? inputStatusLabel : t("clickStart")}</h4>
-      <p>{requiresAsrAuth ? t("authGateDescription") : inputStatusDesc}</p>
-      <div class="hero-launch">
-        <span class="hero-launch-label">{t("desktopControl")}</span>
-        <div class="hero-trigger-row">
-          <span class:enabled={config.triggers.hotkey_enabled} class="hero-trigger">
-            <Keyboard size={15} />
-            <span>
-              <strong>{formatHotkey(snapshotHotkey)}</strong>
-              <small>{config.triggers.hotkey_enabled ? t("mainHotkey") : t("disabled")}</small>
-            </span>
-          </span>
-          <span class:enabled={config.triggers.middle_mouse_enabled} class="hero-trigger">
-            <MousePointerClick size={15} />
-            <span>
-              <strong>{t("middleMouse")}</strong>
-              <small>{triggerLabel(config.triggers.middle_mouse_enabled)}</small>
-            </span>
-          </span>
-          <span class:enabled={config.triggers.right_alt_enabled} class="hero-trigger">
-            <Keyboard size={15} />
-            <span>
-              <strong>{t("rightAlt")}</strong>
-              <small>{triggerLabel(config.triggers.right_alt_enabled)}</small>
-            </span>
-          </span>
-          <span class:enabled={config.triggers.right_ctrl_enabled} class="hero-trigger">
-            <Keyboard size={15} />
-            <span>
-              <strong>{t("rightCtrl")}</strong>
-              <small>{triggerLabel(config.triggers.right_ctrl_enabled)}</small>
-            </span>
-          </span>
+    <div class="hero-main">
+      <button class:listening={recording || sessionBusy} class="mic-orb" aria-label={requiresAsrAuth ? t("authGateTitle") : recording ? t("clickStop") : t("clickStart")} onclick={onToggleRecording} disabled={sessionBusy || requiresAsrAuth}>
+        <span class="mic-ring"><Mic size={uiCompact ? 34 : 42} strokeWidth={2.15} /></span>
+      </button>
+      <div class="voice-copy">
+        <div class="hero-status">
+          <span class="hero-dot" class:listening={recording} class:error={inputStatus === "error"}></span>
+          <strong>{inputStatusLabel}</strong>
         </div>
-        <button type="button" class="hero-shortcut-button" onclick={() => onSelectSection("Options")}>
-          {t("shortcutSettings")} <ChevronRight size={15} />
-        </button>
+        <h4>{requiresAsrAuth ? t("authGateTitle") : recording ? t("clickStop") : sessionBusy ? inputStatusLabel : t("clickStart")}</h4>
+        <p>{requiresAsrAuth ? t("authGateDescription") : inputStatusDesc}</p>
       </div>
+    </div>
+    <div class="hero-footer">
+      <span class="hero-launch-label">{t("desktopControl")}</span>
+      <div class="hero-trigger-row">
+        {#each triggers as trigger}
+          {@const Icon = trigger.icon}
+          {@const name = trigger.panel === primaryTriggerPanel ? `${t("mainHotkey")} ${trigger.label}` : trigger.label}
+          {@const description = `${name} · ${t(trigger.enabled ? "enabled" : "disabled")}`}
+          <button
+            type="button"
+            class="hero-trigger"
+            class:enabled={trigger.enabled}
+            title={description}
+            aria-label={description}
+            onclick={() => onScrollToSettingsPanel(trigger.panel)}
+          >
+            <Icon size={14} />
+            <span>{trigger.label}</span>
+          </button>
+        {/each}
+      </div>
+      <button type="button" class="hero-shortcut-button" onclick={() => onScrollToSettingsPanel(primaryTriggerPanel)}>
+        {t("shortcutSettings")} <ChevronRight size={15} />
+      </button>
     </div>
   </div>
 </section>
@@ -276,16 +288,17 @@
         <strong>{t("lastOutcomeSuccessTitle")}</strong>
       </div>
       <div class="last-outcome-actions">
+        <button type="button" class="link-action compact" aria-expanded={lastOutcomeExpanded} onclick={() => (lastOutcomeExpanded = !lastOutcomeExpanded)}>
+          {#if lastOutcomeExpanded}<EyeOff size={14} />{:else}<Eye size={14} />{/if}
+          {lastOutcomeExpanded ? t("lastOutcomeHideText") : t("lastOutcomeViewText")}
+        </button>
         <button type="button" class="link-action compact copy-action" disabled={copyingLastOutcome} onclick={copyLastOutcome}>
           <Copy size={14} />
           {copyingLastOutcome ? t("lastOutcomeCopying") : lastOutcomeCopied ? t("lastOutcomeCopiedShort") : t("lastOutcomeCopyText")}
         </button>
-        <button type="button" class="link-action compact" onclick={onClearLastOutcome}>
+        <button type="button" class="link-action compact clear-action" onclick={onClearLastOutcome}>
           <Trash2 size={14} />
           {t("clearPreview")}
-        </button>
-        <button type="button" class="link-action compact" onclick={() => (lastOutcomeExpanded = !lastOutcomeExpanded)}>
-          {lastOutcomeExpanded ? t("lastOutcomeHideText") : t("lastOutcomeViewText")}
         </button>
       </div>
     </div>
@@ -305,17 +318,24 @@
       </div>
     {/if}
   </section>
-{:else if !requiresAsrAuth}
-  <!-- 未配置时上方的提示条已经说明了要做什么并给了入口，这里不再重复一遍。 -->
-  <section class="last-outcome-card standby-outcome-card">
-    <div class="last-outcome-header">
-      <div class="last-outcome-copy">
-        <strong>{inputStatus === "idle" ? t("setupHealthReadyTitle") : inputStatusLabel}</strong>
-      </div>
-    </div>
-    <p class="last-outcome-description">
-      {inputStatus === "idle" ? t("setupHealthReadyDescription", { hotkey: startTriggerText }) : inputStatusDesc}
-    </p>
+{:else if !lastSessionOutcome && !requiresAsrAuth && inputStatus === "idle"}
+  <section class="config-overview" aria-label={t("overviewConfig")}>
+    <button type="button" onclick={() => onScrollToSettingsPanel("settings-auth")}>
+      <span>{t("overviewAsr")}</span>
+      <strong>{t(isAliyunAsrProvider(config) ? "asrProviderAliyun" : "asrProviderDoubao")}</strong>
+    </button>
+    <button type="button" onclick={() => onScrollToSettingsPanel("settings-llm-api")}>
+      <span>{t("overviewLlm")}</span>
+      <strong>{llmStatus}</strong>
+    </button>
+    <button type="button" onclick={() => onSelectSection("Hotwords")}>
+      <span>{t("overviewVocabulary")}</span>
+      <strong>{t("overviewVocabularyValue", { hotwords: formatNumber(effectiveHotwordCount), state: t(config.screen_context.enabled ? "enabled" : "disabled") })}</strong>
+    </button>
+    <button type="button" onclick={() => onScrollToSettingsPanel("settings-basic-output")}>
+      <span>{t("pasteMethod")}</span>
+      <strong>{pasteMethodLabel(config.typing.paste_method, t)}</strong>
+    </button>
   </section>
 {/if}
 {#if visibleAudioQualityDiagnostic}
@@ -342,6 +362,9 @@
 <section class="performance-card">
   <div class="section-title-row">
     <h3>{t("recentUsage")}</h3>
+    <button type="button" class="details-action" onclick={() => onSelectSection("History")}>
+      {t("viewStatsDetails")} <ChevronRight size={14} />
+    </button>
   </div>
   <div class="stats-row" aria-label={t("usageSummary")}>
     <article class="stat-card blue">
@@ -354,7 +377,7 @@
       <span class="stat-icon"><CalendarDays size={uiCompact ? 16 : 20} /></span>
       <p>{t("recent7d")}</p>
       <strong>{formatNumber(stats.recent_7d.total_chars)} {t("chars")}</strong>
-      <small>{t("savedToday", { hours: savedHoursText(stats.recent_7d) })}</small>
+      <small>{weeklyActivityText()}</small>
     </article>
     <article class="stat-card green">
       <span class="stat-icon"><Zap size={uiCompact ? 16 : 20} /></span>
@@ -529,9 +552,41 @@
     border-color: rgba(16, 185, 129, 0.22);
   }
 
-  .standby-outcome-card {
-    background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
-    border-color: rgba(47, 128, 237, 0.18);
+  .config-overview {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 6px;
+    padding: 6px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+  }
+
+  .config-overview button {
+    display: grid;
+    align-content: center;
+    gap: 4px;
+    min-height: 54px;
+    padding: 8px 10px;
+    color: var(--text-main);
+    text-align: left;
+    overflow-wrap: anywhere;
+    background: var(--bg-page);
+    border: 1px solid transparent;
+    border-radius: 8px;
+  }
+
+  .config-overview button:hover {
+    border-color: rgba(47, 128, 237, 0.35);
+  }
+
+  .config-overview span {
+    color: var(--text-secondary);
+    font-size: 12px;
+  }
+
+  .config-overview strong {
+    font-size: 13px;
   }
 
   .last-outcome-header {
@@ -633,11 +688,7 @@
   .voice-hero {
     position: relative;
     display: grid;
-    grid-template-columns: 82px minmax(0, 1fr);
-    align-items: center;
-    gap: 18px;
-    min-height: 132px;
-    height: auto;
+    gap: 14px;
     padding: 18px 24px;
     overflow: hidden;
     color: #ffffff;
@@ -645,6 +696,13 @@
     border: 1px solid rgba(255, 255, 255, 0.22);
     border-radius: 14px;
     box-shadow: 0 14px 30px rgba(47, 128, 237, 0.16);
+  }
+
+  .hero-main {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 18px;
   }
 
   .voice-hero.listening {
@@ -803,6 +861,30 @@
     flex: 0 0 auto;
   }
 
+  .link-action.clear-action {
+    color: var(--text-secondary);
+    background: transparent;
+    border-color: var(--border);
+  }
+
+  .details-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    margin-left: auto;
+    padding: 4px;
+    color: var(--primary);
+    background: transparent;
+    border: 0;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .details-action:hover {
+    text-decoration: underline;
+  }
+
   .stats-row {
     display: grid;
     gap: 12px;
@@ -829,13 +911,15 @@
     transform: translateY(-1px);
   }
 
-  .hero-launch {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
+  .hero-footer {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 8px;
-    max-width: 100%;
-    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid rgba(255, 255, 255, 0.25);
   }
 
   .hero-launch-label {
@@ -851,6 +935,7 @@
     align-items: center;
     gap: 3px;
     min-height: 30px;
+    margin-left: auto;
     padding: 0 10px;
     color: #ffffff;
     background: rgba(255, 255, 255, 0.14);
@@ -870,65 +955,46 @@
   }
 
   .hero-trigger-row {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(min(100%, 112px), 1fr));
+    display: flex;
+    flex-wrap: wrap;
     gap: 6px;
     min-width: 0;
   }
 
   .hero-trigger {
-    display: grid;
-    grid-template-columns: 18px minmax(0, 1fr);
+    display: inline-flex;
     align-items: center;
-    gap: 6px;
-    min-width: 0;
-    min-height: 34px;
-    padding: 4px 8px;
-    color: rgba(255, 255, 255, 0.74);
-    background: rgba(15, 23, 42, 0.12);
+    gap: 5px;
+    max-width: 100%;
+    min-height: 28px;
+    padding: 3px 9px;
+    color: #edf3ff;
+    background: rgba(15, 23, 42, 0.18);
     border: 1px solid rgba(255, 255, 255, 0.14);
-    border-radius: 11px;
+    border-radius: 999px;
+    font-size: 12px;
+    line-height: 1.2;
   }
 
   .hero-trigger.enabled {
-    color: #ffffff;
-    background: rgba(255, 255, 255, 0.18);
-    border-color: rgba(255, 255, 255, 0.24);
+    color: #1e4a93;
+    background: #f0f6ff;
+    border-color: #f0f6ff;
+    font-weight: 800;
+  }
+
+  .hero-trigger:hover {
+    box-shadow: 0 0 0 1px #ffffff;
   }
 
   .hero-trigger :global(svg) {
-    justify-self: center;
-    opacity: 0.95;
+    flex-shrink: 0;
   }
 
   .hero-trigger span {
-    display: grid;
-    min-width: 0;
-  }
-
-  .hero-trigger strong,
-  .hero-trigger small {
-    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-
-  .hero-trigger strong {
-    font-size: 12px;
-    font-weight: 800;
-    line-height: 1.2;
-  }
-
-  .hero-trigger small {
-    color: rgba(255, 255, 255, 0.68);
-    font-size: 10px;
-    font-weight: 700;
-    line-height: 1.2;
-  }
-
-  .hero-trigger.enabled small {
-    color: rgba(255, 255, 255, 0.8);
   }
 
   .stat-card {
@@ -1034,9 +1100,6 @@
   }
 
   :global(.ui-compact) .voice-hero {
-    grid-template-columns: 72px minmax(0, 1fr);
-    gap: 14px;
-    min-height: 124px;
     padding: 16px 20px;
   }
 
@@ -1052,11 +1115,6 @@
 
   :global(.ui-compact) .stats-row {
     gap: 7px;
-  }
-
-  :global(.ui-compact) .hero-trigger {
-    min-height: 30px;
-    padding: 4px 8px;
   }
 
   :global(.ui-compact) .stat-card {
@@ -1079,12 +1137,6 @@
     font-size: 15px;
   }
 
-  @media (max-width: 1120px) {
-    .hero-trigger-row {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-  }
-
   @media (max-width: 920px) {
     .last-outcome-header {
       grid-template-columns: minmax(0, 1fr);
@@ -1100,7 +1152,6 @@
     }
 
     .voice-hero {
-      grid-template-columns: 74px minmax(0, 1fr);
       padding: 18px 22px;
     }
 
@@ -1123,25 +1174,24 @@
     }
   }
 
-  @media (max-width: 640px) {
-    .stats-row {
-      grid-template-columns: minmax(0, 1fr);
+  @media (max-width: 800px) {
+    .config-overview {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
     }
+  }
 
+  @media (max-width: 640px) {
     .voice-hero,
     :global(.ui-compact) .voice-hero {
-      grid-template-columns: minmax(0, 1fr);
-      justify-items: start;
+      padding: 14px;
     }
 
-    .hero-launch {
-      grid-template-columns: minmax(0, 1fr);
-      justify-items: start;
+    .hero-main {
+      gap: 10px;
     }
 
     .hero-trigger-row {
       width: 100%;
-      grid-template-columns: minmax(0, 1fr);
     }
   }
 </style>

@@ -35,13 +35,13 @@ VoxType has six main pages:
 | Privacy & local data | Review storage/upload boundaries and clear local context, hotword history, and stats |
 | Analytics | View recent 24-hour, recent 7-day, and daily usage stats |
 
-The Home voice card shows recording state and compact indicators for the main shortcut, middle mouse, Right Alt, and Right Ctrl. Recent input and input performance appear below it.
+On Home, select a trigger to open its settings. Selecting a backup trigger expands its panel. The sidebar microphone status opens device settings. While idle, the settings summary links to the recognition provider, AI polishing, vocabulary, and paste settings.
 
 ### Current UI Reference
 
 After a successful input, Home shows "Input completed". This means VoxType copied the text and attempted to paste it. If the target field did not receive text, press `Ctrl + V`, click "Copy text", or inspect the result with "View recognized text". The recognized text is kept only in the current window.
 
-<img src="https://raw.githubusercontent.com/zkwi/VoxType/main/screenshots/ScreenShot_2026-05-09_130803_332.png" alt="VoxType Home page with voice input state and input performance" width="820">
+<img src="https://raw.githubusercontent.com/zkwi/VoxType/main/screenshots/voxtype-0.17.0-home-en.png" alt="VoxType Home with triggers, settings summary, and sample usage" width="820">
 
 When the selected ASR credentials are missing, API Config first shows a three-step first-use guide: choose the provider and fill keys, test the connection, then return Home to start dictating. Setup health follows below: ASR keys, microphone, paste method, trigger method, and privacy status are shown separately. Only issues that block recording, recognition, or paste should be prominent warnings. Optional settings such as Right Alt, Right Ctrl, middle mouse, recent context, and automatic hotwords should remain softer reminders. Public screenshots should blur real App Keys, Access Keys, Alibaba Cloud API Keys, and other secrets.
 

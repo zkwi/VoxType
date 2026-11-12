@@ -75,6 +75,7 @@ pub fn run() {
             commands::config_commands::get_config_migration_candidate,
             commands::config_commands::migrate_config_to_default_path,
             commands::config_commands::save_app_config,
+            commands::config_commands::set_hotkey_capture_active,
             commands::config_commands::test_asr_config,
             commands::config_commands::test_llm_config,
             commands::config_commands::test_screen_context,
@@ -164,6 +165,10 @@ pub fn run() {
         .on_window_event(|window, event| {
             if window.label() != "main" {
                 return;
+            }
+
+            if matches!(event, WindowEvent::Focused(false) | WindowEvent::Destroyed) {
+                hotkey::set_hotkey_capture_active(false);
             }
 
             if let WindowEvent::CloseRequested { api, .. } = event {

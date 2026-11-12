@@ -15,9 +15,9 @@ VoxType is a lightweight Rust/Tauri Windows desktop AI voice typing, dictation, 
 
 ## Interface Preview / 界面预览
 
-Home keeps the current input state, shortcut triggers, latest result notice, and input performance in one screen. 首页顶部集中展示语音输入状态和启动方式；识别完成后会提示已复制并尝试粘贴，并提供临时复制或查看本次识别文本的入口。
+Home shows input status, links to trigger and microphone settings, and all-time local usage. 首页可直达触发和麦克风设置，并查看最近 7 日录音时长与累计用量。识别完成后可在首页查看、复制或立即清空本次文本。
 
-<img src="https://raw.githubusercontent.com/zkwi/VoxType/main/screenshots/ScreenShot_2026-05-09_130744_793.png" alt="VoxType 中文首页：语音输入状态、启动方式和输入表现" width="820">
+<img src="https://raw.githubusercontent.com/zkwi/VoxType/main/screenshots/voxtype-0.17.0-home-zh-CN.png" alt="VoxType 中文首页，显示启动方式、配置速览和示例统计" width="820">
 
 API Config shows setup health before the credential forms. API 配置页先展示 ASR 密钥、麦克风、粘贴方式、触发方式和隐私设置状态，再提供当前 ASR 服务与可选大模型测试入口。截图中的密钥已脱敏。
 

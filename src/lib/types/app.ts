@@ -30,6 +30,7 @@ export type StatsSnapshot = {
   path: string;
   recent_24h: UsageStats;
   recent_7d: UsageStats;
+  total: UsageStats;
   by_day: DailyUsageStats[];
   history: HistoryEvent[];
 };
@@ -121,7 +122,7 @@ export type ConfigExitGuardRequest = {
   action: "window_close" | "exit";
 };
 
-export type HotkeyCaptureState = "idle" | "recording";
+export type HotkeyCaptureState = "idle" | "preparing" | "recording";
 
 export type LoadedConfig = {
   path: string;

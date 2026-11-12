@@ -104,6 +104,17 @@ pub(crate) fn migrate_config_to_default_path() -> Result<LoadedConfig, String> {
 }
 
 #[tauri::command]
+pub(crate) fn set_hotkey_capture_active(window: tauri::Window, active: bool) -> bool {
+    if window.label() != crate::main_window::MAIN_LABEL
+        || (active && !window.is_focused().unwrap_or(false))
+    {
+        return false;
+    }
+    hotkey::set_hotkey_capture_active(active);
+    true
+}
+
+#[tauri::command]
 pub(crate) fn save_app_config(
     app: AppHandle,
     config: AppConfig,

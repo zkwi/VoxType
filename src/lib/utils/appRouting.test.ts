@@ -4,6 +4,7 @@ import {
   isLlmConfigError,
   sectionForSettingsPanel,
   settingsPanelForError,
+  settingsPanelForSetupAction,
   shouldOpenSettingsForError,
 } from "./appRouting";
 
@@ -26,5 +27,12 @@ describe("app routing", () => {
     expect(settingsPanelForError("", "MIC_DEVICE_NOT_FOUND")).toBe("settings-audio");
     expect(settingsPanelForError("大模型 Base URL 不完整")).toBe("settings-llm-api");
     expect(settingsPanelForError("ASR 未配置")).toBe("settings-auth");
+  });
+});
+describe("settings shortcuts", () => {
+  it("opens paste settings from the setup health card", () => {
+    expect(settingsPanelForSetupAction("typing")).toBe("settings-basic-output");
+    expect(settingsPanelForSetupAction("hotkey")).toBe("settings-output");
+    expect(sectionForSettingsPanel("settings-backup-triggers")).toBe("Options");
   });
 });

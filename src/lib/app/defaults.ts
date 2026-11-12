@@ -181,6 +181,7 @@ export const emptyStats: StatsSnapshot = {
   path: "voice_input_stats.jsonl",
   recent_24h: emptyUsage(),
   recent_7d: emptyUsage(),
+  total: emptyUsage(),
   by_day: [],
   history: [],
 };

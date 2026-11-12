@@ -19,5 +19,6 @@
 ## 版本变更与发布审计
 
 - [更新日志](../CHANGELOG.md)
-- [当前源码版本 0.16.0 的发布审计](audits/release-0.16.0-audit.md)
+- [当前源码版本 0.17.0 的发布审计](audits/2026-11-12-release-0.17.0-home-ux-audit.md)
+- [0.16.0 的右 Ctrl 触发发布审计](audits/2026-11-12-release-0.16.0-right-ctrl-audit.md)
 - 以往版本的验证与发布记录见 [审计归档](audits/)。

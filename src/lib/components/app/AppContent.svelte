@@ -15,6 +15,7 @@
     AppConfig,
     AudioDeviceInfo,
     AudioQualityDiagnostic,
+    HotkeyCaptureState,
     LastSessionOutcome,
     LocalDataStatus,
     ScreenContextTestResult,
@@ -30,6 +31,7 @@
 
   type Props = {
     selectedSection: Section;
+    requestedPanel: string | null;
     config: AppConfig;
     stats: StatsSnapshot;
     autoHotwordCandidates: SelectableHotwordCandidate[];
@@ -60,7 +62,7 @@
     testingLlm: boolean;
     testingScreenContext: boolean;
     screenContextTestResult: ScreenContextTestResult | null;
-    hotkeyCaptureState: "idle" | "recording";
+    hotkeyCaptureState: HotkeyCaptureState;
     hotkeyValidationMessage: string;
     overlayColorPresets: Array<{ label: CopyKey; background: string; text: string }>;
     overlayOpacityPresets: readonly number[];
@@ -77,6 +79,7 @@
     showAutoHotwordDetails: boolean;
     hasLlmApiConfig: boolean;
     hotwordCount: number;
+    effectiveHotwordCount: number;
     acceptedAutoHotwordCount: number;
     selectedAutoHotwordCount: number;
     autoHotwordStatusText: string;
@@ -91,7 +94,7 @@
     formatSavedHours: (hours: number) => string;
     weeklySavedHours: () => number;
     usageTipText: () => string;
-    triggerLabel: (enabled: boolean) => string;
+    weeklyActivityText: () => string;
     setupActionText: (action: string) => string;
     overlayBackgroundRgb: () => string;
     overlayOpacity: () => number;
@@ -164,6 +167,7 @@
 
   let {
     selectedSection,
+    requestedPanel,
     config = $bindable<AppConfig>(),
     stats,
     autoHotwordCandidates = $bindable<SelectableHotwordCandidate[]>(),
@@ -211,6 +215,7 @@
     showAutoHotwordDetails,
     hasLlmApiConfig,
     hotwordCount,
+    effectiveHotwordCount,
     acceptedAutoHotwordCount,
     selectedAutoHotwordCount,
     autoHotwordStatusText,
@@ -225,7 +230,7 @@
     formatSavedHours,
     weeklySavedHours,
     usageTipText,
-    triggerLabel,
+    weeklyActivityText,
     setupActionText,
     overlayBackgroundRgb,
     overlayOpacity,
@@ -318,7 +323,8 @@
     {onClearLastOutcome}
     {sessionBusy}
     {snapshotHotkey}
-    {startTriggerText}
+    {effectiveHotwordCount}
+    {hasLlmApiConfig}
     {chineseTypingCharsPerMinute}
     {formatHotkey}
     {formatNumber}
@@ -326,13 +332,14 @@
     {formatSavedHours}
     {weeklySavedHours}
     {usageTipText}
-    {triggerLabel}
+    {weeklyActivityText}
     onOpenSettings={onOpenSettings}
     onOpenSetupGuide={onOpenSetupGuide}
     onOpenRecordingTroubleshooting={onOpenRecordingTroubleshooting}
     onUserErrorAction={onUserErrorAction}
     onToggleRecording={onToggleRecording}
     onSelectSection={onSelectSection}
+    {onScrollToSettingsPanel}
   />
 {:else if selectedSection === "Hotwords"}
   <HotwordsSection
@@ -402,6 +409,7 @@
   <OptionsSection
     bind:config
     {t}
+    {requestedPanel}
     {hotkeyCaptureState}
     {hotkeyValidationMessage}
     {overlayColorPresets}
