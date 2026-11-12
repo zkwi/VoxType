@@ -266,6 +266,7 @@ export type AppConfig = {
     hotkey_enabled: boolean;
     middle_mouse_enabled: boolean;
     right_alt_enabled: boolean;
+    right_ctrl_enabled: boolean;
   };
   typing: {
     paste_delay_ms: number;

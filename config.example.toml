@@ -130,10 +130,11 @@ max_candidates = 30
 ignored_hotwords = []
 
 [triggers]
-# 启动方式开关；右 Alt 和鼠标中键可能和其他软件操作冲突，建议确认后再开启
+# 启动方式开关；右 Alt、右 Ctrl 和鼠标中键可能与其他软件操作冲突，建议按需开启
 hotkey_enabled = true
 middle_mouse_enabled = false
 right_alt_enabled = false
+right_ctrl_enabled = false
 
 [typing]
 # 粘贴方式：ctrl_v / shift_insert / clipboard_only

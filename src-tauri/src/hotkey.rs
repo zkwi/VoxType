@@ -9,7 +9,8 @@ use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     RegisterHotKey, UnregisterHotKey, HOT_KEY_MODIFIERS, MOD_ALT, MOD_CONTROL, MOD_SHIFT, MOD_WIN,
     VIRTUAL_KEY, VK_A, VK_B, VK_C, VK_D, VK_E, VK_F, VK_G, VK_H, VK_I, VK_J, VK_K, VK_L, VK_M,
-    VK_N, VK_O, VK_P, VK_Q, VK_R, VK_RMENU, VK_S, VK_T, VK_U, VK_V, VK_W, VK_X, VK_Y, VK_Z,
+    VK_N, VK_O, VK_P, VK_Q, VK_R, VK_RCONTROL, VK_RMENU, VK_S, VK_T, VK_U, VK_V, VK_W, VK_X, VK_Y,
+    VK_Z,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, DispatchMessageW, GetMessageW, PostThreadMessageW, SetWindowsHookExW,
@@ -31,6 +32,7 @@ static TOGGLE_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
 static HOTKEY_TRIGGER_ENABLED: AtomicBool = AtomicBool::new(true);
 static MIDDLE_MOUSE_TRIGGER_ENABLED: AtomicBool = AtomicBool::new(false);
 static RIGHT_ALT_TRIGGER_ENABLED: AtomicBool = AtomicBool::new(false);
+static RIGHT_CTRL_TRIGGER_ENABLED: AtomicBool = AtomicBool::new(false);
 
 pub fn refresh_trigger_config() {
     match config::load_config() {
@@ -46,12 +48,14 @@ pub fn refresh_trigger_config_from(triggers: &TriggerConfig) {
     HOTKEY_TRIGGER_ENABLED.store(triggers.hotkey_enabled, Ordering::Release);
     MIDDLE_MOUSE_TRIGGER_ENABLED.store(triggers.middle_mouse_enabled, Ordering::Release);
     RIGHT_ALT_TRIGGER_ENABLED.store(triggers.right_alt_enabled, Ordering::Release);
+    RIGHT_CTRL_TRIGGER_ENABLED.store(triggers.right_ctrl_enabled, Ordering::Release);
 }
 
 fn apply_conservative_trigger_defaults() {
     HOTKEY_TRIGGER_ENABLED.store(true, Ordering::Release);
     MIDDLE_MOUSE_TRIGGER_ENABLED.store(false, Ordering::Release);
     RIGHT_ALT_TRIGGER_ENABLED.store(false, Ordering::Release);
+    RIGHT_CTRL_TRIGGER_ENABLED.store(false, Ordering::Release);
 }
 
 pub fn start_global_hotkey_thread(app: AppHandle) {
@@ -65,7 +69,7 @@ fn start_global_hotkey_thread_with_ready(
     thread::spawn(move || {
         if let Err(err) = run_global_hotkey_loop(app.clone(), ready) {
             app_log::warn(format!(
-                "HOTKEY_REGISTER_FAILED: global hotkey thread failed: {}。如果提示热键已注册，通常是已有 VoxType 实例或其他软件占用了该快捷键；右 Alt / 鼠标中键仍会继续工作。",
+                "HOTKEY_REGISTER_FAILED: global hotkey thread failed: {}。如果提示热键已注册，通常是已有 VoxType 实例或其他软件占用了该快捷键；已开启的右 Alt / 右 Ctrl / 鼠标中键触发仍可使用。",
                 err
             ));
         }
@@ -291,7 +295,7 @@ fn run_input_hook_loop() -> Result<(), String> {
             return Err(format!("注册鼠标钩子失败: {}", err));
         }
     };
-    app_log::info("输入钩子已注册: 右 Alt / 鼠标中键。");
+    app_log::info("输入钩子已注册: 右 Alt / 右 Ctrl / 鼠标中键。");
 
     let mut msg = MSG::default();
     loop {
@@ -319,53 +323,56 @@ fn run_input_hook_loop() -> Result<(), String> {
     Ok(())
 }
 
-/// 右 Alt 钩子对单个按键事件的处理方式。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum RightAltHookAction {
+enum ModifierHookAction {
     /// 原样交给前台程序。
     Forward,
     /// 拦下但不触发录音。
     Swallow,
     /// 拦下并排队触发录音。
-    SwallowAndTrigger,
+    SwallowAndTrigger(&'static str),
 }
 
-/// 启用右 Alt 触发时，这个键完全归 VoxType，按下和松开都不再交给前台程序。
-///
-/// 放行会被 Chrome、资源管理器等按"单独 Alt"激活菜单栏，正在输入的表单会失焦；
-/// 只拦松开则更糟：前台程序只收到按下、等不到松开，会留下修饰键卡死状态。
+/// 开启触发后成对拦截按下和松开，避免前台程序收到不成对的修饰键事件。
 /// 注入事件一律放行，VoxType 自己模拟的粘贴按键不受影响。
-fn right_alt_hook_action(
+fn modifier_hook_action(
     message: u32,
     vk_code: u32,
     injected: bool,
     right_alt_trigger_enabled: bool,
-) -> RightAltHookAction {
-    if vk_code != VK_RMENU.0 as u32 || injected || !right_alt_trigger_enabled {
-        return RightAltHookAction::Forward;
+    right_ctrl_trigger_enabled: bool,
+) -> ModifierHookAction {
+    if injected {
+        return ModifierHookAction::Forward;
     }
+    let source = match vk_code {
+        key if key == u32::from(VK_RMENU.0) && right_alt_trigger_enabled => "右 Alt",
+        key if key == u32::from(VK_RCONTROL.0) && right_ctrl_trigger_enabled => "右 Ctrl",
+        _ => return ModifierHookAction::Forward,
+    };
     match message {
-        WM_KEYUP | WM_SYSKEYUP => RightAltHookAction::SwallowAndTrigger,
-        WM_KEYDOWN | WM_SYSKEYDOWN => RightAltHookAction::Swallow,
-        _ => RightAltHookAction::Forward,
+        WM_KEYUP | WM_SYSKEYUP => ModifierHookAction::SwallowAndTrigger(source),
+        WM_KEYDOWN | WM_SYSKEYDOWN => ModifierHookAction::Swallow,
+        _ => ModifierHookAction::Forward,
     }
 }
 
 unsafe extern "system" fn keyboard_hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if code == HC_ACTION as i32 {
         let event = unsafe { *(lparam.0 as *const KBDLLHOOKSTRUCT) };
-        match right_alt_hook_action(
+        match modifier_hook_action(
             wparam.0 as u32,
             event.vkCode,
             event.flags.contains(LLKHF_INJECTED),
             trigger_enabled("right_alt"),
+            trigger_enabled("right_ctrl"),
         ) {
-            RightAltHookAction::SwallowAndTrigger => {
-                queue_hook_trigger("右 Alt");
+            ModifierHookAction::SwallowAndTrigger(source) => {
+                queue_hook_trigger(source);
                 return LRESULT(1);
             }
-            RightAltHookAction::Swallow => return LRESULT(1),
-            RightAltHookAction::Forward => {}
+            ModifierHookAction::Swallow => return LRESULT(1),
+            ModifierHookAction::Forward => {}
         }
     }
     unsafe { CallNextHookEx(None, code, wparam, lparam) }
@@ -389,6 +396,7 @@ fn trigger_enabled(kind: &'static str) -> bool {
     match kind {
         "hotkey" => HOTKEY_TRIGGER_ENABLED.load(Ordering::Acquire),
         "right_alt" => RIGHT_ALT_TRIGGER_ENABLED.load(Ordering::Acquire),
+        "right_ctrl" => RIGHT_CTRL_TRIGGER_ENABLED.load(Ordering::Acquire),
         "middle_mouse" => MIDDLE_MOUSE_TRIGGER_ENABLED.load(Ordering::Acquire),
         _ => true,
     }
@@ -480,18 +488,21 @@ fn wait_for_thread_to_stop(slot: &'static OnceLock<Mutex<Option<u32>>>, timeout:
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_conservative_trigger_defaults, parse_hotkey, refresh_trigger_config_from,
-        right_alt_hook_action, trigger_enabled, RightAltHookAction, HOTKEY_TRIGGER_ENABLED,
-        MIDDLE_MOUSE_TRIGGER_ENABLED, RIGHT_ALT_TRIGGER_ENABLED,
+        apply_conservative_trigger_defaults, modifier_hook_action, parse_hotkey,
+        refresh_trigger_config_from, trigger_enabled, ModifierHookAction, HOTKEY_TRIGGER_ENABLED,
+        MIDDLE_MOUSE_TRIGGER_ENABLED, RIGHT_ALT_TRIGGER_ENABLED, RIGHT_CTRL_TRIGGER_ENABLED,
     };
     use crate::config::TriggerConfig;
     use std::sync::atomic::Ordering;
-    use windows::Win32::UI::Input::KeyboardAndMouse::{VK_RMENU, VK_TAB};
+    use std::sync::Mutex;
+    use windows::Win32::UI::Input::KeyboardAndMouse::{VK_LCONTROL, VK_RCONTROL, VK_RMENU, VK_TAB};
     use windows::Win32::UI::WindowsAndMessaging::{
         WM_KEYDOWN, WM_KEYUP, WM_SYSKEYDOWN, WM_SYSKEYUP,
     };
 
     const RIGHT_ALT: u32 = VK_RMENU.0 as u32;
+    const RIGHT_CTRL: u32 = VK_RCONTROL.0 as u32;
+    static TRIGGER_STATE_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn meta_and_win_parse_as_the_same_modifier() {
@@ -502,50 +513,62 @@ mod tests {
     }
 
     #[test]
-    fn enabled_right_alt_trigger_takes_over_both_key_down_and_key_up() {
-        // 松开时触发录音，按下也必须一起拦下：只拦松开会让前台程序以为 Alt 还按着。
-        for message in [WM_KEYUP, WM_SYSKEYUP] {
-            assert_eq!(
-                right_alt_hook_action(message, RIGHT_ALT, false, true),
-                RightAltHookAction::SwallowAndTrigger
-            );
-        }
-        for message in [WM_KEYDOWN, WM_SYSKEYDOWN] {
-            assert_eq!(
-                right_alt_hook_action(message, RIGHT_ALT, false, true),
-                RightAltHookAction::Swallow
-            );
+    fn enabled_right_alt_and_right_ctrl_take_over_both_key_down_and_key_up() {
+        for (key, source, alt_enabled, ctrl_enabled) in [
+            (RIGHT_ALT, "右 Alt", true, false),
+            (RIGHT_CTRL, "右 Ctrl", false, true),
+        ] {
+            for message in [WM_KEYDOWN, WM_SYSKEYDOWN] {
+                assert_eq!(
+                    modifier_hook_action(message, key, false, alt_enabled, ctrl_enabled),
+                    ModifierHookAction::Swallow,
+                );
+            }
+            for message in [WM_KEYUP, WM_SYSKEYUP] {
+                assert_eq!(
+                    modifier_hook_action(message, key, false, alt_enabled, ctrl_enabled),
+                    ModifierHookAction::SwallowAndTrigger(source),
+                );
+            }
         }
     }
 
     #[test]
-    fn disabled_right_alt_trigger_keeps_the_key_working_for_other_apps() {
+    fn right_modifier_triggers_respect_independent_switches() {
         for message in [WM_KEYDOWN, WM_KEYUP, WM_SYSKEYDOWN, WM_SYSKEYUP] {
             assert_eq!(
-                right_alt_hook_action(message, RIGHT_ALT, false, false),
-                RightAltHookAction::Forward
+                modifier_hook_action(message, RIGHT_ALT, false, false, true),
+                ModifierHookAction::Forward
+            );
+            assert_eq!(
+                modifier_hook_action(message, RIGHT_CTRL, false, true, false),
+                ModifierHookAction::Forward
             );
         }
     }
 
     #[test]
-    fn injected_right_alt_and_other_keys_are_never_swallowed() {
-        // 注入事件放行，避免 VoxType 自己模拟的按键被自己拦掉。
-        assert_eq!(
-            right_alt_hook_action(WM_KEYUP, RIGHT_ALT, true, true),
-            RightAltHookAction::Forward
-        );
-        // 其他按键与右 Alt 无关，任何情况下都不拦。
-        assert_eq!(
-            right_alt_hook_action(WM_KEYUP, VK_TAB.0 as u32, false, true),
-            RightAltHookAction::Forward
-        );
+    fn left_ctrl_other_keys_and_injected_modifiers_pass_through() {
+        for (key, injected) in [
+            (RIGHT_ALT, true),
+            (RIGHT_CTRL, true),
+            (u32::from(VK_LCONTROL.0), false),
+            (u32::from(VK_TAB.0), false),
+        ] {
+            for message in [WM_KEYDOWN, WM_KEYUP, WM_SYSKEYDOWN, WM_SYSKEYUP] {
+                assert_eq!(
+                    modifier_hook_action(message, key, injected, true, true),
+                    ModifierHookAction::Forward
+                );
+            }
+        }
     }
 
     struct TriggerStateGuard {
         hotkey: bool,
         middle_mouse: bool,
         right_alt: bool,
+        right_ctrl: bool,
     }
 
     impl TriggerStateGuard {
@@ -554,6 +577,7 @@ mod tests {
                 hotkey: HOTKEY_TRIGGER_ENABLED.load(Ordering::Acquire),
                 middle_mouse: MIDDLE_MOUSE_TRIGGER_ENABLED.load(Ordering::Acquire),
                 right_alt: RIGHT_ALT_TRIGGER_ENABLED.load(Ordering::Acquire),
+                right_ctrl: RIGHT_CTRL_TRIGGER_ENABLED.load(Ordering::Acquire),
             }
         }
     }
@@ -563,29 +587,36 @@ mod tests {
             HOTKEY_TRIGGER_ENABLED.store(self.hotkey, Ordering::Release);
             MIDDLE_MOUSE_TRIGGER_ENABLED.store(self.middle_mouse, Ordering::Release);
             RIGHT_ALT_TRIGGER_ENABLED.store(self.right_alt, Ordering::Release);
+            RIGHT_CTRL_TRIGGER_ENABLED.store(self.right_ctrl, Ordering::Release);
         }
     }
 
     #[test]
     fn trigger_static_defaults_are_conservative() {
+        let _lock = TRIGGER_STATE_LOCK.lock().unwrap();
         assert!(trigger_enabled("hotkey"));
         assert!(!trigger_enabled("middle_mouse"));
         assert!(!trigger_enabled("right_alt"));
+        assert!(!trigger_enabled("right_ctrl"));
     }
 
     #[test]
     fn can_restore_conservative_trigger_state() {
+        let _lock = TRIGGER_STATE_LOCK.lock().unwrap();
         let _guard = TriggerStateGuard::new();
         refresh_trigger_config_from(&TriggerConfig {
             hotkey_enabled: false,
             middle_mouse_enabled: true,
             right_alt_enabled: true,
+            right_ctrl_enabled: true,
         });
+        assert!(trigger_enabled("right_ctrl"));
 
         apply_conservative_trigger_defaults();
 
         assert!(trigger_enabled("hotkey"));
         assert!(!trigger_enabled("middle_mouse"));
         assert!(!trigger_enabled("right_alt"));
+        assert!(!trigger_enabled("right_ctrl"));
     }
 }

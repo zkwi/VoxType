@@ -3,6 +3,7 @@ import { fallbackConfig } from "$lib/app/defaults";
 import type { AppConfig } from "$lib/types/app";
 import {
   buildLocalSetupStatus,
+  buildSetupStatusItems,
   currentAsrConnectionStatus,
   mergeSetupStatusFromConfig,
   pasteMethodLabel,
@@ -39,6 +40,34 @@ describe("setup status", () => {
     const current = buildLocalSetupStatus(config, [{ index: 0, name: "Microphone", is_default: true }]);
     config.auth.access_key = "";
     expect(mergeSetupStatusFromConfig(config, current)).toMatchObject({ ready: false, missing_auth: true });
+  });
+
+  it("uses Right Ctrl as the only enabled trigger and clears the old disabled warning", () => {
+    const config = configuredApp();
+    const devices = [{ index: 0, name: "Microphone", is_default: true }];
+    const t = (key: string) => key === "rightCtrl" ? "Right Ctrl" : key;
+    config.triggers.hotkey_enabled = false;
+    const before = buildLocalSetupStatus(config, devices, [
+      { code: "TRIGGER_DISABLED", level: "blocking", title: "", message: "", action: "hotkey" },
+    ]);
+
+    config.triggers.right_ctrl_enabled = true;
+    const localStatus = buildLocalSetupStatus(config, devices, before.warnings);
+    expect(localStatus).toMatchObject({ ready: true, warnings: [] });
+    expect(mergeSetupStatusFromConfig(config, before)).toMatchObject({ ready: true, warnings: [] });
+    const triggerText = startTriggerHint(config, config.hotkey, t, (value) => value);
+    expect(triggerText).toBe("Right Ctrl");
+    expect(buildSetupStatusItems({
+      loading: false,
+      configLoaded: true,
+      config,
+      setupStatus: null,
+      localStatus,
+      audioDevices: devices,
+      asrStatus: "configured_not_tested",
+      triggerText,
+      t,
+    }).find((item) => item.action === "hotkey")).toMatchObject({ ok: true, value: "Right Ctrl" });
   });
 
   it("uses only a matching tested ASR fingerprint", () => {

@@ -118,7 +118,7 @@ export const fallbackConfig: AppConfig = {
     max_chars: 1200,
     timeout_ms: 500,
   },
-  triggers: { hotkey_enabled: true, middle_mouse_enabled: false, right_alt_enabled: false },
+  triggers: { hotkey_enabled: true, middle_mouse_enabled: false, right_alt_enabled: false, right_ctrl_enabled: false },
   typing: {
     paste_delay_ms: 120,
     paste_method: "ctrl_v",

@@ -45,7 +45,7 @@ API Config shows setup health before the credential forms. API 配置页先展�
 ## Current Defaults Worth Knowing
 
 - Main trigger: `Ctrl + Q`.
-- Right Alt and middle mouse triggers: off by default.
+- Right Alt, Right Ctrl, and middle mouse triggers are off by default.
 - Recent context and automatic hotword candidates: off by default.
 - Screen OCR context: on by default, current display by default, no persisted OCR text.
 - Optional LLM polishing: off by default; when enabled, thinking/reasoning is disabled with provider-specific adapters where supported.

@@ -146,7 +146,7 @@
       fieldError("aliyun_asr.websocket_url") ||
       fieldError("aliyun_asr.language_hint") ||
       fieldError("request.language") ||
-      (config.auth.mode !== DOUBAO_AUTH_MODE_AGENT_PLAN && fieldError("auth.resource_id")),
+      fieldError("auth.resource_id"),
   ));
   let llmAdvancedHasError = $derived(Boolean(fieldError("llm_post_edit.thinking_strategy")));
   let asrAdvancedExpanded = $derived(showAsrAdvanced || asrAdvancedHasError);
@@ -348,6 +348,9 @@
         panelId="settings-asr-language"
         onToggle={() => (showAsrAdvanced = !showAsrAdvanced)}
       >
+        {#if fieldError("auth.resource_id") && (config.asr.provider === ASR_PROVIDER_ALIYUN_FUN || config.auth.mode === DOUBAO_AUTH_MODE_AGENT_PLAN)}
+          <p data-config-field="auth.resource_id" tabindex="-1" class="field-error">{fieldError("auth.resource_id")}</p>
+        {/if}
         <div class="form-grid">
           {#if config.asr.provider === ASR_PROVIDER_ALIYUN_FUN}
             <label class:field-invalid={Boolean(fieldError("aliyun_asr.region"))}>

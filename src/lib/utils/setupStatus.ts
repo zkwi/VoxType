@@ -46,12 +46,16 @@ export function readCachedSetupStatus(isBrowser: boolean): SetupStatus | null {
   return null;
 }
 
+function hasEnabledTrigger({ triggers }: AppConfig) {
+  return triggers.hotkey_enabled ||
+    triggers.middle_mouse_enabled ||
+    triggers.right_alt_enabled ||
+    triggers.right_ctrl_enabled;
+}
+
 export function buildLocalSetupStatus(config: AppConfig, devices: AudioDeviceInfo[] = [], warnings: SetupStatusWarning[] = []): SetupStatus {
   const missingAuth = !hasAsrProviderConfig(config);
-  const anyTriggerEnabled =
-    config.triggers.hotkey_enabled ||
-    config.triggers.middle_mouse_enabled ||
-    config.triggers.right_alt_enabled;
+  const anyTriggerEnabled = hasEnabledTrigger(config);
   return {
     ready: !missingAuth && devices.length > 0 && anyTriggerEnabled,
     missing_auth: missingAuth,
@@ -59,16 +63,13 @@ export function buildLocalSetupStatus(config: AppConfig, devices: AudioDeviceInf
     hotkey: config.hotkey,
     paste_method: config.typing.paste_method,
     privacy_recent_context_enabled: config.context.enable_recent_context,
-    warnings,
+    warnings: anyTriggerEnabled ? warnings.filter((warning) => warning.code !== "TRIGGER_DISABLED") : warnings,
   };
 }
 
 export function mergeSetupStatusFromConfig(config: AppConfig, currentStatus: SetupStatus): SetupStatus {
   const missingAuth = !hasAsrProviderConfig(config);
-  const anyTriggerEnabled =
-    config.triggers.hotkey_enabled ||
-    config.triggers.middle_mouse_enabled ||
-    config.triggers.right_alt_enabled;
+  const anyTriggerEnabled = hasEnabledTrigger(config);
   return {
     ...currentStatus,
     missing_auth: missingAuth,
@@ -76,6 +77,9 @@ export function mergeSetupStatusFromConfig(config: AppConfig, currentStatus: Set
     paste_method: config.typing.paste_method,
     privacy_recent_context_enabled: config.context.enable_recent_context,
     ready: !missingAuth && currentStatus.has_audio_device && anyTriggerEnabled,
+    warnings: anyTriggerEnabled
+      ? currentStatus.warnings.filter((warning) => warning.code !== "TRIGGER_DISABLED")
+      : currentStatus.warnings,
   };
 }
 
@@ -126,21 +130,18 @@ export function formatEnabledTriggers(config: AppConfig, hotkey: string, t: Tran
   if (config.triggers.hotkey_enabled) triggers.push(formatHotkey(hotkey));
   if (config.triggers.middle_mouse_enabled) triggers.push(t("middleMouse"));
   if (config.triggers.right_alt_enabled) triggers.push(t("rightAlt"));
+  if (config.triggers.right_ctrl_enabled) triggers.push(t("rightCtrl"));
   return triggers.length > 0 ? triggers.join(" / ") : t("disabled");
 }
 
 /**
  * 操作提示里"按 X 开始说话"的 X。
  *
- * 列出实际启用的触发方式，而不是固定写主快捷键：只开了右 Alt 或鼠标中键时，
+ * 列出实际启用的触发方式，而不是固定写主快捷键：只开启备用触发时，
  * 提示用户去按一个已经关掉的快捷键只会让人困惑。一个都没开时退回主快捷键的写法。
  */
 export function startTriggerHint(config: AppConfig, hotkey: string, t: Translate, formatHotkey: (value: string) => string) {
-  const anyTriggerEnabled =
-    config.triggers.hotkey_enabled ||
-    config.triggers.middle_mouse_enabled ||
-    config.triggers.right_alt_enabled;
-  return anyTriggerEnabled ? formatEnabledTriggers(config, hotkey, t, formatHotkey) : formatHotkey(hotkey);
+  return hasEnabledTrigger(config) ? formatEnabledTriggers(config, hotkey, t, formatHotkey) : formatHotkey(hotkey);
 }
 
 export function buildSetupStatusItems(params: {
@@ -187,7 +188,7 @@ export function buildSetupStatusItems(params: {
     {
       label: params.t("setupTriggerLabel"),
       value: params.triggerText,
-      ok: params.config.triggers.hotkey_enabled || params.config.triggers.middle_mouse_enabled || params.config.triggers.right_alt_enabled,
+      ok: hasEnabledTrigger(params.config),
       action: "hotkey",
     },
     {

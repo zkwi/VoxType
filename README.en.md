@@ -1,479 +1,183 @@
-# VoxType — Privacy-conscious AI voice typing for Windows
+# VoxType
 
-**Open-source Windows dictation built for real daily use, native desktop integration, and explicit privacy boundaries.**
+[简体中文](README.md) · [Wiki](https://github.com/zkwi/VoxType/wiki) · [Setup guide](docs/wiki/Setup-Guide-English.md)
 
-[简体中文](README.md) | English
+## 1. Windows voice typing
 
-[![Latest release](https://img.shields.io/github/v/release/zkwi/VoxType?display_name=tag&sort=semver)](https://github.com/zkwi/VoxType/releases/latest)
-[![CI](https://github.com/zkwi/VoxType/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/zkwi/VoxType/actions/workflows/ci.yml)
-[![CodeQL](https://github.com/zkwi/VoxType/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/zkwi/VoxType/actions/workflows/codeql.yml)
-[![License: MIT](https://img.shields.io/github/license/zkwi/VoxType)](LICENSE)
-[![Platform: Windows 10/11](https://img.shields.io/badge/platform-Windows%2010%2F11-0078D4)](https://github.com/zkwi/VoxType/releases/latest)
+VoxType is an open-source Windows desktop dictation app. Put the cursor in a text field, start speaking, and finish the recording to insert the result into the active app.
 
-Put the cursor in any text field and press `Ctrl + Q` to speak. VoxType shows live captions through your selected cloud ASR provider (Doubao by default, with Alibaba Cloud FunASR Realtime available), waits for the provider's final result, optionally applies light editing through an OpenAI-compatible LLM, writes the result to the clipboard, pastes it, and restores the previous clipboard when possible.
+`Shortcut, Right Alt, Right Ctrl, or middle click → streaming ASR → optional LLM editing → clipboard paste and restore`
 
-[Download the latest release](https://github.com/zkwi/VoxType/releases/latest) · [3-minute setup](https://github.com/zkwi/VoxType/wiki/Setup-Guide-English) · [Roadmap](ROADMAP.md) · [Architecture](ARCHITECTURE.md) · [Contribute](CONTRIBUTING.md)
+- **Live feedback.** Floating captions show interim text, processing state, and errors. Output waits for the speech provider's final result.
+- **Optional editing.** Insert short dictation directly or use your configured language model to polish longer passages.
+- **Vocabulary and context.** Add hotwords and writing context, and use Windows OCR from the screen or active window when useful.
+- **Native output.** Choose automatic paste or clipboard-only output. VoxType tries to restore the previous clipboard after pasting.
+- **Local controls.** You manage the credentials and settings. Usage stats store metrics such as character count, duration, and speed.
 
-<img src="screenshots/ScreenShot_2026-05-09_130803_332.png" alt="VoxType English Home page with voice input state and input performance" width="820">
+<img src="screenshots/ScreenShot_2026-05-09_130803_332.png" alt="Example of the VoxType Home page" width="820">
 
-## Why VoxType
+## 2. Quick start in three steps
 
-- **Built for daily input:** global shortcuts, floating captions, final-result gating, automatic paste, tray operation, and startup integration form one complete Windows workflow.
-- **Native Windows integration:** Rust/Tauri owns microphone capture, global input, clipboard output, windows, tray, and system APIs; Svelte provides understandable setup and diagnostics.
-- **Explicit privacy boundaries:** transcript text is excluded from logs and usage statistics by default, diagnostic reports redact secrets and user-profile paths, and recent-context plus automatic-hotword history are off by default.
-- **Auditable and maintained:** source, release audits, regression tests, dependency checks, Secret Scanning, CodeQL, contribution rules, and private security reporting are public or directly discoverable.
+1. **Install and open VoxType.** Download the latest Windows x64 installer, `VoxType_*_x64-setup.exe`, run it, then open VoxType from the Start menu. VoxType supports Windows 10 and 11. [Download the installer](https://github.com/zkwi/VoxType/releases/latest)
+2. **Connect a speech service.** In API Config, choose Doubao streaming ASR or Alibaba Cloud Bailian FunASR, enter your provider credentials, and test the connection. The speech console's single API Key is recommended for Doubao. [Setup guide](docs/wiki/Setup-Guide-English.md)
+3. **Dictate.** Focus a text field and press `Ctrl + Q` to start speaking. Press it again to stop. VoxType outputs the final text using the selected paste method. Right Alt, Right Ctrl, and middle click are available in Options.
 
-## Quick Start
+### Microphone and first input
 
-1. Download and install the latest `VoxType_*_x64-setup.exe` from [GitHub Releases](https://github.com/zkwi/VoxType/releases/latest).
-2. Choose Doubao or Alibaba Cloud ASR in API Config, enter your own provider credentials, and run the connection test. LLM polishing is optional.
-3. Focus any text field, press `Ctrl + Q`, speak, and press it again to stop. VoxType does not enter polishing or output until the ASR provider returns its final result.
+- Allow desktop apps to access the microphone in Windows Settings → Privacy & security → Microphone.
+- If you have multiple microphones, select one in Options → Microphone. Refresh the list after connecting or reconnecting a device.
+- Try your first dictation in a plain-text editor to see the caption and final output.
+- If the connection test passes and no text is inserted, check whether the target app allows paste. You can also select clipboard-only output and paste manually.
 
-> The desktop control flow runs locally, but microphone audio is sent to the cloud ASR provider you select. If LLM polishing is enabled, the final text and any explicitly enabled reference context are sent to that model provider. Review the [privacy and local-data notes](#config-and-log-locations), [SECURITY.md](SECURITY.md), and each provider's billing and data policy.
+### Main window and tray
 
-## Project Status
+The minimum main-window size is `960 × 640`. Closing the window hides it to the tray by default, where enabled recording triggers remain available.
 
-| Item | Status |
+| Action | Result |
 | --- | --- |
-| Maintenance | Active; `main` and the latest GitHub Release are supported |
-| Maintainer | [@zkwi](https://github.com/zkwi) |
-| Platform | Windows 10 / 11; current releases provide an x64 installer |
-| License | [MIT](LICENSE) |
-| Contributions | Focused bugs, tests, docs, and small UX improvements are welcome; open an Issue before changing the main workflow or privacy boundaries |
+| Left-click the tray icon | Open or restore the main window |
+| Choose **Open main window** from the tray menu | Restore the window from the tray |
+| Choose **Check updates** | Open the window and check for a newer release |
+| Choose **Exit** | Close VoxType |
+| Trigger recording from the tray before configuring ASR | Open API Config |
 
-Project links: [Roadmap](ROADMAP.md) · [Architecture](ARCHITECTURE.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Support](SUPPORT.md) · [Code of Conduct](CODE_OF_CONDUCT.md) · [Changelog](CHANGELOG.md)
+Options includes the window close behavior and launch at Windows sign-in. A configured app can stay in the tray when launched at sign-in.
 
-## Documentation
+See the troubleshooting guide for installation, permissions, or connection issues. [Troubleshooting](docs/wiki/Troubleshooting-English.md)
 
-- Wiki home: <https://github.com/zkwi/VoxType/wiki>
-- Setup guide: <https://github.com/zkwi/VoxType/wiki/Setup-Guide-English>
-- Features and usage: <https://github.com/zkwi/VoxType/wiki/Feature-Guide-English>
-- Troubleshooting: <https://github.com/zkwi/VoxType/wiki/Troubleshooting-English>
-- Engineering docs index: [docs/README.md](docs/README.md)
+### Reading input feedback
 
-## Interface Preview
-
-The Home page centers the current input state, the primary shortcut, middle mouse, and right Alt in one compact voice card. After a successful input, VoxType shows that the text was copied and paste was attempted; the latest recognized text can be copied, viewed, or cleared immediately, then is cleared when the window is hidden, the app exits, or the next recording starts. Input performance cards show recent 24-hour input, recent 7-day input, average speed, and saved time. Saved time is estimated as manual typing time minus actual voice duration.
-
-The sidebar is organized by task: Home, Prompts, API Config, Options, Privacy, and Analytics. Prompts prioritizes recognition terms, writing context, recent context, and automatic term suggestions, with low-frequency prompt parameters folded under Advanced settings. API Config shows required ASR/LLM credentials first, with region, model, language, and thinking compatibility fields folded under Advanced settings. Options keeps common settings first and folds extra start options and recording troubleshooting by default. The privacy page explains where the config file, logs, recent context, suggested-term history, usage stats, ASR audio, screen OCR, LLM polishing text, and clipboard snapshots are stored or sent, provides clearing actions for local context, suggested-term history, and stats, and links back to the relevant settings instead of duplicating switches.
-
-API Config starts with a setup health check instead of a generic status header. The selected ASR provider credentials, microphone, paste method, trigger method, and privacy status are shown separately, and the ASR plus optional LLM sections include test actions. Secret fields are hidden by default and can be temporarily revealed or copied. The LLM section keeps a local summary of the five most recent connection tests and latencies without storing keys, model names, or test text. The screenshot below has credentials blurred; public screenshots and logs should do the same.
-
-<img src="screenshots/ScreenShot_2026-05-09_130827_317.png" alt="VoxType English API Config and setup health check" width="820">
-
-## Windows Voice Typing Features
-
-- Global trigger: `Ctrl + Q` is enabled by default. Right Alt and middle mouse can be enabled manually. While enabled they belong to VoxType and never reach other apps, which is what keeps a browser from moving focus out of the field you are typing in; the cost is that right Alt combinations and middle-click actions stop working until the trigger is turned off. Left Alt is unaffected.
-- Microphone capture: choose an input in Options → Microphone, and use Refresh devices after connecting a new device. The floating caption shows a short error if capture fails to start.
-- Main shortcut: toggle it in Options. Press Esc or move focus to cancel shortcut capture and keep the current combination.
-- System audio: Options → Microphone can mute system audio during recording and restore it afterward. This is off by default.
-- Real-time speech recognition: Doubao `bigmodel_async` WebSocket by default, with Alibaba Cloud FunASR Realtime available from API Config. Live captions are feedback only; pasted output waits for the selected ASR provider's final completion event. The Doubao path keeps two-pass recognition and `full` cumulative results. FunASR live captions combine confirmed sentences with the current unfinished sentence, while the Alibaba Cloud path still waits for `task-finished` before polishing or pasting.
-- No-feedback fallback: if ASR returns no effective text feedback for 30 seconds, VoxType stops through the normal grace flow; this no longer depends on local volume thresholds.
-- Error notices: the main window shows only the latest error notice. Its originating recording counts toward a five-session window, a newer error restarts the count, and the notice clears when the sixth session starts or when closed manually.
-- Floating captions: real-time transcription feedback near the bottom of the screen. Captions collapse formatting line breaks and repeated whitespace from interim ASR text. Measured text that fits stays on one line, with only a one-pixel font reduction near the boundary; text switches to two measured-width lines only after it truly overflows. When geometry allows, the first line uses at least 90% of the width while the second keeps at least three characters. Overflowing captions keep the longest fully visible recent suffix without orphan characters, leading punctuation on line two, or horizontal clipping. The runtime window is at least `52px` high so legacy low-height settings cannot force long captions into one line. Captions show text, processing state, and errors only.
-- Automatic output: final text is copied to the clipboard and pasted with `Ctrl+V` or `Shift+Insert`; clipboard-only mode is also available. VoxType then tries to restore the previous clipboard.
-- Recent input card: after a successful input, the Home page can temporarily show, copy, or clear the latest recognized text. It is kept only in the current window memory and is cleared when the window is hidden, the app exits, or a new recording starts.
-- Home layout: the top voice card shows the current state plus the primary hotkey, middle mouse, and right Alt in compact single-line chips. Recent input and input stats stay below it.
-- Optional LLM polishing: OpenAI-compatible API support for light text cleanup, style control, and an explicit "use recent context for polishing" switch.
-- Screen OCR context: on by default. When recording starts, VoxType captures the current display by default, with an option to switch to the current window only. It runs Windows OCR locally, lightly merges extra spaces between adjacent CJK characters, and sends the temporary text context to the selected ASR provider and the optional LLM to improve names, filenames, code identifiers, and UI terms. OCR is compacted by budget before AI polishing, and timeout or OCR failure is skipped automatically. A result that arrives after the first-packet wait is too late for ASR but is still used as a polishing reference, with no extra waiting.
-- Prompts and terms: maintain recognition terms, scene notes, and AI prompts.
-- Automatic hotword candidates: optional local history and manual LLM candidate generation; candidates must be confirmed before joining hotwords. The default history limit is 5000 characters; saved limits are preserved and are no longer rewritten by old default values. Candidate generation uses a larger output and timeout budget than normal polishing; if the full history response is incomplete or times out, VoxType retries once with a smaller recent-history window and fewer candidates. If it still fails, reduce the history text limit or candidate count in `config.toml` and retry. ASR direct/context hotwords are capped, with manual hotwords taking priority over confirmed automatic hotwords, to avoid oversized real-time ASR requests.
-- Tray resident mode: closing the main window hides it to the tray by default. Click the tray icon or choose the first menu item, Open main window. If a recording shortcut is used while VoxType is in the tray and ASR credentials are missing, VoxType opens API Config.
-- Launch at sign-in: optional, from Options. When Windows starts VoxType at sign-in and speech recognition is already configured, it stays in the tray without opening the main window; launching it manually, or starting before setup is complete, still shows the window.
-- Updates: the Options page and tray menu can check GitHub Releases. When a new version is found, the UI shows an "Update now" action.
-- Diagnostics: logs and redacted diagnostic reports help troubleshoot ASR, paste, network, and update issues.
-- Privacy & local data: available from the sidebar. It shows storage and upload boundaries for config and keys, logs and diagnostic reports, recent context, automatic hotword history, usage stats, ASR audio, screen OCR, LLM polishing text, and clipboard snapshots; it can clear recent context, automatic hotword history, and usage stats.
-- Settings layout: Options groups common settings, enhancements, and maintenance. In API Config → Advanced ASR settings, Doubao speech console API Key and legacy App Key modes can select an hourly or concurrent resource plan. Agent Plan uses a fixed resource. Edit the System Prompt and User Prompt template under Hotwords & prompts → Advanced prompt settings.
-- Config reliability: a load failure keeps settings read-only and offers retry instead of overwriting the original file with defaults. Save failures stay visible, and closing or exiting offers retry, discard, or cancel.
-- Keyboard and display support: validation can focus the first invalid field; dialogs trap Tab, close with Escape, and restore focus. The main window minimum is `960×640`, with narrow-window, high-DPI, and reduced-motion support.
-- Languages: Simplified Chinese, Traditional Chinese, and English.
-
-## Main Workflow Guarantees
-
-These rules protect user trust in the core voice input flow:
-
-- Empty recognition becomes a failure. It does not show "pasted", does not run LLM polishing, does not paste, and does not record successful stats.
-- The UI only shows "polishing text" when LLM polishing is enabled, polishing length reaches `min_chars`, and Base URL, API Key, and model are complete.
-- Floating captions do not show paste-state noise such as "pasting" or "pasted".
-- Usage stats never store recognized text. They store duration, character count, speed, and time estimates only.
-- Logs and diagnostic reports should not include real API keys, recognized text, hotwords, prompts, recent context text, automatic hotword history text, or Windows username paths.
-
-## Requirements
-
-VoxType targets Windows 10/11.
-
-Normal users should download the Windows installer from GitHub Releases:
-
-<https://github.com/zkwi/VoxType/releases>
-
-The installer includes the Microsoft Edge WebView2 Bootstrapper. If WebView2 Runtime is missing, the installer installs it automatically.
-
-If the main window stays blank or gets stuck on the startup page, the Microsoft Edge WebView2 Runtime on the system is usually broken, missing, or blocked by policy. Follow "Blank startup window or stuck startup page" in [Troubleshooting](https://github.com/zkwi/VoxType/wiki/Troubleshooting-English) first. VoxType should not silently repair system components from inside the app.
-
-VoxType also needs Windows microphone permission:
-
-```text
-Windows Settings -> Privacy & security -> Microphone -> Let desktop apps access your microphone
-```
-
-Development requires:
-
-- Node.js 22.17+ and npm
-- Rust toolchain
-
-If Rust is installed but `cargo` is not found in the current terminal:
-
-```powershell
-$env:PATH="$env:USERPROFILE\.cargo\bin;$env:PATH"
-```
-
-## Configuration
-
-VoxType uses Doubao ASR by default, and can switch to Alibaba Cloud FunASR Realtime from API Config. The selected ASR provider's credentials are required. Without them, recording, recognition, and paste stay locked so VoxType does not pretend an input succeeded.
-
-Quick configuration map:
-
-| Scenario | Required | Optional for later | Test entry |
-| --- | --- | --- | --- |
-| Speech-to-text only | Selected ASR credentials: Doubao speech console API Key, legacy App Key/Access Key, Ark Agent Plan API Key, or Alibaba Cloud API Key + Workspace ID | LLM API, hotwords, screen OCR | ASR test in API Config |
-| Polished output | Selected ASR provider plus LLM Base URL, API Key, model, and polishing enabled | Automatic hotword candidates | LLM test in API Config |
-| Test fails | Read the red message, check keys, check network/proxy | Avoid changing advanced parameters first | Copy a redacted diagnostic report |
-
-```toml
-[asr]
-provider = "doubao"
-
-[auth]
-mode = "api_key"
-console_api_key = ""
-resource_id = "volc.seedasr.sauc.duration"
-```
-
-Doubao has three selectable access modes. `api_key` uses a key created under API Key management in the new Doubao speech console, sends `X-Api-Key`, `X-Api-Resource-Id`, `X-Api-Request-Id`, and `X-Api-Connect-Id` to the standard endpoint from `[request].ws_url`, and is the recommended mode. A fresh install with no config file starts in this mode; a config file that predates the `mode` field keeps behaving as `app_access`. `app_access` preserves the legacy console flow with `X-Api-App-Key`, `X-Api-Access-Key`, and `X-Api-Resource-Id` and allows the Resource ID to match an account's enabled resource. `agent_plan` sends only the dedicated Ark `X-Api-Key` plus the fixed `X-Api-Resource-Id: volc.seedasr.sauc.duration`, and automatically connects to `wss://openspeech.bytedance.com/api/v3/plan/sauc/bigmodel_async`. The three credential sets live in separate fields (`console_api_key`, `api_key`, and `app_key`/`access_key`), so switching modes never overwrites another mode's key and only the selected set is used. Speech console API Keys and Ark Agent Plan keys are not interchangeable; using one in place of the other returns 401. Selecting Agent Plan resets the Resource ID to Doubao Streaming ASR 2.0. Model setup and overage post-pay must be enabled in the Volcengine Ark console; VoxType does not change billing settings. This release adds ASR access only, not TTS.
-
-Legacy App Key + Access Key example:
-
-```toml
-[asr]
-provider = "doubao"
-
-[auth]
-mode = "app_access"
-app_key = ""
-access_key = ""
-resource_id = "volc.seedasr.sauc.duration"
-```
-
-Agent Plan example:
-
-```toml
-[asr]
-provider = "doubao"
-
-[auth]
-mode = "agent_plan"
-api_key = ""
-resource_id = "volc.seedasr.sauc.duration"
-```
-
-Never commit real keys or paste an unrelated LLM key, GitHub token, or IAM secret into ASR fields. API Config opens the matching [Doubao API Key docs](https://docs.volcengine.com/docs/6561/2630027?lang=zh), [standard Doubao ASR docs](https://www.volcengine.com/docs/6561/1354869?lang=zh) or [Volcengine Ark Agent Plan docs](https://www.volcengine.com/docs/82379/2516286?lang=zh) for the selected mode.
-
-API Config shows only the provider and credential fields for normal setup. Doubao ASR input language is under Advanced connection and language settings. The default is Auto/service default, which omits the `language` parameter. The main workflow uses `bigmodel_async + enable_nonstream` two-pass recognition, and Doubao documents `language` as unsupported by two-pass recognition, so leaving it blank is better for Chinese, English, dialect, and mixed input. Chinese Mandarin needs no setting, and existing `zh-CN` configs migrate to blank; only set a code such as `en-US`, `ja-JP`, or `yue-CN` when explicitly troubleshooting a non-default language.
-
-Alibaba Cloud FunASR Realtime example:
-
-```toml
-[asr]
-provider = "aliyun_fun"
-
-[aliyun_asr]
-api_key = ""
-workspace_id = ""
-region = "cn-beijing"
-websocket_url = ""
-model = "fun-asr-realtime"
-language_hint = ""
-semantic_punctuation_enabled = false
-max_sentence_silence = 1300
-vocabulary_id = ""
-```
-
-In Alibaba Cloud mode, VoxType connects with Bearer API Key authentication, sends `run-task`, PCM audio frames, and `finish-task`, and waits for `task-finished` before the transcript enters polishing or paste. In the UI, normal setup only needs API Key and Workspace ID; region, model, custom WebSocket URL, and language hint are in Advanced settings. `workspace_id` builds `wss://{WorkspaceId}.{region}.maas.aliyuncs.com/api-ws/v1/inference`; fill `websocket_url` only when Alibaba Cloud docs or console require a custom endpoint. `language_hint` is blank by default for automatic recognition, or can be set to `zh`, `en`, `ja`, `ko`, or `yue`.
-
-Common ASR test failures:
-
-| Message | Check first |
+| Feedback | What to do |
 | --- | --- |
-| Authentication or permission failure | The selected provider's key, resource, Workspace, region, and model belong to the same account and are enabled |
-| Connection failure or timeout | Network, proxy, and firewall access to the selected ASR endpoint |
-| Language-related failure | Switch recognition language or language hint back to Auto/service default and test again |
-| Test passes but recording is empty | Windows microphone permission, input device, mic volume, and background noise |
+| Home says setup is required | Fill in and test the current provider's credentials in API Config |
+| Interim text appears in the caption | Keep speaking and wait for final output after stopping |
+| The caption reports a microphone startup failure | Check Windows permissions or the input device, then retry |
+| VoxType says it copied the text | Press `Ctrl + V` if the target app did not paste it |
 
-The production recording path also separates connection timeout, connection failure, final-result timeout, and early connection close. A failed session enters the failed state with a short error hint, and the next shortcut press starts a fresh recognition session instead of staying in "waiting for final result". While a session is still waiting for its final result, pressing any enabled input trigger interrupts the old session and immediately starts a new recording; a late result from the interrupted session cannot continue to polishing, paste, or stats.
+## 3. Configuration at a glance
 
-Settings edited in the UI auto-save. The title bar briefly shows pending, saving, and saved states so you can tell when a change has taken effect.
+### API Config
 
-Optional LLM polishing:
-
-```toml
-[llm_post_edit]
-enabled = false
-use_recent_context = false
-base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-api_key = ""
-model = "qwen3.5-plus"
-min_chars = 40
-screen_context_max_chars = 400
-screen_context_max_lines = 12
-recent_context_max_chars = 200
-reference_hotwords_limit = 50
-enable_thinking = false
-thinking_strategy = "auto"
-```
-
-LLM polishing uses an OpenAI-compatible API. API Config shows only enable polishing, Base URL, API Key, model, and Test for normal setup; `thinking_strategy` is under Advanced compatibility settings and should usually stay Auto. The default example uses Alibaba Cloud Bailian/DashScope Beijing at `https://dashscope.aliyuncs.com/compatible-mode/v1`. The Base URL may be a service root, a `/v1` URL, or a full `/chat/completions` URL; for example, `https://api.deepseek.com`, `https://api.deepseek.com/v1/`, and `https://api.deepseek.com/v1/chat/completions` are treated as equivalent. The `api_key` must come from the same provider and region as the Base URL, and `model` must be available to that account. If you only need speech recognition, leave LLM polishing disabled. When enabled, text below `min_chars` skips polishing by default to reduce latency; saved `min_chars` values are preserved as user settings and are no longer guessed and migrated by old default values. `min_chars` uses polishing length units: CJK characters count individually, English and numbers count by contiguous word-like segments, and spaces/punctuation do not count. The default `40` is therefore about 40 Chinese characters or 40 English/number segments. Final transcripts that reach the minimum polishing length are sent to your configured AI service; recognition terms, writing/product preferences, budget-compacted screen OCR, and optional recent context are appended as reference information. Recent context for AI is off by default; it is sent only when both `[context].enable_recent_context` and `[llm_post_edit].use_recent_context` are enabled, and it is capped to about 200 chars from the latest snippets by default. Screen OCR is trimmed by line, deduplicated, and capped to 12 lines / 400 chars before AI polishing by default; term references are capped to 50 entries. These LLM reference budgets stay in `config.toml` instead of the normal UI. Real polishing requests set an output limit based on input length to reduce waits caused by overlong generation. `thinking_strategy = "auto"` chooses a provider-compatible way to disable thinking/reasoning, such as `enable_thinking=false` for DashScope, `thinking.type=disabled` for DeepSeek and MiMo, and `reasoning.effort=none` for OpenRouter, falling back to low reasoning only for models that require it. The LLM test uses a longer built-in voice-input sample, tries candidate strategies, and saves the fastest successful result. A test passes only when the model returns final content; reasoning-only or token-exhausted responses prompt the user to adjust the thinking adapter. When thinking is disabled for DashScope, omitting the control is no longer accepted as a successful disable strategy; an older saved `omit` value is also overridden with an explicit `enable_thinking=false`. `qwen3.7-max-preview` and `qwen3.7-max-2026-05-17` are thinking-only and cannot be switched off, so VoxType blocks the slow request before sending it; use `qwen3.7-max`, `qwen3.7-max-2026-05-20`, or `qwen3.7-max-2026-06-08` instead. After Base URL, API Key, model, or the thinking toggle changes and auto-save succeeds, VoxType automatically reruns the adapter test from Auto candidates and saves the fastest successful strategy; the test does not read the clipboard, live screen OCR, or local recent-context text.
-
-For DashScope model-selection notes, see [2026-05-28 LLM polishing model test](docs/audits/2026-05-28-llm-polishing-model-test.md). The 2026-05-30 retest corrects the old conclusion: `qwen3.7-max` remains the daily default choice; `qwen3.6-flash-2026-04-16` is still the lower-latency option but is riskier for prompt-like text and technical paths; do not switch to `deepseek-v4-pro` only for technical text, because with the simplified prompt it can also rewrite code paths, filenames, and identifiers. Prefer screen OCR, hotwords, or a manual check for those terms.
-
-Common LLM test failures:
-
-| Message | Check first |
+| Service | In-app settings |
 | --- | --- |
-| API Key or permission failure | Key belongs to the configured Base URL provider and region |
-| Model not found | Model name spelling and account access |
-| Connection failure | Base URL belongs to the configured provider, network/proxy is usable |
-| Test passes but polishing does not run | Polishing is enabled and polishing length reaches `min_chars` |
+| Doubao speech console API Key | Enter the API Key from the new speech console |
+| Legacy Doubao console | Enter the App Key and Access Key |
+| Volcengine Ark Agent Plan | Enter the dedicated Agent Plan API Key and use the fixed resource plan |
+| Alibaba Cloud Bailian FunASR | Enter the API Key and Workspace ID, and choose settings for your account's region |
+| Optional LLM editing | Enter an OpenAI-compatible Base URL, API Key, and model name |
 
-VoxType includes a default AI prompt for voice input. It marks the text-to-polish block as the only content to rewrite and output, so questions or prompt-like content are polished instead of answered or analyzed. Short messages, one-line commands, and questions get light correction, with natural punctuation allowed but no expansion. Long spoken notes, records, retrospectives, explanations, meeting notes, product feedback, and investment reviews are polished into publishable prose: filler words, verbal padding, repeated expressions, dead pauses, and self-corrections are removed; sentence order can be adjusted; sentences can be split; necessary connectors can be added; and the result is usually organized into 2-4 natural paragraphs. The default prompt still preserves the original facts, judgment, intensity, stance, proper nouns, English abbreviations, finance terms, and programming terms, and it asks the model not to add headings, lists, Markdown, or backticks. User dictionary terms, writing/product preferences, optional recent context, and screen OCR are appended to real requests as separate reference-information blocks; they are only used to correct terms, names, UI words, continuity, paths, filenames, and code identifiers, not as text to polish or instructions to follow, and they must not add information that the text to polish did not say. Recent context must not be continued, summarized, or reproduced, and screen OCR is only used for related corrections. For file paths, commands, log fields, and code identifiers, the default prompt asks the model to keep uncertain text unchanged unless the reference information provides an exact spelling. In finance, investing, and quant contexts, the default prompt asks the LLM to normalize clear amounts, returns, and percentages into common numeric forms, such as `100万` and `1%`, without calculating returns or answering the question. The Hotwords page puts recognition terms, writing context, recent context, and automatic hotword candidates first. The AI prompt template and minimum polishing length are under Advanced prompt settings, while reset and preview stay visible. The preview shows reference-information rules, whether writing context enters the AI prompt, whether recent context enters the AI prompt, and the current screen OCR policy. LLM reference budgets remain in `config.toml`; System Prompt also remains in `config.toml` to keep the app settings concise.
+For standard Doubao access, select the hourly or concurrent resource plan available on your account under advanced ASR settings. Each authentication mode keeps its own credentials.
 
-Screen OCR context is on by default and can be disabled, tested, or limited to the current window in Options. The default range is the current display, which helps when you reference one document while typing into another window. OCR text is kept only for the current request and is not written to logs, stats, or config files; VoxType does not cache the latest 2-3 screenshot OCR results. Before sending the context, VoxType lightly merges extra spaces between adjacent CJK characters, so text such as `屏 幕 OCR 上 下 文` becomes easier for ASR/LLM context matching while English acronyms, shortcuts, and paths keep their spacing. Before connecting ASR, VoxType waits up to 500 ms for OCR context by default; timeout or failure is skipped and does not affect recording, final recognition, or paste. OCR sent to ASR is still controlled by `[screen_context].max_chars`; OCR sent to AI polishing has a separate `[llm_post_edit]` budget, defaulting to 12 lines / 400 chars.
+Speech recognition is enough for basic dictation. If you enable LLM editing, test the model connection separately. Under Hotwords & prompts → Advanced prompt settings, edit the System Prompt, User Prompt template, and minimum editing length. The page also offers a preview and a reset to the default prompt.
 
-```toml
-[screen_context]
-enabled = true
-capture_scope = "screen"  # screen = current display, window = current window only
-max_chars = 1200
-timeout_ms = 500
-```
+### Recording triggers and output
 
-Recommended trigger defaults:
+| Setting | Default | How it works |
+| --- | --- | --- |
+| Main shortcut | On, `Ctrl + Q` | Record another combination or switch it off |
+| Right Alt | Off | Release Right Alt to toggle recording when enabled |
+| Right Ctrl | Off | Release Right Ctrl to toggle recording when enabled |
+| Middle mouse | Off | Press the middle button to toggle recording when enabled |
+| Paste method | `Ctrl + V` | Also supports `Shift + Insert` and clipboard-only output |
+| Restore clipboard after paste | On | VoxType tries to restore the previous contents |
+| Mute system audio during recording | Off | Enable in Microphone settings to mute until recording ends |
 
-```toml
-[triggers]
-hotkey_enabled = true
-middle_mouse_enabled = false
-right_alt_enabled = false
-```
+VoxType takes over each enabled extra trigger. With Right Ctrl enabled, Left Ctrl still works for copying, pasting, and the main shortcut. Turn off the Right Ctrl switch to use Right Ctrl combinations in other apps again.
 
-Recommended output defaults:
+A valid shortcut combination is saved automatically. Press Esc or use Tab to move focus and keep the previous shortcut. Tab combinations with modifiers can be recorded.
 
-```toml
-[typing]
-paste_method = "ctrl_v"
-remove_trailing_period = true
-restore_clipboard_after_paste = true
-clipboard_restore_delay_ms = 800
-```
+### Vocabulary, writing context, and screen OCR
 
-Recording defaults:
+- **Hotwords** help with names, product names, acronyms, and technical terms.
+- **Writing context** describes preferences and use cases such as support tickets or meeting notes.
+- **Screen OCR** is on by default. In Options, turn it off or limit capture to the active window.
+- **Recent context** is off by default. Enable it for continuous dictation, with a separate switch for LLM use.
+- **Automatic hotword candidates** are off by default. When enabled, local history can be used to generate candidates for you to review.
 
-```toml
-[asr]
-no_feedback_auto_stop_seconds = 30
+The app saves settings automatically. Consult the example config and feature guide for advanced parameters and their allowed values. [Example config](config.example.toml) · [Feature guide](docs/wiki/Feature-Guide-English.md)
 
-[audio]
-max_record_seconds = 300
-stop_grace_ms = 250
-input_gain_db = 0.0
-mute_system_volume_while_recording = false
-```
+### Choosing settings for your workflow
 
-VoxType normalizes captured microphone PCM to Doubao big-model streaming ASR's supported `16000Hz`, mono, 16-bit PCM before sending it. `sample_rate` and `channels` are only low-level capture preferences, and most users should not change them. Actual ASR packets are kept within Doubao's recommended `100-200ms` range, defaulting to `200ms`. VoxType merges about `50ms` of leading silence into the first real-audio packet while keeping the first packet at the configured segment size, defaulting to about `200ms`; this helps Doubao stabilize initial speech recognition without sending a standalone 50ms packet. If no real microphone audio is captured, VoxType does not send an extra silence packet. Interim Doubao text is shown in the floating caption with a shorter local throttle; fast interim updates are coalesced to the latest text and emitted on time. An anomalous one-to-four-character interim drop in the same recording session does not replace an already complete caption. Captions collapse formatting line breaks and repeated whitespace from interim ASR text, keep uncrowded short text on one line, balance longer text into up to two measured-width lines, and retain the longest fully visible recent suffix when it overflows. When utterance text is more complete than `result.text` in the same response, captions prefer the fuller cumulative utterance text, while final paste still waits for Doubao's final package.
+- For short messages, you can use ASR on its own. For meeting notes, enable LLM editing and set the minimum length to suit your dictation.
+- If another app uses `Ctrl + Q`, record a different combination or enable a single extra trigger.
+- Use display OCR when you dictate with reference material visible. Limit OCR to the active window when it contains all the relevant context.
+- Try clipboard-only output in remote desktops and apps that restrict automatic paste.
 
-When you choose a microphone in Options, VoxType saves both the device name and the legacy numeric index. Recording startup prefers the saved name, so Bluetooth reconnects or device-order changes are less likely to pick the wrong microphone. If the saved microphone is unavailable, VoxType falls back to the system default input device and shows a non-blocking notice.
+## 4. Privacy and local data
 
-The recently verified stable combination is to keep the default `200ms` ASR packet size and put perceived-speed work into `20ms` response polling, `50ms` caption throttling, and a `500ms` OCR-context wait. First-word acceleration is off by default to prioritize beginning-word accuracy. Final output still accepts only Doubao's final package and prefers that package's full `result.text`. `definite=true` utterances stabilize the final result, but when the final package highly overlaps those utterances and recovers missing head or tail words, VoxType should keep the final full text even if the package slightly shortens earlier wording instead of regressing to a truncated utterance string.
+These are the default locations for installed builds. Existing config or stats files can keep their previous locations. See Privacy & local data for the locations in use.
 
-First-word acceleration is disabled by default with `enable_accelerate_text = false` and `accelerate_score = 0`; saved explicit values are preserved. If faster live-caption startup matters more, you can manually enable it in `config.toml`, but beginning-word accuracy may drop.
+| Data | Default location | Contents and defaults |
+| --- | --- | --- |
+| Config | `%APPDATA%\VoxType\config.toml` | Settings and any API credentials entered by the user |
+| Logs | `%LOCALAPPDATA%\VoxType\logs\voice_input.log` | Redacted events, excluding transcripts and raw credentials |
+| Usage stats | `voice_input_stats.jsonl` next to the installed app | Dates, counts, duration, and speed |
+| Recent context | `context/recent_context.jsonl` next to the config | Off by default. Stores recent recognition segments when enabled |
+| Automatic hotword history | `context/hotword_history.jsonl` next to the config | Off by default. Stores local text history for hotword candidates when enabled |
 
-Semantic smoothing `enable_ddc` is enabled by default for light ASR-side smoothing on short and medium text, reducing reliance on LLM polishing for short inputs. Saved explicit values are preserved; disable it manually when exact proper nouns, short commands, paths, or punctuation-sensitive dictation matter more.
+### What goes to cloud services
 
-Doubao's documentation does not require client-side automatic gain control and does not define a separate gain request parameter. VoxType keeps `input_gain_db = 0.0` by default and does not boost microphone audio. Only raise input gain slightly in recording troubleshooting when the recording quality card repeatedly reports low volume and the system microphone level and distance already look correct; try `+3 dB` or `+6 dB` first to avoid clipping speech or amplifying room noise.
+| Feature | Data sent to the selected service |
+| --- | --- |
+| Speech recognition | The current recording and any enabled hotwords, writing context, OCR text, and recent context |
+| LLM editing | Final recognition text meeting the length threshold, plus enabled reference context |
+| Manual hotword generation | Local history snippets used to extract candidates |
 
-After recording, Home shows a lightweight recording quality card when it is useful, with the latest RMS, peak, active speech ratio, and a suggestion. If the session already recognized and output text successfully, low-active-speech warnings are hidden to avoid flagging a usable result as a problem. These metrics contain no recognized text and are not written to the main stats table.
+Windows performs screen OCR locally. When enabled, relevant text can be included in the current request. Clipboard snapshots are temporary, and you can clear the latest transcription preview from Home.
 
-If the microphone input stream reports an error during recording, VoxType now fails the session immediately instead of polishing, pasting, or counting text recognized from incomplete audio.
+Privacy & local data offers controls to clear recent context, hotword history, and stats. The provider manages retention of any data it has already received.
 
-When stopping recording, `stop_grace_ms` is the fixed real-audio tail wait, defaulting to about `250ms`; it no longer depends on local volume detection to decide whether to extend. This avoids cutting the tail early when a replacement microphone is quiet or has unstable input level. Any partial final audio chunk is flushed before the microphone is closed, no extra trailing silence is appended, and the last audio packet is sent as the negative final packet to help Doubao trigger the final two-pass endpoint.
+### Local privacy controls
 
-ASR no-feedback auto-stop is enabled by default with `no_feedback_auto_stop_seconds = 30`. If the ASR service returns no effective text feedback for 30 seconds, VoxType stops recording through the same grace flow as manual stop and then still waits for the provider's final event; set it to `0` to disable. This no longer depends on local volume thresholds, so quiet microphones are not cut off by silence misclassification.
+- To exclude screen text and previous dictation, turn off screen OCR and leave recent context off.
+- You can enable recent context for ASR. LLM editing can use that context only after a separate opt-in.
+- If you enable automatic hotword history, you can clear the local history after generating candidates.
 
-`config.toml`, local logs, local context files, and stats files are ignored by Git. Example config and docs should contain placeholders only.
+Options can copy a redacted diagnostic report for troubleshooting. Check screenshots and attachments for personal data before sharing. [Security and privacy reporting](SECURITY.md)
 
-## Config and Log Locations
+## 5. Development and local checks
 
-In development, VoxType continues to use `config.toml` and `voice_input.log` in the repository root for simple debugging.
+Prepare the following on a Windows development machine.
 
-Installed builds use Windows user data directories by default:
+- Node.js 22.17 or later and npm.
+- Stable Rust and Cargo with the Windows MSVC toolchain.
+- Visual Studio C++ Build Tools, the Windows SDK, and Microsoft Edge WebView2 Runtime.
 
-- Config file: `%APPDATA%\VoxType\config.toml`
-- Log file: `%LOCALAPPDATA%\VoxType\logs\voice_input.log`
+### Install and run in development
 
-If an installed build finds an old VoxType `config.toml` and the new default location does not have a config yet, the main window asks whether to migrate it. Confirming copies the old config to the new location once. VoxType does not create complex backups and does not delete the old file.
-
-## First Use
-
-1. Install and start VoxType.
-2. Open API Config.
-3. Choose the ASR provider in API Config and fill its credentials. Doubao uses App Key and Access Key; Alibaba Cloud uses API Key plus Workspace ID or a custom WebSocket URL.
-4. Click the ASR test button.
-5. Return to Home.
-6. Put the cursor in a target input field.
-7. Press `Ctrl + Q` to start recording.
-8. Press `Ctrl + Q` again to stop recording, or wait for the local low-volume fallback.
-9. Wait for final recognition and optional polishing. If the ASR connection closes early or does not return a complete final result, the session fails instead of pasting interim text.
-10. If text does not appear in the target field, press `Ctrl + V` manually.
-
-## FAQ
-
-### What is VoxType?
-
-VoxType is a Windows desktop voice typing app. It turns microphone speech into text with Doubao streaming ASR or Alibaba Cloud FunASR, then copies and pastes the result into the active input field. It is a dictation assistant, not a chatbot.
-
-### Where can I use VoxType?
-
-VoxType works best in apps that accept clipboard paste, including browser fields, chat apps, Markdown editors, IDEs, office documents, and internal admin tools. For apps that block `Ctrl + V`, try `Shift + Insert` or clipboard-only mode.
-
-### Does VoxType store my transcript text?
-
-Not by default. Usage stats store duration, character count, speed, and time estimates, not transcript text. Recent context and automatic hotword history stay off by default. When recent context is enabled it is sent to the selected ASR provider; it is sent to the AI service only when "use recent context for polishing" is also enabled and polishing actually runs. Screen OCR context is on by default but is not persisted or cached across recordings; it is only sent temporarily with the current ASR/LLM request, and OCR sent to the LLM is compacted by budget. Disable it in Options, or use Privacy & local data's Manage settings action to jump there. Local context, hotword history, and usage stats can be cleared from Privacy & local data. Clear actions only remove VoxType local files; retention by third-party ASR/LLM providers depends on the provider you configure.
-
-### Why does VoxType need ASR credentials?
-
-The core workflow depends on a speech recognition service. Without the credentials required by the selected provider, recording, recognition, and automatic paste stay locked so the app does not pretend an input succeeded.
-
-## Development
-
-Install dependencies and start the Tauri development app:
+From the repository root:
 
 ```powershell
 npm install
 npm run tauri dev
 ```
 
-The development server uses:
+The development build uses a local config in the repository. Use `config.example.toml` as the starting point for `config.toml`, and keep service credentials on your machine.
 
-```text
-http://127.0.0.1:18080
-```
-
-## Build
-
-Debug build:
-
-```powershell
-npx tauri build --debug --no-bundle
-```
-
-Release build:
-
-```powershell
-npx tauri build
-```
-
-The release executable is usually at:
-
-```text
-src-tauri\target\release\voxtype-desktop.exe
-```
-
-Do not use `cargo build --release` as the desktop release artifact. It does not build frontend resources first.
-
-## Checks
-
-GitHub Actions exposes separate quality/regression, npm/Cargo dependency-audit, and clippy/Tauri debug-build checks. CodeQL analyzes JavaScript/TypeScript, Rust, and Actions workflows. Third-party Actions are pinned to full commit SHAs, while Dependabot tracks npm, Cargo, and Actions updates.
-
-Common local checks:
-
-```powershell
-npm run check
-npm run build
-npm run scan:secrets
-npm run test:secrets
-npm run audit:npm
-npm run audit:rust
-Set-Location .\src-tauri
-cargo fmt --check
-cargo check
-cargo test
-cargo clippy --all-targets -- -D warnings
-```
-
-AI-maintenance local check:
+### Check and build
 
 ```powershell
 npm run ai:check
+npm run build
 ```
 
-Choose tests by purpose: `npm run test:unit` uses local pure-function data only. The ASR test in API Config uses real credentials and sends a short program-generated silence packet to the selected provider, but it does not open the microphone. A full recording regression captures and uploads real microphone audio and should be run deliberately only when the changed path requires it.
+`ai:check` runs frontend and Rust checks, tests, governance validation, and secret scanning. `build` creates the frontend static files. Follow the maintenance guide for release preflight and Windows installer builds.
 
-Release check:
+| Individual check | Command |
+| --- | --- |
+| Frontend types | `npm run check` |
+| Frontend unit tests | `npm run test:unit` |
+| Documentation and version consistency | `npm run check:governance` |
+| Secret scanning | `npm run scan:secrets` |
 
-```powershell
-npm run ai:release-check
-```
+- [Contributing](CONTRIBUTING.md) · [Architecture](ARCHITECTURE.md)
+- [Maintenance guide](docs/maintenance-guide.en.md) · [Documentation index](docs/README.md)
+- [Changelog](CHANGELOG.md) · [Public roadmap](ROADMAP.md)
 
-The release check first detects whether a running VoxType debug app still locks `voxtype-desktop.exe`. Close the debug app named in the error and retry before starting another release run.
+## 6. License and third-party services
 
-Rust dependency audit requires `cargo-audit`. Install it first when missing:
+VoxType is open source under the MIT License. You may use, modify, and distribute it as long as you retain the copyright and license notices. The software is provided as is, without warranty. [MIT License](./LICENSE)
 
-```powershell
-cargo install cargo-audit --locked
-```
+VoxType runs locally as a desktop client and connects directly to the providers you select. It has no built-in commercial relay. Doubao Speech, Alibaba Cloud Bailian FunASR, and optional LLM services manage their own API credentials, billing, and data processing under their respective terms and privacy policies.
 
-## Contributing
-
-Before opening an Issue or Pull Request, read [CONTRIBUTING.md](CONTRIBUTING.md) · [English maintenance guide](docs/maintenance-guide.en.md), [SUPPORT.md](SUPPORT.md), and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). Small, focused bug fixes, documentation updates, config examples, and tests are welcome. Changes touching ASR, LLM polishing, clipboard/paste, hotkeys, tray behavior, logs, stats, or config structure should clearly describe their impact and verification steps.
-
-For security or privacy issues, follow [SECURITY.md](SECURITY.md). Do not include real keys, transcripts, personal hotwords, prompts, recent context, raw logs, or Windows username paths in public Issues, Pull Requests, screenshots, or logs.
-
-## Project Layout
-
-```text
-VoxType/
-├── src/                         # Svelte main window UI
-├── src-tauri/                   # Tauri/Rust desktop backend
-│   ├── src/
-│   │   ├── audio.rs             # Microphone capture
-│   │   ├── asr.rs               # ASR request and result parsing
-│   │   ├── asr_ws/              # Doubao WebSocket session modules
-│   │   ├── autostart.rs         # Windows startup integration
-│   │   ├── config.rs            # TOML config model and IO
-│   │   ├── hotkey.rs            # Global hotkey and input hooks
-│   │   ├── llm_post_edit.rs     # LLM post-editing
-│   │   ├── overlay.rs           # Floating captions
-│   │   ├── session.rs           # Recording session state machine
-│   │   ├── stats.rs             # Usage stats without transcript text
-│   │   ├── system_audio.rs      # System volume control
-│   │   ├── text_output.rs       # Clipboard and paste
-│   │   ├── tray.rs              # System tray
-│   │   └── update.rs            # GitHub Release update checks
-│   └── tauri.conf.json
-├── docs/                        # Engineering and reference docs
-├── scripts/                     # Checks, hooks, and secret scanning
-├── config.example.toml          # Placeholder config template
-├── README.md                    # Simplified Chinese README
-└── README.en.md                 # English README
-```
-
-## Local Files Not To Commit
-
-- `config.toml`
-- `*.local.toml`
-- `context/recent_context.jsonl`
-- `context/hotword_history.jsonl`
-- `voice_input.log`
-- `voice_input_stats.jsonl`
-- `src-tauri/target/`
-- `node_modules/`
-- `build/`
+Use the support and security channels for the appropriate type of report. [Support](SUPPORT.md) · [Issues](https://github.com/zkwi/VoxType/issues) · [Security reporting](SECURITY.md)
