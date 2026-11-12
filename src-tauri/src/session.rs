@@ -944,9 +944,7 @@ fn spawn_audio_error_listener(
 
 fn hide_audio_error_overlay(controller: &SessionController, app: &AppHandle, generation: u64) {
     thread::sleep(AUDIO_ERROR_OVERLAY_DURATION);
-    if controller.is_current_generation(generation) {
-        overlay::hide(app);
-    }
+    overlay::run_for_generation(app, controller, generation, overlay::hide);
 }
 
 /// 等到本轮录音达到最长时长时返回 `true`；录音提前结束则返回 `false`。

@@ -140,9 +140,7 @@ pub(super) fn handle_empty_transcript(
         },
     );
     thread::sleep(ATTENTION_OVERLAY_HOLD);
-    if session.is_current_generation(generation) {
-        overlay::hide(app);
-    }
+    overlay::run_for_generation(app, session, generation, overlay::hide);
 }
 
 pub(super) fn emit_error(
@@ -178,9 +176,7 @@ pub(super) fn emit_error(
         },
     );
     thread::sleep(ATTENTION_OVERLAY_HOLD);
-    if session.is_current_generation(generation) {
-        overlay::hide(app);
-    }
+    overlay::run_for_generation(app, session, generation, overlay::hide);
 }
 
 #[cfg(test)]

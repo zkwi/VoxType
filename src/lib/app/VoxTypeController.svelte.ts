@@ -444,6 +444,7 @@ export function createVoxTypeController() {
           overlay: true,
           applySessionState: (state) => {
             recording = state.recording;
+            sessionPhase = state.phase;
             if (!recording) audioLevel = 0;
           },
           applyAudioLevel: (payload) => {
@@ -451,6 +452,8 @@ export function createVoxTypeController() {
           },
           applyOverlayText: overlay.applyPayload,
           applyOverlayConfig: (payload) => overlay.applyConfig(payload.ui),
+          applyOverlayVisibility: overlay.applyVisibility,
+          beginOverlayDismissal: overlay.beginDismissal,
         });
       }
     } else if (hasTauriApi()) {
@@ -1442,6 +1445,9 @@ export function createVoxTypeController() {
     get overlayTextElement() { return overlay.textElement; },
     set overlayTextElement(value: HTMLDivElement | null) { overlay.textElement = value; },
     get overlayRootStyle() { return overlay.rootStyle; },
+    get overlayPhase() { return sessionPhase; },
+    get overlayVisible() { return overlay.visible; },
+    get overlayDismissing() { return overlay.dismissing; },
     get actionNotice() { return notifications.message; },
     get actionNoticeKind() { return notifications.kind; },
     get actionNoticeActionLabel() { return notifications.actionLabel; },
@@ -1476,8 +1482,7 @@ export function createVoxTypeController() {
     appContentProps,
     runActionNoticeAction: notifications.runAction,
     closeActionNotice: notifications.clear,
-    overlayMeterBarHeight: overlay.meterBarHeight,
-    overlayMeterBarOpacity: overlay.meterBarOpacity,
+    overlayMeterBarScale: overlay.meterBarScale,
     closeWindowWithoutFuturePrompt: windows.closeWithoutFuturePrompt,
     exitFromClosePrompt: windows.exitFromPrompt,
     confirmClosePrompt: windows.confirmClosePrompt,

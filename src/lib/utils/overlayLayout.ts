@@ -377,5 +377,13 @@ export function overlayVisibleLineCount(lineLimit: number) {
 }
 
 export function overlayAvailableTextHeight(windowHeight: number) {
-  return Math.max(1, windowHeight - 24);
+  // 上下各 2px 外边距与 6px 内容留白，和字幕窗实际盒模型一致。
+  return Math.max(1, windowHeight - 16);
+}
+
+export function overlayMeterScale(index: number, audioLevel: number) {
+  const level = Number.isFinite(audioLevel) ? Math.max(0, Math.min(1, audioLevel * 3.2)) : 0;
+  const idle = [0.28, 0.4, 0.48, 0.34][index] ?? 0.3;
+  const peak = [0.65, 0.88, 1, 0.76][index] ?? 1;
+  return idle + (peak - idle) * Math.sqrt(level);
 }

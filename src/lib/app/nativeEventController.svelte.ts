@@ -24,6 +24,8 @@ type OverlayEventHandlers = {
   overlay: true;
   applyOverlayText: (payload: OverlayText) => void;
   applyOverlayConfig: (payload: OverlayConfig) => void;
+  applyOverlayVisibility: (visible: boolean) => void;
+  beginOverlayDismissal: () => void;
 };
 
 type MainEventHandlers = {
@@ -61,6 +63,10 @@ export function registerNativeEventController(
       listen<OverlayConfig>("overlay-config", (event) => {
         options.applyOverlayConfig(event.payload);
       }),
+      listen<boolean>("overlay-visibility", (event) => {
+        options.applyOverlayVisibility(event.payload);
+      }),
+      listen("overlay-dismissing", options.beginOverlayDismissal),
     ];
   }
 
