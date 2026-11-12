@@ -2,7 +2,7 @@ use super::errors::classify_asr_error;
 use super::output::{
     emit_error, emit_output_warning, emit_successful_final_text, finish_output_sent_session,
     handle_empty_transcript, record_successful_transcript_side_effects,
-    should_hold_overlay_for_output_warning, ATTENTION_OVERLAY_HOLD,
+    should_hold_overlay_for_output_warning, AsrFinalText, ATTENTION_OVERLAY_HOLD,
 };
 use crate::session::{SessionController, SessionPhase};
 use crate::{
@@ -143,12 +143,12 @@ pub fn spawn_asr_worker(input: AsrWorkerInput) {
                 let llm_warning = outcome.warning;
                 let llm_warning_code = outcome.warning_code;
                 let raw_text =
-                    (llm_warning.is_none() && !text.is_empty() && text != original_normalized)
-                        .then_some(original.as_str());
+                    original_for_preview(&text, &original_normalized, llm_warning.as_deref());
                 app_log::info(format!("ASR worker 返回文本长度: {}", text.chars().count()));
                 overlay::update_text(&app, &text);
                 let duration = started_at.elapsed().as_secs_f64();
                 let output = match text_output::output_text(&text, &typing, || {
+                    let preview_revision = crate::main_window::preview_revision();
                     if !finish_output_sent_session(&session, generation, Some(&app)) {
                         return;
                     }
@@ -161,11 +161,16 @@ pub fn spawn_asr_worker(input: AsrWorkerInput) {
                     emit_successful_final_text(
                         &app,
                         &session,
-                        generation,
-                        &text,
-                        raw_text,
-                        llm_warning.clone(),
-                        llm_warning_code,
+                        preview_revision,
+                        AsrFinalText {
+                            generation,
+                            text: text.clone(),
+                            raw_text: raw_text.map(str::to_string),
+                            error: None,
+                            error_code: None,
+                            warning: llm_warning.clone(),
+                            warning_code: llm_warning_code.map(str::to_string),
+                        },
                     );
                     record_successful_transcript_side_effects(&app, &text, duration);
                     app_log::info(format!(
@@ -228,6 +233,15 @@ pub fn spawn_asr_worker(input: AsrWorkerInput) {
     });
 }
 
+fn original_for_preview<'a>(
+    output: &str,
+    original_normalized: &'a str,
+    warning: Option<&str>,
+) -> Option<&'a str> {
+    (warning.is_none() && !output.is_empty() && output != original_normalized)
+        .then_some(original_normalized)
+}
+
 async fn polish_with_delayed_status(
     config: &AppConfig,
     text: &str,
@@ -275,6 +289,34 @@ async fn polish_with_delayed_status(
                 warning: Some("大模型润色任务异常，已使用原文。".to_string()),
                 warning_code: None,
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::original_for_preview;
+    use crate::asr::normalize_final_text;
+
+    #[test]
+    fn preview_keeps_the_normalized_original_only_when_polishing_changed_it() {
+        for remove_period in [true, false] {
+            let original = normalize_final_text("识别原文。", remove_period);
+            let expected = if remove_period {
+                "识别原文"
+            } else {
+                "识别原文。"
+            };
+            assert_eq!(
+                original_for_preview("润色结果", &original, None),
+                Some(expected)
+            );
+            assert_eq!(original_for_preview(&original, &original, None), None);
+            assert_eq!(
+                original_for_preview("润色结果", &original, Some("润色告警")),
+                None
+            );
+            assert_eq!(original_for_preview("", &original, None), None);
         }
     }
 }

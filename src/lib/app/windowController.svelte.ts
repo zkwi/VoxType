@@ -18,7 +18,6 @@ type WindowControllerOptions = {
   safeInvoke: SafeInvoke;
   retryFailedSave: () => Promise<LoadedConfig | null>;
   discardUnsavedChanges: () => void;
-  onHidden: () => void;
 };
 
 export function createWindowController(options: WindowControllerOptions) {
@@ -68,7 +67,6 @@ export function createWindowController(options: WindowControllerOptions) {
       await saveClosePreference(options.getConfig().tray.close_behavior, true);
     }
     await options.safeInvoke<void>("hide_main_window", undefined, true);
-    options.onHidden();
   }
 
   async function hideToTrayFromTitlebar() {

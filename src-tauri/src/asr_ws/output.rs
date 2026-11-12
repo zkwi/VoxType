@@ -3,7 +3,7 @@ use crate::{app_log, config, hotword_history, overlay, stats, text_output};
 use serde::Serialize;
 use std::thread;
 use std::time::Duration;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter};
 
 pub(super) const ATTENTION_OVERLAY_HOLD: Duration = Duration::from_millis(1_800);
 
@@ -56,30 +56,17 @@ pub(super) fn finish_output_sent_session(
 pub(super) fn emit_successful_final_text(
     app: &AppHandle,
     session: &SessionController,
-    generation: u64,
-    text: &str,
-    raw_text: Option<&str>,
-    warning: Option<String>,
-    warning_code: Option<&str>,
+    preview_revision: u64,
+    payload: AsrFinalText,
 ) {
-    let raw_text = raw_text.filter(|_| {
-        app.get_webview_window("main")
-            .is_some_and(|window| window.is_visible().unwrap_or(false))
-    });
-    session.with_current_generation(generation, || {
-        let _ = app.emit_to(
-            "main",
-            "asr-final-text",
-            AsrFinalText {
-                generation,
-                text: text.to_string(),
-                raw_text: raw_text.map(str::to_string),
-                error: None,
-                error_code: None,
-                warning,
-                warning_code: warning_code.map(str::to_string),
-            },
-        );
+    let event_app = app.clone();
+    let session = session.clone();
+    let _ = app.run_on_main_thread(move || {
+        if preview_revision == crate::main_window::preview_revision() {
+            session.with_current_generation(payload.generation, || {
+                let _ = event_app.emit_to("main", "asr-final-text", payload);
+            });
+        }
     });
 }
 

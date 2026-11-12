@@ -210,11 +210,8 @@ pub fn run() {
                     } else {
                         app_log::info("已提示用户主窗口将隐藏到托盘。");
                     }
-                } else if let Err(err) = window.hide() {
-                    app_log::warn(format!("隐藏主窗口失败: {}", err));
-                } else {
-                    let _ = window.emit("main-window-hidden", ());
-                    app_log::info("主窗口已隐藏到托盘。");
+                } else if let Err(err) = main_window::hide_existing(window.app_handle()) {
+                    app_log::warn(err);
                 }
             }
         })
