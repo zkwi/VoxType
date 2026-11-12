@@ -30,6 +30,7 @@
 
 - 更新日志：[CHANGELOG.md](../CHANGELOG.md)
 - 发布审计记录：[docs/audits/](audits/)
+- 托盘和日常设置发布审计：[2026-11-12 VoxType 0.15.0](audits/2026-11-12-release-0.15.0-settings-audit.md)
 - Tauri 2.12 与依赖维护发布审计：[2026-10-01 VoxType 0.14.1 Tauri 2.12 与依赖维护发布审计](audits/2026-10-01-release-0.14.1-tauri-2.12-dependency-audit.md)
 - 基于真实使用的精修与工程治理发布审计：[2026-10-01 VoxType 0.14.0 基于真实使用的精修与工程治理发布审计](audits/2026-10-01-release-0.14.0-usage-driven-polish-audit.md)
 - 审计整理与屏幕 OCR 缩放修复发布审计：[2026-09-16 VoxType 0.13.1 审计整理与屏幕 OCR 缩放修复发布审计](audits/2026-09-16-release-0.13.1-audit-cleanup-audit.md)

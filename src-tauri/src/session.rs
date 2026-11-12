@@ -23,6 +23,7 @@ use crate::tray;
 const STOP_TAIL_MIN_CAPTURE_MS: u64 = 250;
 // 最长录音时长看门狗检查会话是否已结束的间隔；只决定线程多快退出，不影响时长上限本身。
 const MAX_DURATION_WATCHDOG_POLL: Duration = Duration::from_millis(500);
+const AUDIO_ERROR_OVERLAY_DURATION: Duration = Duration::from_millis(1_800);
 
 #[derive(Debug, Clone, Serialize)]
 pub struct SessionState {
@@ -130,6 +131,11 @@ impl SessionController {
             self.set_state_values(false, SessionPhase::Failed, &message, Some(error_code));
             if let Some(app) = app.as_ref() {
                 emit_state(Some(app), &state);
+                // 所有 ASR 接入方式共用此入口，前端按错误码定位到 API 配置。
+                crate::main_window::show_existing(app, "ASR 配置错误");
+                if error_code == "CONFIG_MISSING" {
+                    crate::setup_guide::open_if_config_missing(app);
+                }
             }
             return Err(message);
         }
@@ -210,18 +216,17 @@ impl SessionController {
                     "Recording failed to start.",
                     Some(error_code),
                 );
-                if let Some(app) = app.as_ref() {
-                    overlay::update_text(app, format!("启动录音失败: {}", err));
-                    overlay::hide(app);
-                    emit_state(
-                        Some(app),
-                        &state.unwrap_or(SessionState {
-                            recording: false,
-                            phase: SessionPhase::Failed,
-                            message: format!("Recording failed: {}", err),
-                            error_code: Some(error_code.to_string()),
-                        }),
+                if let (Some(app), Some(state)) = (app, state) {
+                    overlay::update_status(
+                        &app,
+                        error_code,
+                        "无法启动麦克风，请检查输入设备和麦克风权限。",
                     );
+                    emit_state(Some(&app), &state);
+                    let controller = self.clone();
+                    thread::spawn(move || {
+                        hide_audio_error_overlay(&controller, &app, generation);
+                    });
                 }
                 app_log::warn(format!("启动麦克风失败: {}", err));
                 return Err(err);
@@ -837,7 +842,11 @@ fn spawn_audio_error_listener(
         };
         if let Some(app) = app.as_ref() {
             emit_state(Some(app), &state);
-            overlay::update_text(app, &message);
+            overlay::update_status(
+                app,
+                "MIC_STREAM_FAILED",
+                "麦克风连接中断，请检查设备后重试。",
+            );
             let _ = app.emit(
                 "asr-final-text",
                 asr_ws::AsrFinalText {
@@ -848,14 +857,16 @@ fn spawn_audio_error_listener(
                     warning_code: None,
                 },
             );
-        }
-        thread::sleep(Duration::from_millis(1_800));
-        if let Some(app) = app.as_ref() {
-            if controller.is_current_generation(guard_generation) {
-                overlay::hide(app);
-            }
+            hide_audio_error_overlay(&controller, app, guard_generation);
         }
     });
+}
+
+fn hide_audio_error_overlay(controller: &SessionController, app: &AppHandle, generation: u64) {
+    thread::sleep(AUDIO_ERROR_OVERLAY_DURATION);
+    if controller.is_current_generation(generation) {
+        overlay::hide(app);
+    }
 }
 
 /// 等到本轮录音达到最长时长时返回 `true`；录音提前结束则返回 `false`。

@@ -14,13 +14,21 @@ import type {
 
 type NativeUnlistener = Promise<() => void>;
 
-type NativeEventControllerOptions = {
+type SessionEventHandlers = {
   applySessionState: (state: SessionState) => void;
-  applyAsrFinalText: (payload: AsrFinalText) => void;
+  applyAudioLevel: (payload: AudioLevel) => void;
+};
+
+type OverlayEventHandlers = {
+  overlay: true;
   applyOverlayText: (payload: OverlayText) => void;
   applyOverlayConfig: (payload: OverlayConfig) => void;
+};
+
+type MainEventHandlers = {
+  overlay: false;
+  applyAsrFinalText: (payload: AsrFinalText) => void;
   applyStats: (payload: StatsSnapshot) => void;
-  applyAudioLevel: (payload: AudioLevel) => void;
   applyAudioQuality: (payload: AudioQualityDiagnostic) => void;
   handleAudioDeviceFallback: (payload: AudioDeviceFallbackNotice) => void;
   showClosePrompt: (payload: CloseToTrayRequest) => void;
@@ -30,25 +38,37 @@ type NativeEventControllerOptions = {
   checkForUpdate: () => void;
 };
 
-export function registerNativeEventController(options: NativeEventControllerOptions): NativeUnlistener[] {
-  return [
+export function registerNativeEventController(
+  options: SessionEventHandlers & (OverlayEventHandlers | MainEventHandlers),
+): NativeUnlistener[] {
+  const sessionListeners = [
     listen<SessionState>("session-state-changed", (event) => {
       options.applySessionState(event.payload);
     }),
+    listen<AudioLevel>("audio-level", (event) => {
+      options.applyAudioLevel(event.payload);
+    }),
+  ];
+
+  if (options.overlay) {
+    return [
+      ...sessionListeners,
+      listen<OverlayText>("overlay-text", (event) => {
+        options.applyOverlayText(event.payload);
+      }),
+      listen<OverlayConfig>("overlay-config", (event) => {
+        options.applyOverlayConfig(event.payload);
+      }),
+    ];
+  }
+
+  return [
+    ...sessionListeners,
     listen<AsrFinalText>("asr-final-text", (event) => {
       options.applyAsrFinalText(event.payload);
     }),
-    listen<OverlayText>("overlay-text", (event) => {
-      options.applyOverlayText(event.payload);
-    }),
-    listen<OverlayConfig>("overlay-config", (event) => {
-      options.applyOverlayConfig(event.payload);
-    }),
     listen<StatsSnapshot>("usage-stats-updated", (event) => {
       options.applyStats(event.payload);
-    }),
-    listen<AudioLevel>("audio-level", (event) => {
-      options.applyAudioLevel(event.payload);
     }),
     listen<AudioQualityDiagnostic>("audio-quality-diagnostic", (event) => {
       options.applyAudioQuality(event.payload);

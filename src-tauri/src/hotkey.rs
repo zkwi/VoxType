@@ -20,7 +20,6 @@ use windows::Win32::UI::WindowsAndMessaging::{
 
 use crate::app_log;
 use crate::config::{self, TriggerConfig};
-use crate::main_window;
 use crate::session::SessionController;
 
 const HOTKEY_ID: i32 = 1;
@@ -210,7 +209,7 @@ fn parse_hotkey(value: &str) -> Result<(HOT_KEY_MODIFIERS, VIRTUAL_KEY), String>
             "ctrl" | "control" => modifiers |= MOD_CONTROL,
             "alt" => modifiers |= MOD_ALT,
             "shift" => modifiers |= MOD_SHIFT,
-            "win" => modifiers |= MOD_WIN,
+            "win" | "meta" => modifiers |= MOD_WIN,
             other => return Err(format!("不支持的热键修饰键: {}", other)),
         }
     }
@@ -416,22 +415,9 @@ fn dispatch_toggle(app: AppHandle, source: &'static str) {
         app_log::info(format!("输入触发来源: {}", source));
         let controller = app.state::<SessionController>().inner().clone();
         if let Err(err) = controller.toggle(Some(app.clone())) {
-            if is_config_error(&err) {
-                main_window::show_existing(&app, "配置错误");
-                if err.contains("config.toml") {
-                    crate::setup_guide::open_if_config_missing(&app);
-                }
-            }
             app_log::warn(format!("{}触发失败: {}", source, err));
         }
     });
-}
-
-fn is_config_error(message: &str) -> bool {
-    message.contains("config.toml")
-        || message.contains("app_key")
-        || message.contains("access_key")
-        || message.contains("豆包认证")
 }
 
 struct ToggleInFlightGuard;
@@ -494,9 +480,9 @@ fn wait_for_thread_to_stop(slot: &'static OnceLock<Mutex<Option<u32>>>, timeout:
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_conservative_trigger_defaults, refresh_trigger_config_from, right_alt_hook_action,
-        trigger_enabled, RightAltHookAction, HOTKEY_TRIGGER_ENABLED, MIDDLE_MOUSE_TRIGGER_ENABLED,
-        RIGHT_ALT_TRIGGER_ENABLED,
+        apply_conservative_trigger_defaults, parse_hotkey, refresh_trigger_config_from,
+        right_alt_hook_action, trigger_enabled, RightAltHookAction, HOTKEY_TRIGGER_ENABLED,
+        MIDDLE_MOUSE_TRIGGER_ENABLED, RIGHT_ALT_TRIGGER_ENABLED,
     };
     use crate::config::TriggerConfig;
     use std::sync::atomic::Ordering;
@@ -506,6 +492,14 @@ mod tests {
     };
 
     const RIGHT_ALT: u32 = VK_RMENU.0 as u32;
+
+    #[test]
+    fn meta_and_win_parse_as_the_same_modifier() {
+        assert_eq!(
+            parse_hotkey("Meta + K").unwrap(),
+            parse_hotkey("Win + K").unwrap()
+        );
+    }
 
     #[test]
     fn enabled_right_alt_trigger_takes_over_both_key_down_and_key_up() {

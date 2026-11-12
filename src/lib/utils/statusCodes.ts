@@ -8,6 +8,9 @@ const overlayStatusKeys: Record<string, CopyKey | undefined> = {
   post_editing: "overlayStatusPostEditing",
   empty: "overlayStatusEmpty",
   paste_failed: "overlayStatusPasteFailed",
+  MIC_DEVICE_NOT_FOUND: "overlayStatusMicMissing",
+  MIC_START_FAILED: "overlayStatusMicStartFailed",
+  MIC_STREAM_FAILED: "overlayStatusMicDisconnected",
 };
 
 export function overlayStatusText(

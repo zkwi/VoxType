@@ -1,11 +1,20 @@
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 import { sveltekit } from "@sveltejs/kit/vite";
+import adapter from "@sveltejs/adapter-static";
+import { vitePreprocess } from "@sveltejs/vite-plugin-svelte";
 
 const host = process.env.TAURI_DEV_HOST || "127.0.0.1";
 
 // https://vite.dev/config/
 export default defineConfig(async () => ({
-  plugins: [sveltekit()],
+  plugins: [sveltekit({
+    preprocess: vitePreprocess(),
+    // Tauri bundles a static SPA without a Node.js server.
+    adapter: adapter({ fallback: "index.html" }),
+    version: { pollInterval: 0 },
+  })],
+  resolve: { alias: { $lib: fileURLToPath(new URL("./src/lib", import.meta.url)) } },
   test: {
     include: ["src/lib/utils/**/*.test.ts"],
     environment: "node",

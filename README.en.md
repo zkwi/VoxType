@@ -64,7 +64,9 @@ API Config starts with a setup health check instead of a generic status header. 
 ## Windows Voice Typing Features
 
 - Global trigger: `Ctrl + Q` is enabled by default. Right Alt and middle mouse can be enabled manually. While enabled they belong to VoxType and never reach other apps, which is what keeps a browser from moving focus out of the field you are typing in; the cost is that right Alt combinations and middle-click actions stop working until the trigger is turned off. Left Alt is unaffected.
-- Microphone capture: PCM audio capture through Rust `cpal`; input device can be selected.
+- Microphone capture: choose an input in Options → Microphone, and use Refresh devices after connecting a new device. The floating caption shows a short error if capture fails to start.
+- Main shortcut: toggle it in Options. Press Esc or move focus to cancel shortcut capture and keep the current combination.
+- System audio: Options → Microphone can mute system audio during recording and restore it afterward. This is off by default.
 - Real-time speech recognition: Doubao `bigmodel_async` WebSocket by default, with Alibaba Cloud FunASR Realtime available from API Config. Live captions are feedback only; pasted output waits for the selected ASR provider's final completion event. The Doubao path keeps two-pass recognition and `full` cumulative results. FunASR live captions combine confirmed sentences with the current unfinished sentence, while the Alibaba Cloud path still waits for `task-finished` before polishing or pasting.
 - No-feedback fallback: if ASR returns no effective text feedback for 30 seconds, VoxType stops through the normal grace flow; this no longer depends on local volume thresholds.
 - Error notices: the main window shows only the latest error notice. Its originating recording counts toward a five-session window, a newer error restarts the count, and the notice clears when the sixth session starts or when closed manually.
@@ -76,12 +78,12 @@ API Config starts with a setup health check instead of a generic status header. 
 - Screen OCR context: on by default. When recording starts, VoxType captures the current display by default, with an option to switch to the current window only. It runs Windows OCR locally, lightly merges extra spaces between adjacent CJK characters, and sends the temporary text context to the selected ASR provider and the optional LLM to improve names, filenames, code identifiers, and UI terms. OCR is compacted by budget before AI polishing, and timeout or OCR failure is skipped automatically. A result that arrives after the first-packet wait is too late for ASR but is still used as a polishing reference, with no extra waiting.
 - Prompts and terms: maintain recognition terms, scene notes, and AI prompts.
 - Automatic hotword candidates: optional local history and manual LLM candidate generation; candidates must be confirmed before joining hotwords. The default history limit is 5000 characters; saved limits are preserved and are no longer rewritten by old default values. Candidate generation uses a larger output and timeout budget than normal polishing; if the full history response is incomplete or times out, VoxType retries once with a smaller recent-history window and fewer candidates. If it still fails, reduce the history text limit or candidate count in `config.toml` and retry. ASR direct/context hotwords are capped, with manual hotwords taking priority over confirmed automatic hotwords, to avoid oversized real-time ASR requests.
-- Tray resident mode: closing the main window hides it to the tray by default. During input and processing, the tray icon switches to an active state. Single-click the tray icon to open the main window; the tray menu can open config, open logs, report an issue, check updates, restart the app, or exit.
+- Tray resident mode: closing the main window hides it to the tray by default. Click the tray icon or choose the first menu item, Open main window. If a recording shortcut is used while VoxType is in the tray and ASR credentials are missing, VoxType opens API Config.
 - Launch at sign-in: optional, from Options. When Windows starts VoxType at sign-in and speech recognition is already configured, it stays in the tray without opening the main window; launching it manually, or starting before setup is complete, still shows the window.
 - Updates: the Options page and tray menu can check GitHub Releases. When a new version is found, the UI shows an "Update now" action.
 - Diagnostics: logs and redacted diagnostic reports help troubleshoot ASR, paste, network, and update issues.
 - Privacy & local data: available from the sidebar. It shows storage and upload boundaries for config and keys, logs and diagnostic reports, recent context, automatic hotword history, usage stats, ASR audio, screen OCR, LLM polishing text, and clipboard snapshots; it can clear recent context, automatic hotword history, and usage stats.
-- Settings layout: visible settings are shown directly by task page. Options is grouped into common settings, enhancements, and maintenance so daily controls come before maintenance entries. Low-level protocol, resource ID, timeout, clipboard snapshot, retry, caption size/position, and similar implementation parameters stay in `config.toml`.
+- Settings layout: Options groups common settings, enhancements, and maintenance. In API Config → Advanced ASR settings, Doubao speech console API Key and legacy App Key modes can select an hourly or concurrent resource plan. Agent Plan uses a fixed resource. Edit the System Prompt and User Prompt template under Hotwords & prompts → Advanced prompt settings.
 - Config reliability: a load failure keeps settings read-only and offers retry instead of overwriting the original file with defaults. Save failures stay visible, and closing or exiting offers retry, discard, or cancel.
 - Keyboard and display support: validation can focus the first invalid field; dialogs trap Tab, close with Escape, and restore focus. The main window minimum is `960×640`, with narrow-window, high-DPI, and reduced-motion support.
 - Languages: Simplified Chinese, Traditional Chinese, and English.
@@ -116,7 +118,7 @@ Windows Settings -> Privacy & security -> Microphone -> Let desktop apps access 
 
 Development requires:
 
-- Node.js and npm
+- Node.js 22.17+ and npm
 - Rust toolchain
 
 If Rust is installed but `cargo` is not found in the current terminal:

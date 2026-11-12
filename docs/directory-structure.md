@@ -16,7 +16,6 @@ VoxType/
 ├── screenshots/         # README、Wiki 或发布说明使用的截图
 ├── config.example.toml  # 配置模板
 ├── package.json
-├── svelte.config.js
 ├── tsconfig.json
 ├── vite.config.js
 └── AGENTS.md            # AI 维护规则

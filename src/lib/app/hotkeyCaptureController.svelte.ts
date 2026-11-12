@@ -1,6 +1,6 @@
 import type { CopyKey } from "$lib/i18n";
 import type { AppConfig, HotkeyCaptureState } from "$lib/types/app";
-import { formatHotkey, hotkeyFromKeyboardEvent, validateHotkeyText } from "$lib/utils/hotkeys";
+import { hotkeyFromKeyboardEvent, validateHotkeyText } from "$lib/utils/hotkeys";
 
 type HotkeyCaptureControllerOptions = {
   getConfig: () => AppConfig;
@@ -25,17 +25,6 @@ export function createHotkeyCaptureController(options: HotkeyCaptureControllerOp
     return validateHotkeyText(value, validationLabels());
   }
 
-  function setHotkey(value: string) {
-    const formatted = formatHotkey(value);
-    options.getConfig().hotkey = formatted;
-    validationMessage = validate(formatted);
-    if (!validationMessage) {
-      const next = { ...options.getValidationErrors() };
-      delete next.hotkey;
-      options.setValidationErrors(next);
-    }
-  }
-
   function beginCapture() {
     validationMessage = "";
     state = "recording";
@@ -48,6 +37,8 @@ export function createHotkeyCaptureController(options: HotkeyCaptureControllerOp
 
   function handleKeydown(event: KeyboardEvent) {
     if (state !== "recording") return;
+    const hasModifier = event.ctrlKey || event.altKey || event.shiftKey || event.metaKey;
+    if (event.key === "Tab" && !hasModifier) return;
     event.preventDefault();
     event.stopPropagation();
 
@@ -57,17 +48,12 @@ export function createHotkeyCaptureController(options: HotkeyCaptureControllerOp
     }
 
     if (event.key === "Backspace" || event.key === "Delete") {
-      options.getConfig().hotkey = "";
-      validationMessage = options.t("hotkeyRequired");
-      options.setValidationErrors({
-        ...options.getValidationErrors(),
-        hotkey: validationMessage,
-      });
+      validationMessage = "";
       return;
     }
 
-    if (event.key === "Enter" && !event.ctrlKey && !event.altKey && !event.shiftKey && !event.metaKey) {
-      state = "idle";
+    if (event.key === "Enter" && !hasModifier) {
+      cancelCapture();
       return;
     }
 
@@ -77,14 +63,12 @@ export function createHotkeyCaptureController(options: HotkeyCaptureControllerOp
       return;
     }
 
+    // 录制期间保留旧值，失焦、取消和切页都不会把空组合写入自动保存。
     options.getConfig().hotkey = captured;
-    validationMessage = validate(captured);
-    options.setValidationErrors(
-      validationMessage
-        ? { ...options.getValidationErrors(), hotkey: validationMessage }
-        : Object.fromEntries(Object.entries(options.getValidationErrors()).filter(([field]) => field !== "hotkey")),
-    );
-    if (!validationMessage) state = "idle";
+    const next = { ...options.getValidationErrors() };
+    delete next.hotkey;
+    options.setValidationErrors(next);
+    cancelCapture();
   }
 
   return {
@@ -92,7 +76,6 @@ export function createHotkeyCaptureController(options: HotkeyCaptureControllerOp
     get validationMessage() { return validationMessage; },
     get isIdle() { return state === "idle"; },
     validate,
-    setHotkey,
     beginCapture,
     cancelCapture,
     handleKeydown,

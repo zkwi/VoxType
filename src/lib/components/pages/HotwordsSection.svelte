@@ -73,7 +73,8 @@
 
   let showPromptAdvanced = $state(false);
   let promptAdvancedHasError = $derived(Boolean(
-    fieldError("llm_post_edit.user_prompt_template") ||
+    fieldError("llm_post_edit.system_prompt") ||
+      fieldError("llm_post_edit.user_prompt_template") ||
       fieldError("llm_post_edit.min_chars"),
   ));
   let promptBudgetHasError = $derived(Boolean(
@@ -150,6 +151,11 @@
         expanded={promptAdvancedExpanded}
         onToggle={() => (showPromptAdvanced = !showPromptAdvanced)}
       >
+        <label class:field-invalid={Boolean(fieldError("llm_post_edit.system_prompt"))}>
+          <span>{t("systemPrompt")}</span>
+          <textarea data-config-field="llm_post_edit.system_prompt" aria-invalid={Boolean(fieldError("llm_post_edit.system_prompt"))} aria-describedby={fieldError("llm_post_edit.system_prompt") ? "setting-llm-system-prompt-error" : undefined} bind:value={config.llm_post_edit.system_prompt}></textarea>
+          {#if fieldError("llm_post_edit.system_prompt")}<small id="setting-llm-system-prompt-error" class="field-error">{fieldError("llm_post_edit.system_prompt")}</small>{/if}
+        </label>
         <label class:field-invalid={Boolean(fieldError("llm_post_edit.user_prompt_template"))}>
           <span>{t("userPromptTemplate")}</span>
           <textarea bind:value={config.llm_post_edit.user_prompt_template}></textarea>

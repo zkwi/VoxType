@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from "svelte";
   import type {
     AppConfig,
     AudioDeviceInfo,
@@ -10,7 +11,7 @@
   import ActionPanel from "$lib/components/common/ActionPanel.svelte";
   import AdvancedSettings from "$lib/components/common/AdvancedSettings.svelte";
   import type { CopyKey } from "$lib/i18n";
-  import { ClipboardCopy, Download, FileText, Keyboard, ScanText, ShieldCheck, Trash2 } from "lucide-svelte";
+  import { ClipboardCopy, Download, FileText, Keyboard, RefreshCw, ScanText, ShieldCheck, Trash2 } from "lucide-svelte";
 
   type Translate = (key: CopyKey, values?: Record<string, string>) => string;
   type OverlayColorPreset = { label: CopyKey; background: string; text: string };
@@ -33,6 +34,7 @@
     overlayColorPresets: OverlayColorPreset[];
     overlayOpacityPresets: readonly number[];
     audioDevices: AudioDeviceInfo[];
+    refreshingAudioDevices: boolean;
     updateStatus: UpdateStatus | null;
     checkingUpdate: boolean;
     installingUpdate: boolean;
@@ -53,10 +55,12 @@
     updateMetaText: () => string;
     onHotkeyKeydown: (event: KeyboardEvent) => void;
     onBeginHotkeyCapture: () => void;
+    onCancelHotkeyCapture: () => void;
     onOptionEnabledNotice: (key: SoftConfigNoticeKey, enabled: boolean) => void;
     onApplyOverlayPreset: (background: string, text: string) => void;
     onApplyOverlayOpacity: (opacity: number) => void;
     onSetInputDevice: (value: string) => void;
+    onRefreshAudioDevices: () => void;
     onCheckUpdate: (manual: boolean) => void;
     onDownloadLatestUpdate: () => void;
     onOpenLog: () => void;
@@ -74,6 +78,7 @@
     overlayColorPresets,
     overlayOpacityPresets,
     audioDevices,
+    refreshingAudioDevices,
     updateStatus,
     checkingUpdate,
     installingUpdate,
@@ -94,10 +99,12 @@
     updateMetaText,
     onHotkeyKeydown,
     onBeginHotkeyCapture,
+    onCancelHotkeyCapture,
     onOptionEnabledNotice,
     onApplyOverlayPreset,
     onApplyOverlayOpacity,
     onSetInputDevice,
+    onRefreshAudioDevices,
     onCheckUpdate,
     onDownloadLatestUpdate,
     onOpenLog,
@@ -106,6 +113,8 @@
     onClearScreenContextPreview,
     onScrollToSettingsPanel,
   }: Props = $props();
+
+  onDestroy(() => onCancelHotkeyCapture());
 
   let selectedInputDeviceValue = $derived.by(() => {
     const configuredName = config.audio.input_device_name?.trim();
@@ -165,6 +174,7 @@
     </div>
     <div id="settings-output" class="form-panel">
       <div class="section-heading"><h3>{t("usageModeTitle")}</h3><p>{t("usageModeDescription")}</p></div>
+      <label class="check"><input type="checkbox" bind:checked={config.triggers.hotkey_enabled} />{t("enableMainHotkey")}</label>
       <div class="form-grid">
         <label class:field-invalid={Boolean(fieldError("hotkey") || hotkeyValidationMessage)}>
           <span>{t("hotkey")}</span>
@@ -176,6 +186,7 @@
               aria-invalid={Boolean(fieldError("hotkey") || hotkeyValidationMessage)}
               aria-describedby="setting-hotkey-help"
               readonly
+              onblur={onCancelHotkeyCapture}
               value={hotkeyCaptureState === "recording" ? t("hotkeyRecording") : formatHotkey(config.hotkey) || t("hotkeyUnset")}
               onkeydown={handleHotkeyRecorderKeydown}
               onclick={onBeginHotkeyCapture}
@@ -199,7 +210,7 @@
     </div>
     <div id="settings-audio" class="form-panel">
       <div class="section-heading"><h3>{t("microphoneTitle")}</h3><p>{t("microphoneDescription")}</p></div>
-      <div class="form-grid">
+      <div class="audio-device-controls">
         <label class:field-invalid={Boolean(fieldError("audio.input_device"))}>
           <span>{t("inputDevice")}</span>
           <select id="setting-audio-input-device" data-config-field="audio.input_device" aria-invalid={Boolean(fieldError("audio.input_device"))} aria-describedby={fieldError("audio.input_device") ? "setting-audio-input-device-error" : undefined} value={selectedInputDeviceValue} onchange={(event) => onSetInputDevice(event.currentTarget.value)}>
@@ -211,9 +222,16 @@
               <option value={String(device.index)}>{device.index}: {device.name}</option>
             {/each}
           </select>
-          {#if fieldError("audio.input_device")}<small id="setting-audio-input-device-error" class="field-error">{fieldError("audio.input_device")}</small>{/if}
         </label>
+        <button class="test-button" type="button" disabled={refreshingAudioDevices} onclick={onRefreshAudioDevices}>
+          <RefreshCw size={16} />{t(refreshingAudioDevices ? "refreshingAudioDevices" : "refreshAudioDevices")}
+        </button>
+        {#if fieldError("audio.input_device")}<small id="setting-audio-input-device-error" class="field-error">{fieldError("audio.input_device")}</small>{/if}
       </div>
+      <label class="check">
+        <input type="checkbox" bind:checked={config.audio.mute_system_volume_while_recording} />
+        <span class="check-copy"><span>{t("muteSystemAudioWhileRecording")}</span><small>{t("muteSystemAudioHint")}</small></span>
+      </label>
       <AdvancedSettings
         rootId="settings-recording-troubleshooting"
         title={t("recordingTroubleshooting")}
@@ -424,6 +442,19 @@
 </section>
 
 <style>
+  .audio-device-controls {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
+    gap: 8px 12px;
+  }
+
+  @media (max-width: 520px) {
+    .audio-device-controls {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+
   .settings-jump-nav {
     position: sticky;
     top: -1px;

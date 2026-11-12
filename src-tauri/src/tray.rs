@@ -27,6 +27,7 @@ static TRAY_TIMER_CLEANUP_PENDING: AtomicBool = AtomicBool::new(false);
 const TRAY_ICON_SIZE: usize = 32;
 const TRAY_ICON_RGBA: &[u8] = include_bytes!("../icons/32x32.rgba");
 
+const OPEN_MAIN_WINDOW_ID: &str = "open_main_window";
 const OPEN_CONFIG_ID: &str = "open_config";
 const OPEN_LOG_ID: &str = "open_log";
 const OPEN_SETUP_GUIDE_ID: &str = "open_setup_guide";
@@ -39,6 +40,7 @@ const ISSUES_URL: &str = "https://github.com/zkwi/VoxType/issues/new/choose";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct TrayLabels {
+    open_main_window: &'static str,
     open_config: &'static str,
     open_log: &'static str,
     open_setup_guide: &'static str,
@@ -58,6 +60,7 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), String> {
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(move |app, event| match event.id().as_ref() {
+            OPEN_MAIN_WINDOW_ID => show_main_window(app),
             OPEN_CONFIG_ID => open_config_file(app),
             OPEN_LOG_ID => {
                 if let Err(err) = open_log_file(app) {
@@ -119,6 +122,14 @@ pub fn set_language(app: &AppHandle, language: &str) -> Result<(), String> {
 }
 
 fn build_tray_menu(app: &AppHandle, labels: TrayLabels) -> Result<Menu<tauri::Wry>, String> {
+    let open_main_window = MenuItem::with_id(
+        app,
+        OPEN_MAIN_WINDOW_ID,
+        labels.open_main_window,
+        true,
+        None::<&str>,
+    )
+    .map_err(|err| format!("创建托盘菜单失败: {}", err))?;
     let open_config =
         MenuItem::with_id(app, OPEN_CONFIG_ID, labels.open_config, true, None::<&str>)
             .map_err(|err| format!("创建托盘菜单失败: {}", err))?;
@@ -152,6 +163,7 @@ fn build_tray_menu(app: &AppHandle, labels: TrayLabels) -> Result<Menu<tauri::Wr
     Menu::with_items(
         app,
         &[
+            &open_main_window,
             &open_config,
             &open_log,
             &open_setup_guide,
@@ -189,6 +201,7 @@ pub fn set_input_active(app: &AppHandle, active: bool) {
 fn tray_labels(language: &str) -> TrayLabels {
     match normalize_tray_language(language) {
         "en" => TrayLabels {
+            open_main_window: "Open main window",
             open_config: "Open config file",
             open_log: "View logs",
             open_setup_guide: "Setup guide",
@@ -198,6 +211,7 @@ fn tray_labels(language: &str) -> TrayLabels {
             exit: "Exit",
         },
         "zh-TW" => TrayLabels {
+            open_main_window: "開啟主視窗",
             open_config: "打開配置檔",
             open_log: "查看日誌",
             open_setup_guide: "配置指南",
@@ -207,6 +221,7 @@ fn tray_labels(language: &str) -> TrayLabels {
             exit: "退出",
         },
         _ => TrayLabels {
+            open_main_window: "打开主窗口",
             open_config: "打开配置文件",
             open_log: "查看日志",
             open_setup_guide: "配置指南",
@@ -333,7 +348,7 @@ fn show_main_window(app: &AppHandle) {
 
 fn request_update_check(app: &AppHandle) {
     show_main_window(app);
-    if let Err(err) = app.emit(CHECK_UPDATE_EVENT, ()) {
+    if let Err(err) = app.emit_to(main_window::MAIN_LABEL, CHECK_UPDATE_EVENT, ()) {
         app_log::warn(format!("发送托盘检查更新事件失败: {}", err));
     }
 }
@@ -591,6 +606,7 @@ mod tests {
     fn tray_labels_follow_selected_language() {
         let labels = tray_labels("en");
 
+        assert_eq!(labels.open_main_window, "Open main window");
         assert_eq!(labels.open_config, "Open config file");
         assert_eq!(labels.open_log, "View logs");
         assert_eq!(labels.open_setup_guide, "Setup guide");
@@ -604,6 +620,7 @@ mod tests {
     fn tray_labels_support_traditional_chinese() {
         let labels = tray_labels("zh-TW");
 
+        assert_eq!(labels.open_main_window, "開啟主視窗");
         assert_eq!(labels.open_config, "打開配置檔");
         assert_eq!(labels.open_log, "查看日誌");
         assert_eq!(labels.open_setup_guide, "配置指南");
@@ -617,6 +634,7 @@ mod tests {
     fn tray_language_falls_back_to_simplified_chinese() {
         let labels = tray_labels("fr");
 
+        assert_eq!(labels.open_main_window, "打开主窗口");
         assert_eq!(labels.open_config, "打开配置文件");
         assert_eq!(labels.open_issues, "问题反馈");
         assert_eq!(labels.restart, "重启程序");
