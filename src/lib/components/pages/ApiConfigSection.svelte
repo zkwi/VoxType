@@ -10,6 +10,7 @@
   import type { CopyKey } from "$lib/i18n";
   import type { AppConfig } from "$lib/types/app";
   import type { LlmTestSummary } from "$lib/utils/llmTestHistory";
+  import { matchingPolishPreset, polishPresets } from "$lib/utils/polishPresets";
   import {
     ASR_PROVIDER_ALIYUN_FUN,
     ASR_PROVIDER_DOUBAO,
@@ -145,6 +146,12 @@
 
   let showAsrAdvanced = $state(false);
   let showLlmAdvanced = $state(false);
+  let activePolishPreset = $derived(matchingPolishPreset(config.llm_post_edit));
+
+  function applyPolishPreset(preset: (typeof polishPresets)[number]) {
+    config.llm_post_edit.system_prompt = preset.system_prompt;
+    config.llm_post_edit.user_prompt_template = preset.user_prompt_template;
+  }
   let asrAdvancedHasError = $derived(Boolean(
     fieldError("aliyun_asr.region") ||
       fieldError("aliyun_asr.model") ||
@@ -458,6 +465,22 @@
           {#if !hasLlmApiConfig}<small>{t("llmApiRequiredForPolishing")}</small>{/if}
         </span>
       </label>
+      <div class="polish-presets">
+        <div class="polish-presets-heading">
+          <strong>{t("polishPresetTitle")}</strong>
+          {#if !activePolishPreset}<small>{t("polishPresetCustom")}</small>{/if}
+        </div>
+        <div class="polish-preset-actions" role="group" aria-label={t("polishPresetTitle")}>
+          {#each polishPresets as preset (preset.label)}
+            <button class="test-button" type="button" aria-pressed={activePolishPreset === preset} onclick={() => applyPolishPreset(preset)}>
+              {t(preset.label)}
+            </button>
+          {/each}
+          <button class="link-button" type="button" onclick={() => onScrollToSettingsPanel("settings-llm-prompt")}>
+            {t("polishPresetEditPrompt")}
+          </button>
+        </div>
+      </div>
       <p class="field-hint">{t("llmPolishingDataHint")}</p>
       <p class="field-hint">{t("llmAutoTestDataHint")}</p>
       <div id="llm-api-config-fields" class="llm-api-config-fields">
@@ -562,6 +585,33 @@
 </section>
 
 <style>
+  .polish-presets {
+    display: grid;
+    gap: 8px;
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--bg-page);
+  }
+
+  .polish-presets-heading,
+  .polish-preset-actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .polish-presets-heading small {
+    color: var(--text-secondary);
+  }
+
+  .polish-preset-actions button[aria-pressed="true"] {
+    color: var(--primary);
+    border-color: var(--primary);
+    background: #eaf3ff;
+  }
+
   .optional-config-summary {
     display: flex;
     flex-wrap: wrap;

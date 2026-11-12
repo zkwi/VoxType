@@ -72,6 +72,8 @@ For standard Doubao access, select the hourly or concurrent resource plan availa
 
 Speech recognition is enough for basic dictation. Under Speech & Polishing → AI polishing, you can test the model connection, enable polishing, and set its minimum length. In Vocabulary & Context, you can edit the system prompt and user prompt template, preview the prompt, or restore the default.
 
+Choose Natural, Formal, or Proofread only under AI polishing. Press an enabled trigger again while VoxType is polishing to output the original transcript immediately. When polishing changes the text, Home lets you compare or copy the original until you hide the window or start another recording.
+
 ### Recording triggers and output
 
 | Setting | Default | How it works |
