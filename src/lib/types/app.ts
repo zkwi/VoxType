@@ -154,17 +154,23 @@ export type SessionState = {
 };
 
 export type AsrFinalText = {
+  generation?: number;
   text: string;
+  raw_text?: string;
   error: string | null;
   error_code: string | null;
   warning: string | null;
   warning_code: string | null;
 };
 
+export type AsrOutputWarning = { generation: number; warning: string; warning_code: string | null };
+
 export type LastSessionOutcome =
   | {
       kind: "success";
+      generation?: number;
       text: string;
+      rawText?: string;
       warning: string | null;
       warningCode: string | null;
       createdAt: number;

@@ -394,7 +394,7 @@ export function createVoxTypeController() {
       sessionErrorCode = value ?? null;
     },
     setLastOutcome: (value) => {
-      lastSessionOutcome = value;
+      lastSessionOutcome = mainWindowVisible ? value : null;
     },
     setLastAudioQualityDiagnostic: (value) => {
       lastAudioQualityDiagnostic = value;
@@ -458,6 +458,12 @@ export function createVoxTypeController() {
         overlay: false,
         applySessionState,
         applyAsrFinalText: session.applyAsrFinalText,
+        applyOutputWarning: ({ generation, warning, warning_code }) => {
+          notifications.show(warning, "warning");
+          if (lastSessionOutcome?.generation === generation && !lastSessionOutcome.warning) {
+            lastSessionOutcome = { ...lastSessionOutcome, warning, warningCode: warning_code };
+          }
+        },
         applyStats: (payload) => {
           stats.apply(payload);
           void autoHotwords.refreshStatus();

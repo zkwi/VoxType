@@ -3,13 +3,16 @@ use crate::{app_log, config, hotword_history, overlay, stats, text_output};
 use serde::Serialize;
 use std::thread;
 use std::time::Duration;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 pub(super) const ATTENTION_OVERLAY_HOLD: Duration = Duration::from_millis(1_800);
 
 #[derive(Debug, Clone, Serialize)]
 pub struct AsrFinalText {
+    pub generation: u64,
     pub text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub raw_text: Option<String>,
     pub error: Option<String>,
     pub error_code: Option<String>,
     pub warning: Option<String>,
@@ -52,20 +55,32 @@ pub(super) fn finish_output_sent_session(
 
 pub(super) fn emit_successful_final_text(
     app: &AppHandle,
+    session: &SessionController,
+    generation: u64,
     text: &str,
+    raw_text: Option<&str>,
     warning: Option<String>,
-    warning_code: Option<String>,
+    warning_code: Option<&str>,
 ) {
-    let _ = app.emit(
-        "asr-final-text",
-        AsrFinalText {
-            text: text.to_string(),
-            error: None,
-            error_code: None,
-            warning,
-            warning_code,
-        },
-    );
+    let raw_text = raw_text.filter(|_| {
+        app.get_webview_window("main")
+            .is_some_and(|window| window.is_visible().unwrap_or(false))
+    });
+    session.with_current_generation(generation, || {
+        let _ = app.emit_to(
+            "main",
+            "asr-final-text",
+            AsrFinalText {
+                generation,
+                text: text.to_string(),
+                raw_text: raw_text.map(str::to_string),
+                error: None,
+                error_code: None,
+                warning,
+                warning_code: warning_code.map(str::to_string),
+            },
+        );
+    });
 }
 
 pub(super) fn should_hold_overlay_for_output_warning(
@@ -73,6 +88,22 @@ pub(super) fn should_hold_overlay_for_output_warning(
     warning_code: Option<&str>,
 ) -> bool {
     warning.is_some() && !text_output::is_quiet_output_warning_code(warning_code)
+}
+
+pub(super) fn emit_output_warning(
+    app: &AppHandle,
+    session: &SessionController,
+    generation: u64,
+    warning: &str,
+    warning_code: Option<&str>,
+) {
+    session.with_current_generation(generation, || {
+        let _ = app.emit_to(
+            "main",
+            "asr-output-warning",
+            serde_json::json!({ "generation": generation, "warning": warning, "warning_code": warning_code }),
+        );
+    });
 }
 
 pub(super) fn handle_empty_transcript(
@@ -99,7 +130,9 @@ pub(super) fn handle_empty_transcript(
     let _ = app.emit(
         "asr-final-text",
         AsrFinalText {
+            generation,
             text: String::new(),
+            raw_text: None,
             error: Some(overlay::EMPTY_TRANSCRIPT_TEXT.to_string()),
             error_code: Some("EMPTY_TRANSCRIPT".to_string()),
             warning: None,
@@ -135,7 +168,9 @@ pub(super) fn emit_error(
     let _ = app.emit(
         "asr-final-text",
         AsrFinalText {
+            generation,
             text: String::new(),
+            raw_text: None,
             error: Some(error),
             error_code: Some(error_code.to_string()),
             warning: None,

@@ -99,16 +99,22 @@ export function createSessionController(options: SessionControllerOptions) {
       }
       return;
     }
-    const visibleWarning =
-      payload.warning && !isQuietAsrWarningCode(payload.warning_code)
-        ? payload.warning
-        : null;
+    let visibleWarning = null;
+    if (payload.warning && !isQuietAsrWarningCode(payload.warning_code)) {
+      visibleWarning = payload.warning_code === "LLM_POLISH_TRUNCATED"
+        ? options.t("polishTruncatedFallback")
+        : payload.warning_code === "LLM_POLISH_TOO_SHORT"
+          ? options.t("polishTooShortFallback")
+          : payload.warning;
+    }
     if (visibleWarning) {
       options.notify(visibleWarning, "warning");
     }
     options.setLastOutcome({
       kind: "success",
+      generation: payload.generation,
       text: payload.text,
+      rawText: payload.raw_text?.trim() && payload.raw_text !== payload.text ? payload.raw_text : undefined,
       warning: visibleWarning,
       warningCode: visibleWarning ? payload.warning_code : null,
       createdAt: Date.now(),
