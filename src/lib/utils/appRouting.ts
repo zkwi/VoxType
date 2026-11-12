@@ -48,6 +48,13 @@ export function sectionForSettingsPanel(targetId: string): Section {
   return "Options";
 }
 
+export function settingsPanelForSetupAction(action: string) {
+  if (action === "asr_auth") return "settings-auth";
+  if (action === "audio") return "settings-audio";
+  if (action === "typing") return "settings-basic-output";
+  return "settings-output";
+}
+
 export function isConfigError(message: string) {
   return (
     message.includes("ASR 未配置") ||

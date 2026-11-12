@@ -40,6 +40,14 @@ export function weeklySavedHours(stats: StatsSnapshot, charsPerMinute: number) {
   return savedHoursForUsage(stats.recent_7d, charsPerMinute);
 }
 
+export function cumulativeUsageText(stats: StatsSnapshot, t: Translate, language: Language) {
+  if (stats.total.session_count === 0) return t("usageTipEmpty");
+  return t("usageTipData", {
+    sessions: formatNumber(stats.total.session_count, language),
+    chars: formatNumber(stats.total.total_chars, language),
+  });
+}
+
 export function localDateKey(date: Date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");

@@ -8,6 +8,7 @@
     KeyRound,
     LockKeyhole,
     Maximize2,
+    Mic,
     Minus,
     PanelBottomClose,
     RotateCcw,
@@ -31,9 +32,7 @@
     configSaveError: string;
     inputStatus: string;
     inputStatusLabel: string;
-    inputStatusDesc: string;
     micBars: number[];
-    startTriggerText: string;
     requiresAsrAuth: boolean;
     t: Translate;
     micStatusText: () => string;
@@ -41,6 +40,7 @@
     micBarHeight: (index: number) => string;
     micBarOpacity: (index: number) => string;
     onSelectSection: (section: Section) => void;
+    onOpenMicrophoneSettings: () => void;
     onSetLanguage: (language: string) => void;
     onHideToTray: () => MaybeAsync;
     onRequestClose: () => MaybeAsync;
@@ -60,9 +60,7 @@
     configSaveError,
     inputStatus,
     inputStatusLabel,
-    inputStatusDesc,
     micBars,
-    startTriggerText,
     requiresAsrAuth,
     t,
     micStatusText,
@@ -70,6 +68,7 @@
     micBarHeight,
     micBarOpacity,
     onSelectSection,
+    onOpenMicrophoneSettings,
     onSetLanguage,
     onHideToTray,
     onRequestClose,
@@ -178,24 +177,30 @@
         </select>
       </label>
 
-      <section class:error={inputStatus === "error"} class:listening={recording} class="bridge-card">
-        <div class="bridge-top">
-          <span class="pulse" class:recording class:error={inputStatus === "error"}></span>
-          <span>{inputStatusLabel}</span>
-        </div>
-        <p>{inputStatusDesc}</p>
-        <div class:active={recording} class="mic-line">
-          <span title={micStatusText()}>{sidebarMicStatusText()}</span>
-          {#if recording}
-            {#each micBars as bar}
-              <i style:height={micBarHeight(bar)} style:opacity={micBarOpacity(bar)}></i>
-            {/each}
-          {/if}
-        </div>
-        <div class="shortcut-line" title={t("sidebarShortcut", { hotkey: startTriggerText })}>
-          {t("sidebarShortcut", { hotkey: startTriggerText })}
-        </div>
-      </section>
+      {#snippet micStatus()}
+        <Mic size={14} />
+        <span title={micStatusText()}>{sidebarMicStatusText()}</span>
+        {#if recording}
+          {#each micBars as bar}
+            <i style:height={micBarHeight(bar)} style:opacity={micBarOpacity(bar)}></i>
+          {/each}
+        {/if}
+      {/snippet}
+      {#if selectedSection === "Home"}
+        <button type="button" class="bridge-card mic-line mic-settings" class:active={recording} title={micStatusText()} onclick={onOpenMicrophoneSettings}>
+          {@render micStatus()}
+        </button>
+      {:else}
+        <section class:error={inputStatus === "error"} class:listening={recording} class="bridge-card">
+          <div class="bridge-top">
+            <span class="pulse" class:recording class:error={inputStatus === "error"}></span>
+            <span>{inputStatusLabel}</span>
+          </div>
+          <div class:active={recording} class="mic-line">
+            {@render micStatus()}
+          </div>
+        </section>
+      {/if}
     </aside>
 
     <section
@@ -664,20 +669,6 @@
     white-space: nowrap;
   }
 
-  .bridge-card p {
-    margin: 0;
-    min-width: 0;
-    color: var(--text-secondary);
-    font-size: 13px;
-    line-height: 1.35;
-    display: -webkit-box;
-    overflow-wrap: anywhere;
-    line-clamp: 2;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-  }
-
   .pulse {
     order: 2;
     width: 8px;
@@ -711,14 +702,23 @@
     font-size: 12px;
   }
 
-  .shortcut-line {
-    min-width: 0;
-    color: var(--text-secondary);
-    font-size: 12px;
-    line-height: 1.35;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+  .bridge-card.mic-settings {
+    display: flex;
+    width: 100%;
+    min-height: 36px;
+    gap: 5px;
+    padding: 7px 9px;
+    text-align: left;
+    border: 1px solid var(--border);
+  }
+
+  .mic-settings:hover {
+    color: var(--primary);
+    border-color: var(--primary);
+  }
+
+  .mic-line :global(svg) {
+    flex-shrink: 0;
   }
 
   .mic-line span {
@@ -731,6 +731,7 @@
   .mic-line i {
     display: block;
     width: 4px;
+    flex-shrink: 0;
     background: var(--success);
     border-radius: 999px;
     transform-origin: bottom center;
@@ -858,6 +859,59 @@
   @media (max-width: 760px) {
     .save-status {
       max-width: 112px;
+    }
+  }
+
+  @media (max-width: 640px) {
+    .shell,
+    .ui-compact .shell {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-rows: auto minmax(0, 1fr);
+    }
+
+    .sidebar,
+    .ui-compact .sidebar {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      align-items: center;
+      padding: 8px 12px;
+      border-right: 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    nav {
+      grid-column: 1 / -1;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    nav button,
+    .ui-compact nav button {
+      gap: 4px;
+      min-height: 34px;
+      padding: 3px 4px;
+      font-size: 11px;
+    }
+
+    .nav-icon,
+    .ui-compact .nav-icon {
+      width: 21px;
+      height: 21px;
+      flex-basis: 21px;
+    }
+
+    .nav-icon :global(svg) {
+      width: 13px;
+      height: 13px;
+    }
+
+    .nav-text {
+      white-space: normal;
+      overflow-wrap: anywhere;
+    }
+
+    .language-control,
+    .ui-compact .language-control {
+      margin-top: 0;
     }
   }
 

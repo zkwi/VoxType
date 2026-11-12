@@ -39,6 +39,7 @@ import {
   isErrorStatus as isUserErrorStatus,
   requiresAsrAuth as configRequiresAsrAuth,
   settingsPanelForError,
+  settingsPanelForSetupAction,
   shouldOpenSettingsForError,
   userErrorDetail as getUserErrorDetail,
   userErrorMessage as getUserErrorMessage,
@@ -241,6 +242,8 @@ export function createVoxTypeController() {
   const hotkeyCapture = createHotkeyCaptureController({
     getConfig: () => config,
     t,
+    setNativeCapture: async (active) => !hasTauriApi() ||
+      (await safeInvoke<boolean>("set_hotkey_capture_active", { active }, true)) === true,
     getValidationErrors: () => validationErrors,
     setValidationErrors: (errors) => {
       validationErrors = errors;
@@ -480,9 +483,13 @@ export function createVoxTypeController() {
         },
       });
     }
-    if (!isOverlay) void bootstrapApp();
+    if (!isOverlay) {
+      window.addEventListener("blur", hotkeyCapture.cancelCapture);
+      void bootstrapApp();
+    }
     if (unlisteners.length) logFrontendEvent(`listeners registered mode=${frontendMode()}`);
     return () => {
+      hotkeyCapture.cancelCapture();
       notifications.dispose();
       if (succeededIdleTimer !== undefined) window.clearTimeout(succeededIdleTimer);
       configController.dispose();
@@ -491,6 +498,7 @@ export function createVoxTypeController() {
       window.removeEventListener("resize", refreshMainDensity);
       window.removeEventListener("resize", overlay.refreshLayout);
       window.removeEventListener("storage", syncOverlayLanguage);
+      window.removeEventListener("blur", hotkeyCapture.cancelCapture);
       window.removeEventListener("error", onError);
       window.removeEventListener("unhandledrejection", onUnhandledRejection);
       disposeNativeEventController(unlisteners);
@@ -902,6 +910,7 @@ export function createVoxTypeController() {
   function handleMainWindowHidden() {
     mainWindowVisibilityEvents += 1;
     mainWindowVisible = false;
+    hotkeyCapture.cancelCapture();
     // 字幕窗也会收到这个事件，但它的电平条仍在显示，不能清零。
     if (!isOverlay) audioLevel = 0;
     clearSensitivePreviews();
@@ -927,9 +936,6 @@ export function createVoxTypeController() {
   function maybeShowOptionEnabledNotice(key: SoftConfigNoticeKey, enabled: boolean) {
     const notice = optionEnabledNotice(key, enabled);
     if (notice) notifications.show(notice, "info");
-  }
-  function triggerLabel(enabled: boolean) {
-    return enabled ? t("enabled") : t("disabled");
   }
   function micBarHeight(index: number) {
     return getMicBarHeight(recording, audioLevel, index);
@@ -1001,15 +1007,7 @@ export function createVoxTypeController() {
       void privacy.refreshStatus();
       return;
     }
-    const targetId =
-      action === "asr_auth"
-        ? "settings-auth"
-        : action === "audio"
-          ? "settings-audio"
-          : action === "typing"
-            ? "settings-output"
-            : "settings-output";
-    settingsNav.scrollToSettingsPanel(targetId);
+    settingsNav.scrollToSettingsPanel(settingsPanelForSetupAction(action));
   }
   function pasteMethodLabel(value: string) {
     return getPasteMethodLabel(value, t);
@@ -1263,9 +1261,7 @@ export function createVoxTypeController() {
       configSaveError: configController.lastSaveError,
       inputStatus: inputStatus(),
       inputStatusLabel: inputStatusLabel(),
-      inputStatusDesc: inputStatusDesc(),
       micBars,
-      startTriggerText: startTriggerText(),
       requiresAsrAuth: requiresAsrAuth(),
       t,
       micStatusText,
@@ -1273,6 +1269,7 @@ export function createVoxTypeController() {
       micBarHeight,
       micBarOpacity,
       onSelectSection: settingsNav.selectSection,
+      onOpenMicrophoneSettings: () => settingsNav.scrollToSettingsPanel("settings-audio"),
       onSetLanguage: setLanguage,
       onHideToTray: windows.hideToTrayFromTitlebar,
       onRequestClose: windows.requestClose,
@@ -1286,6 +1283,7 @@ export function createVoxTypeController() {
   function appContentProps() {
     return {
       selectedSection: settingsNav.selectedSection,
+      requestedPanel: settingsNav.requestedPanel,
       stats: stats.snapshot,
       t,
       uiCompact,
@@ -1331,6 +1329,7 @@ export function createVoxTypeController() {
       showAutoHotwordDetails: autoHotwords.showDetails(),
       hasLlmApiConfig: hasLlmApiConfig(),
       hotwordCount: hotwordCount(),
+      effectiveHotwordCount: effectiveHotwords().length,
       acceptedAutoHotwordCount: autoHotwords.acceptedCount(),
       selectedAutoHotwordCount: autoHotwords.selectedCount(),
       autoHotwordStatusText: autoHotwords.statusText(),
@@ -1345,7 +1344,7 @@ export function createVoxTypeController() {
       formatSavedHours,
       weeklySavedHours: stats.weeklySavedHours,
       usageTipText: stats.usageTipText,
-      triggerLabel,
+      weeklyActivityText: stats.weeklyActivityText,
       setupActionText,
       overlayBackgroundRgb: overlay.backgroundRgb,
       overlayOpacity: overlay.opacity,

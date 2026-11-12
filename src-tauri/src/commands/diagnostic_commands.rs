@@ -113,6 +113,7 @@ pub(crate) fn hide_main_window(app: AppHandle) -> Result<(), String> {
     window
         .hide()
         .map_err(|err| format!("隐藏主窗口失败: {}", err))?;
+    crate::hotkey::set_hotkey_capture_active(false);
     let _ = window.emit("main-window-hidden", ());
     app_log::info("主窗口已隐藏到托盘。");
     Ok(())

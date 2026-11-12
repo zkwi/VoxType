@@ -14,13 +14,15 @@ VoxType is an open-source Windows desktop dictation app. Put the cursor in a tex
 - **Native output.** Choose automatic paste or clipboard-only output. VoxType tries to restore the previous clipboard after pasting.
 - **Local controls.** You manage the credentials and settings. Usage stats store metrics such as character count, duration, and speed.
 
-<img src="screenshots/ScreenShot_2026-05-09_130803_332.png" alt="Example of the VoxType Home page" width="820">
+<img src="screenshots/voxtype-0.17.0-home-en.png" alt="VoxType Home with a custom shortcut, settings summary, and sample usage" width="820">
 
 ## 2. Quick start in three steps
 
 1. **Install and open VoxType.** Download the latest Windows x64 installer, `VoxType_*_x64-setup.exe`, run it, then open VoxType from the Start menu. VoxType supports Windows 10 and 11. [Download the installer](https://github.com/zkwi/VoxType/releases/latest)
 2. **Connect a speech service.** In API Config, choose Doubao streaming ASR or Alibaba Cloud Bailian FunASR, enter your provider credentials, and test the connection. The speech console's single API Key is recommended for Doubao. [Setup guide](docs/wiki/Setup-Guide-English.md)
 3. **Dictate.** Focus a text field and press `Ctrl + Q` to start speaking. Press it again to stop. VoxType outputs the final text using the selected paste method. Right Alt, Right Ctrl, and middle click are available in Options.
+
+The microphone status, triggers, and settings summary on Home open their respective settings. Choose **View usage details** to open Analytics. The Home footer shows the lifetime counts from local usage history.
 
 ### Microphone and first input
 
@@ -81,6 +83,8 @@ Speech recognition is enough for basic dictation. If you enable LLM editing, tes
 | Paste method | `Ctrl + V` | Also supports `Shift + Insert` and clipboard-only output |
 | Restore clipboard after paste | On | VoxType tries to restore the previous contents |
 | Mute system audio during recording | Off | Enable in Microphone settings to mute until recording ends |
+
+Backup triggers pause while you capture a new main shortcut. They resume when capture ends or loses focus.
 
 VoxType takes over each enabled extra trigger. With Right Ctrl enabled, Left Ctrl still works for copying, pasting, and the main shortcut. Turn off the Right Ctrl switch to use Right Ctrl combinations in other apps again.
 

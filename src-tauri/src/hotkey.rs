@@ -1,3 +1,4 @@
+use std::cell::Cell;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Mutex, OnceLock};
@@ -33,6 +34,41 @@ static HOTKEY_TRIGGER_ENABLED: AtomicBool = AtomicBool::new(true);
 static MIDDLE_MOUSE_TRIGGER_ENABLED: AtomicBool = AtomicBool::new(false);
 static RIGHT_ALT_TRIGGER_ENABLED: AtomicBool = AtomicBool::new(false);
 static RIGHT_CTRL_TRIGGER_ENABLED: AtomicBool = AtomicBool::new(false);
+static HOTKEY_CAPTURE_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+const CAPTURE_RIGHT_ALT: u8 = 1;
+const CAPTURE_RIGHT_CTRL: u8 = 2;
+const CAPTURE_MIDDLE_MOUSE: u8 = 4;
+
+thread_local! {
+    static CAPTURE_FORWARDED_PRESSES: Cell<u8> = const { Cell::new(0) };
+}
+
+pub fn set_hotkey_capture_active(active: bool) {
+    HOTKEY_CAPTURE_ACTIVE.store(active, Ordering::Release);
+}
+
+fn forward_capture_press(held: &Cell<u8>, key: u8, pressed: bool, active: bool) -> bool {
+    let previous = held.get();
+    if pressed && active {
+        held.set(previous | key);
+    } else if !pressed {
+        held.set(previous & !key);
+    }
+    // 录制组合键成功时修饰键可能仍按着。它的松开事件要与按下一同放行。
+    active || previous & key != 0
+}
+
+fn forward_capture_event(key: u8, pressed: bool) -> bool {
+    CAPTURE_FORWARDED_PRESSES.with(|held| {
+        forward_capture_press(
+            held,
+            key,
+            pressed,
+            HOTKEY_CAPTURE_ACTIVE.load(Ordering::Acquire),
+        )
+    })
+}
 
 pub fn refresh_trigger_config() {
     match config::load_config() {
@@ -360,10 +396,24 @@ fn modifier_hook_action(
 unsafe extern "system" fn keyboard_hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if code == HC_ACTION as i32 {
         let event = unsafe { *(lparam.0 as *const KBDLLHOOKSTRUCT) };
+        let message = wparam.0 as u32;
+        let injected = event.flags.contains(LLKHF_INJECTED);
+        let capture_key = match event.vkCode {
+            key if key == u32::from(VK_RMENU.0) => CAPTURE_RIGHT_ALT,
+            key if key == u32::from(VK_RCONTROL.0) => CAPTURE_RIGHT_CTRL,
+            _ => 0,
+        };
+        if !injected
+            && capture_key != 0
+            && matches!(message, WM_KEYDOWN | WM_SYSKEYDOWN | WM_KEYUP | WM_SYSKEYUP)
+            && forward_capture_event(capture_key, matches!(message, WM_KEYDOWN | WM_SYSKEYDOWN))
+        {
+            return unsafe { CallNextHookEx(None, code, wparam, lparam) };
+        }
         match modifier_hook_action(
-            wparam.0 as u32,
+            message,
             event.vkCode,
-            event.flags.contains(LLKHF_INJECTED),
+            injected,
             trigger_enabled("right_alt"),
             trigger_enabled("right_ctrl"),
         ) {
@@ -382,7 +432,10 @@ unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: WPARAM, lparam: LPA
     let message = wparam.0 as u32;
     if code == HC_ACTION as i32 && (message == WM_MBUTTONDOWN || message == WM_MBUTTONUP) {
         let event = unsafe { *(lparam.0 as *const MSLLHOOKSTRUCT) };
-        if event.flags & LLMHF_INJECTED == 0 && trigger_enabled("middle_mouse") {
+        if event.flags & LLMHF_INJECTED == 0
+            && !forward_capture_event(CAPTURE_MIDDLE_MOUSE, message == WM_MBUTTONDOWN)
+            && trigger_enabled("middle_mouse")
+        {
             if message == WM_MBUTTONDOWN {
                 queue_hook_trigger("鼠标中键");
             }
@@ -409,6 +462,9 @@ fn queue_hook_trigger(source: &'static str) {
 }
 
 fn dispatch_toggle(app: AppHandle, source: &'static str) {
+    if HOTKEY_CAPTURE_ACTIVE.load(Ordering::Acquire) {
+        return;
+    }
     if source == "全局热键" && !trigger_enabled("hotkey") {
         app_log::info("忽略全局热键触发：该启动方式已关闭。");
         return;
@@ -488,11 +544,13 @@ fn wait_for_thread_to_stop(slot: &'static OnceLock<Mutex<Option<u32>>>, timeout:
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_conservative_trigger_defaults, modifier_hook_action, parse_hotkey,
-        refresh_trigger_config_from, trigger_enabled, ModifierHookAction, HOTKEY_TRIGGER_ENABLED,
+        apply_conservative_trigger_defaults, forward_capture_press, modifier_hook_action,
+        parse_hotkey, refresh_trigger_config_from, trigger_enabled, ModifierHookAction,
+        CAPTURE_MIDDLE_MOUSE, CAPTURE_RIGHT_ALT, CAPTURE_RIGHT_CTRL, HOTKEY_TRIGGER_ENABLED,
         MIDDLE_MOUSE_TRIGGER_ENABLED, RIGHT_ALT_TRIGGER_ENABLED, RIGHT_CTRL_TRIGGER_ENABLED,
     };
     use crate::config::TriggerConfig;
+    use std::cell::Cell;
     use std::sync::atomic::Ordering;
     use std::sync::Mutex;
     use windows::Win32::UI::Input::KeyboardAndMouse::{VK_LCONTROL, VK_RCONTROL, VK_RMENU, VK_TAB};
@@ -503,6 +561,18 @@ mod tests {
     const RIGHT_ALT: u32 = VK_RMENU.0 as u32;
     const RIGHT_CTRL: u32 = VK_RCONTROL.0 as u32;
     static TRIGGER_STATE_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn capture_passes_both_halves_of_a_press_even_after_recording_the_shortcut() {
+        let held = Cell::new(0);
+        for key in [CAPTURE_RIGHT_ALT, CAPTURE_RIGHT_CTRL, CAPTURE_MIDDLE_MOUSE] {
+            assert!(forward_capture_press(&held, key, true, true));
+            assert!(forward_capture_press(&held, key, true, false));
+            assert!(forward_capture_press(&held, key, false, false));
+            assert!(!forward_capture_press(&held, key, true, false));
+            assert!(!forward_capture_press(&held, key, false, false));
+        }
+    }
 
     #[test]
     fn meta_and_win_parse_as_the_same_modifier() {

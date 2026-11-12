@@ -11,6 +11,7 @@ type SettingsNavigationControllerOptions = {
 
 export function createSettingsNavigationController(options: SettingsNavigationControllerOptions) {
   let selectedSection = $state<Section>("Home");
+  let requestedPanel = $state<string | null>(null);
 
   function afterSectionRender(callback: () => void) {
     window.requestAnimationFrame(() => window.requestAnimationFrame(callback));
@@ -27,6 +28,7 @@ export function createSettingsNavigationController(options: SettingsNavigationCo
 
   function scrollToSettingsPanel(targetId: string) {
     if (!options.isBrowser()) return;
+    requestedPanel = targetId;
     selectedSection = getSectionForSettingsPanel(targetId);
     afterSectionRender(() => {
       const scroller = contentScroller();
@@ -65,6 +67,7 @@ export function createSettingsNavigationController(options: SettingsNavigationCo
   }
 
   function showApiConfigIntro() {
+    requestedPanel = null;
     selectedSection = "ApiConfig";
     scrollContentTop();
   }
@@ -76,12 +79,14 @@ export function createSettingsNavigationController(options: SettingsNavigationCo
   function selectSection(section: Section) {
     const changed = selectedSection !== section;
     selectedSection = section;
+    requestedPanel = null;
     if (changed || (section === "ApiConfig" && options.requiresAsrAuth())) scrollContentTop();
   }
 
   return {
     get selectedSection() { return selectedSection; },
     set selectedSection(value: Section) { selectedSection = value; },
+    get requestedPanel() { return requestedPanel; },
     scrollToSettingsPanel,
     focusFirstValidationError,
     focusAsrAuthSettings,

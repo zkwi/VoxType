@@ -25,8 +25,8 @@ The Home page is for daily use:
 
 - Check current input state.
 - Start or stop recording.
-- See main and backup trigger states.
-- See recent 24-hour, 7-day, speed, and saved time estimates.
+- Open the main shortcut, backup trigger, or microphone settings from their status controls. The idle settings summary links to recognition, polishing, vocabulary, and paste settings.
+- See the 24-hour and 7-day activity, input speed, estimated time saved, and all-time local totals. Choose **View usage details** to open Analytics.
 - After a successful input, temporarily view, copy, or immediately clear the latest recognized text in the current window. It is not written into usage stats, logs, or diagnostic reports, and is cleared when the window is hidden, the app exits, or a new recording starts.
 - The main window shows only the latest error notice. Its originating recording counts toward a five-session window, a newer error restarts the count, and the notice clears when the sixth session starts or when closed manually.
 
@@ -34,7 +34,7 @@ The Home page is for daily use:
 
 Default trigger: `Ctrl + Q`.
 
-Use Options to turn the main shortcut off. Press Esc or move focus while capturing a shortcut to keep the previous combination.
+Use Options to turn the main shortcut off. Backup triggers pause during shortcut capture and resume when it ends. Press Esc or move focus to keep the previous combination.
 
 | Trigger | Default | Recommendation |
 | --- | --- | --- |

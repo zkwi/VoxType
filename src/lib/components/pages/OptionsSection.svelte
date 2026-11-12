@@ -29,6 +29,7 @@
   type Props = {
     config: AppConfig;
     t: Translate;
+    requestedPanel: string | null;
     hotkeyCaptureState: HotkeyCaptureState;
     hotkeyValidationMessage: string;
     overlayColorPresets: OverlayColorPreset[];
@@ -73,6 +74,7 @@
   let {
     config = $bindable<AppConfig>(),
     t,
+    requestedPanel,
     hotkeyCaptureState,
     hotkeyValidationMessage,
     overlayColorPresets,
@@ -133,6 +135,9 @@
   });
 
   let showBackupTriggers = $state(false);
+  $effect(() => {
+    if (requestedPanel === "settings-backup-triggers") showBackupTriggers = true;
+  });
   let showRecordingTroubleshooting = $state(false);
   let backupTriggersActive = $derived(Boolean(
     config.triggers.middle_mouse_enabled ||
@@ -179,7 +184,7 @@
       <div class="form-grid">
         <label class:field-invalid={Boolean(fieldError("hotkey") || hotkeyValidationMessage)}>
           <span>{t("hotkey")}</span>
-          <div class:recording={hotkeyCaptureState === "recording"} class="hotkey-recorder">
+          <div class:recording={hotkeyCaptureState !== "idle"} class="hotkey-recorder">
             <Keyboard size={16} />
             <input
               id="setting-hotkey"
@@ -188,7 +193,9 @@
               aria-describedby="setting-hotkey-help"
               readonly
               onblur={onCancelHotkeyCapture}
-              value={hotkeyCaptureState === "recording" ? t("hotkeyRecording") : formatHotkey(config.hotkey) || t("hotkeyUnset")}
+              value={hotkeyCaptureState === "idle"
+                ? formatHotkey(config.hotkey) || t("hotkeyUnset")
+                : t(hotkeyCaptureState === "preparing" ? "hotkeyPreparing" : "hotkeyRecording")}
               onkeydown={handleHotkeyRecorderKeydown}
               onclick={onBeginHotkeyCapture}
             />
@@ -197,6 +204,7 @@
         </label>
       </div>
       <AdvancedSettings
+        rootId="settings-backup-triggers"
         title={t("backupTriggers")}
         description={backupTriggersActive ? t("backupTriggersActiveHint") : t("backupTriggersDescription")}
         expanded={backupTriggersExpanded}

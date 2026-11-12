@@ -7,11 +7,19 @@ type HotkeyCaptureControllerOptions = {
   t: (key: CopyKey, values?: Record<string, string>) => string;
   getValidationErrors: () => Record<string, string>;
   setValidationErrors: (errors: Record<string, string>) => void;
+  setNativeCapture: (active: boolean) => Promise<boolean>;
 };
 
 export function createHotkeyCaptureController(options: HotkeyCaptureControllerOptions) {
   let state = $state<HotkeyCaptureState>("idle");
   let validationMessage = $state("");
+  let captureSequence = 0;
+  let nativeCapture = Promise.resolve(true);
+
+  function setNativeCapture(active: boolean) {
+    nativeCapture = nativeCapture.then(() => options.setNativeCapture(active)).catch(() => false);
+    return nativeCapture;
+  }
 
   function validationLabels() {
     return {
@@ -25,18 +33,32 @@ export function createHotkeyCaptureController(options: HotkeyCaptureControllerOp
     return validateHotkeyText(value, validationLabels());
   }
 
-  function beginCapture() {
+  async function beginCapture() {
+    if (state !== "idle") return;
     validationMessage = "";
+    const sequence = ++captureSequence;
+    state = "preparing";
+    const enabled = await setNativeCapture(true);
+    if (sequence !== captureSequence) return;
+    if (!enabled) {
+      void setNativeCapture(false);
+      state = "idle";
+      validationMessage = options.t("hotkeyCaptureUnavailable");
+      return;
+    }
     state = "recording";
   }
 
   function cancelCapture() {
+    if (state === "idle") return;
+    captureSequence += 1;
     state = "idle";
     validationMessage = "";
+    void setNativeCapture(false);
   }
 
   function handleKeydown(event: KeyboardEvent) {
-    if (state !== "recording") return;
+    if (state === "idle") return;
     const hasModifier = event.ctrlKey || event.altKey || event.shiftKey || event.metaKey;
     if (event.key === "Tab" && !hasModifier) return;
     event.preventDefault();
@@ -46,6 +68,7 @@ export function createHotkeyCaptureController(options: HotkeyCaptureControllerOp
       cancelCapture();
       return;
     }
+    if (state === "preparing") return;
 
     if (event.key === "Backspace" || event.key === "Delete") {
       validationMessage = "";

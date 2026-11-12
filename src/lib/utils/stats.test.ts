@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { StatsSnapshot, UsageStats } from "$lib/types/app";
 import {
+  cumulativeUsageText,
   formatHours,
   historySummaryCards,
   localDateKey,
@@ -24,6 +25,7 @@ function snapshot(recent24h: UsageStats, recent7d: UsageStats): StatsSnapshot {
     path: "voice_input_stats.jsonl",
     recent_24h: recent24h,
     recent_7d: recent7d,
+    total: recent7d,
     by_day: [{ day: localDateKey(new Date()), stats: recent24h }],
     history: [],
   };
@@ -33,6 +35,15 @@ const t = (key: string, values: Record<string, string> = {}) =>
   key === "savedToday" ? `saved ${values.hours}` : key;
 
 describe("stats utilities", () => {
+  it("reports cumulative activity even when both recent windows are empty", () => {
+    const empty = usage(0, 0);
+    const stats = { ...snapshot(empty, empty), total: { ...usage(640, 80), session_count: 32 } };
+    const translate = (key: string, values?: Record<string, string>) =>
+      values ? `${key}: ${values.sessions}, ${values.chars}` : key;
+    expect(cumulativeUsageText(stats, translate, "en")).toBe("usageTipData: 32, 640");
+    expect(cumulativeUsageText(snapshot(empty, empty), translate, "en")).toBe("usageTipEmpty");
+  });
+
   it("calculates saved typing time without returning negatives", () => {
     const recent24h = usage(12_147, 180);
     const recent7d = usage(44_432, 180);

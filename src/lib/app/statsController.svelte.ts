@@ -3,6 +3,8 @@ import type { CopyKey, Language } from "$lib/i18n";
 import type { HistoryDayRow, HistorySummaryCard } from "$lib/components/pages/HistorySection.svelte";
 import type { StatsSnapshot } from "$lib/types/app";
 import {
+  cumulativeUsageText,
+  formatMinutes,
   formatNumber,
   historySummaryCards as buildHistorySummaryCards,
   recentSevenDayDisplayRows as buildRecentSevenDayDisplayRows,
@@ -26,10 +28,13 @@ export function createStatsController(options: StatsControllerOptions) {
   }
 
   function usageTipText() {
-    if (snapshot.recent_7d.session_count <= 0) return options.t("usageTipEmpty");
-    return options.t("usageTipData", {
+    return cumulativeUsageText(snapshot, options.t, options.getLanguage());
+  }
+
+  function weeklyActivityText() {
+    return options.t("weeklyActivity", {
       sessions: formatNumber(snapshot.recent_7d.session_count, options.getLanguage()),
-      chars: formatNumber(snapshot.recent_7d.total_chars, options.getLanguage()),
+      duration: formatMinutes(snapshot.recent_7d.total_seconds, options.getLanguage()),
     });
   }
 
@@ -46,6 +51,7 @@ export function createStatsController(options: StatsControllerOptions) {
     apply,
     weeklySavedHours,
     usageTipText,
+    weeklyActivityText,
     historySummaryCards,
     recentSevenDayDisplayRows,
   };

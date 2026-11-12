@@ -2,15 +2,15 @@ use chrono::{DateTime, Duration, Local};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 const STATS_FILE_NAME: &str = "voice_input_stats.jsonl";
 
 #[derive(Debug, Clone, Serialize)]
 pub struct UsageStats {
-    pub session_count: u32,
+    pub session_count: u64,
     pub total_seconds: f64,
-    pub total_chars: u32,
+    pub total_chars: u64,
     pub total_minutes_int: u32,
     pub avg_chars_per_minute: f64,
 }
@@ -26,6 +26,7 @@ pub struct StatsSnapshot {
     pub path: String,
     pub recent_24h: UsageStats,
     pub recent_7d: UsageStats,
+    pub total: UsageStats,
     pub by_day: Vec<DailyUsageStats>,
     pub history: Vec<HistoryEvent>,
 }
@@ -67,7 +68,7 @@ impl UsageStats {
         for event in events {
             stats.session_count += 1;
             stats.total_seconds += event.duration_seconds.max(0.0);
-            stats.total_chars += event.text_chars;
+            stats.total_chars += u64::from(event.text_chars);
         }
         stats.total_minutes_int = (stats.total_seconds / 60.0).floor() as u32;
         stats.avg_chars_per_minute = if stats.total_seconds <= 0.0 {
@@ -140,7 +141,14 @@ fn stats_path_candidates() -> Vec<PathBuf> {
 pub fn load_stats_snapshot() -> StatsSnapshot {
     let path = stats_path();
     let events = read_events(&path);
-    let now = Local::now();
+    build_stats_snapshot(&path, &events, Local::now())
+}
+
+fn build_stats_snapshot(
+    path: &Path,
+    events: &[ParsedEvent],
+    now: DateTime<Local>,
+) -> StatsSnapshot {
     let recent_24h_start = now - Duration::hours(24);
     let recent_7d_start = now - Duration::days(7);
     let recent_24h = UsageStats::from_events(
@@ -184,6 +192,7 @@ pub fn load_stats_snapshot() -> StatsSnapshot {
         path: path.display().to_string(),
         recent_24h,
         recent_7d,
+        total: UsageStats::from_events(events.iter()),
         by_day,
         history,
     }
@@ -260,9 +269,31 @@ fn read_events(path: &PathBuf) -> Vec<ParsedEvent> {
 
 #[cfg(test)]
 mod tests {
-    use super::{clear_stats_paths, new_stats_file_path};
-    use std::path::PathBuf;
+    use super::{build_stats_snapshot, clear_stats_paths, new_stats_file_path, ParsedEvent};
+    use chrono::{Duration, Local};
+    use std::path::{Path, PathBuf};
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn cumulative_stats_include_events_outside_the_recent_windows_and_history_limit() {
+        let now = Local::now();
+        let events = (0..32)
+            .map(|index| ParsedEvent {
+                created_at: now - Duration::days(40 - index),
+                duration_seconds: 15.0,
+                text_chars: 20,
+            })
+            .collect::<Vec<_>>();
+        let snapshot = build_stats_snapshot(Path::new("stats.jsonl"), &events, now);
+
+        assert_eq!(snapshot.recent_24h.session_count, 0);
+        assert_eq!(snapshot.recent_7d.total_chars, 0);
+        assert_eq!(snapshot.history.len(), 30);
+        assert_eq!(snapshot.total.session_count, 32);
+        assert_eq!(snapshot.total.total_chars, 640);
+        assert_eq!(snapshot.total.total_seconds, 480.0);
+        assert_eq!(snapshot.total.avg_chars_per_minute, 80.0);
+    }
 
     #[test]
     fn installed_app_creates_stats_beside_the_executable() {
