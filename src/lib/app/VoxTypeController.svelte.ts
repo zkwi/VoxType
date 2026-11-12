@@ -300,7 +300,6 @@ export function createVoxTypeController() {
     safeInvoke,
     retryFailedSave: configController.retryFailedSave,
     discardUnsavedChanges: configController.discardUnsavedChanges,
-    onHidden: handleMainWindowHidden,
   });
   const setup = createSetupController({
     t,
@@ -394,7 +393,7 @@ export function createVoxTypeController() {
       sessionErrorCode = value ?? null;
     },
     setLastOutcome: (value) => {
-      lastSessionOutcome = mainWindowVisible ? value : null;
+      lastSessionOutcome = value;
     },
     setLastAudioQualityDiagnostic: (value) => {
       lastAudioQualityDiagnostic = value;

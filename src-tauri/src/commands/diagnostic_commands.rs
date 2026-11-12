@@ -4,7 +4,7 @@ use crate::{
     app_log, asr_provider, config, hotword_generator, hotword_history, stats, text_output, tray,
 };
 use stats::StatsSnapshot;
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, State};
 
 #[tauri::command]
 pub(crate) fn open_log_file(app: AppHandle) -> Result<(), String> {
@@ -106,17 +106,16 @@ LLM 润色: {}\n\
 }
 
 #[tauri::command]
-pub(crate) fn hide_main_window(app: AppHandle) -> Result<(), String> {
-    let Some(window) = app.get_webview_window("main") else {
-        return Err("找不到主窗口。".to_string());
-    };
-    window
-        .hide()
-        .map_err(|err| format!("隐藏主窗口失败: {}", err))?;
-    crate::hotkey::set_hotkey_capture_active(false);
-    let _ = window.emit("main-window-hidden", ());
-    app_log::info("主窗口已隐藏到托盘。");
-    Ok(())
+pub(crate) async fn hide_main_window(app: AppHandle) -> Result<(), String> {
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    let app_for_hide = app.clone();
+    app.run_on_main_thread(move || {
+        let _ = sender.send(crate::main_window::hide_existing(&app_for_hide));
+    })
+    .map_err(|err| format!("调度隐藏主窗口失败: {err}"))?;
+    receiver
+        .await
+        .map_err(|err| format!("等待隐藏主窗口失败: {err}"))?
 }
 
 #[tauri::command]

@@ -31,8 +31,8 @@
 <main class="overlay-root" style={rootStyle}>
   <div class="overlay-caption" class:visible class:dismissing data-phase={phase}>
     <div class="overlay-voice-meter" aria-hidden="true">
-      {#each meterBars as bar}
-        <i style:--bar-scale={meterBarScale(bar)}></i>
+      {#each meterBars as bar, index}
+        <i style:--bar-scale={meterBarScale(bar)} style:--bar-delay={`${index * 110}ms`}></i>
       {/each}
     </div>
     <div
@@ -125,6 +125,10 @@
     transform: scaleY(0.28);
   }
 
+  .overlay-caption.visible:not(.dismissing):is([data-phase="waiting_final_result"], [data-phase="post_editing"]) .overlay-voice-meter i {
+    animation: meter-processing 950ms ease-in-out var(--bar-delay) infinite alternate;
+  }
+
   [data-phase="post_editing"] .overlay-voice-meter {
     background: color-mix(in srgb, currentColor 22%, transparent);
     opacity: 0.92;
@@ -168,8 +172,14 @@
     to { opacity: 0; }
   }
 
+  @keyframes meter-processing {
+    from { transform: scaleY(0.34); }
+    to { transform: scaleY(0.66); }
+  }
+
   @media (prefers-reduced-motion: reduce) {
-    .overlay-caption.dismissing {
+    .overlay-caption.dismissing,
+    .overlay-caption.visible:not(.dismissing):is([data-phase="waiting_final_result"], [data-phase="post_editing"]) .overlay-voice-meter i {
       animation: none;
     }
 

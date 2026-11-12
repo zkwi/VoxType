@@ -1,6 +1,6 @@
 use crate::app_log;
 use serde::Serialize;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use tauri::{AppHandle, Emitter, Manager};
 
 pub const MAIN_LABEL: &str = "main";
@@ -10,6 +10,7 @@ pub const AUTOSTART_ARG: &str = "--autostart";
 /// 重启是用户自己点的，不是系统登录时拉起，所以重启前设这个环境变量，新进程据此照常显示主窗口。
 const USER_RESTART_ENV: &str = "VOXTYPE_USER_RESTART";
 static CONFIG_EXIT_GUARD: AtomicBool = AtomicBool::new(false);
+static PREVIEW_REVISION: AtomicU64 = AtomicU64::new(0);
 
 pub fn launched_by_autostart() -> bool {
     is_autostart_launch(
@@ -38,6 +39,28 @@ pub fn is_visible(app: &AppHandle) -> bool {
     app.get_webview_window(MAIN_LABEL)
         .and_then(|window| window.is_visible().ok())
         .unwrap_or(true)
+}
+
+pub(crate) fn preview_revision() -> u64 {
+    PREVIEW_REVISION.load(Ordering::Acquire)
+}
+
+/// 只在主线程处理隐藏，使清除预览和投递结果共用同一条窗口事件队列。
+pub(crate) fn hide_existing(app: &AppHandle) -> Result<(), String> {
+    let window = app
+        .get_webview_window(MAIN_LABEL)
+        .ok_or_else(|| "找不到主窗口。".to_string())?;
+    if !window.is_visible().unwrap_or(true) {
+        return Ok(());
+    }
+    window
+        .hide()
+        .map_err(|err| format!("隐藏主窗口失败: {err}"))?;
+    PREVIEW_REVISION.fetch_add(1, Ordering::AcqRel);
+    crate::hotkey::set_hotkey_capture_active(false);
+    let _ = window.emit("main-window-hidden", ());
+    app_log::info("主窗口已隐藏到托盘。");
+    Ok(())
 }
 
 pub fn set_config_exit_guard(active: bool) {

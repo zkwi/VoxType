@@ -19,7 +19,8 @@
 ## 版本变更与发布审计
 
 - [更新日志](../CHANGELOG.md)
-- [当前源码版本 0.19.0 的发布审计](audits/2026-11-12-release-0.19.0-polish-overlay-audit.md)
+- [当前源码版本 0.19.1 的发布审计](audits/2026-11-12-release-0.19.1-tray-preview-audit.md)
+- [0.19.0 的润色与字幕发布审计](audits/2026-11-12-release-0.19.0-polish-overlay-audit.md)
 - [0.18.0 的设置导航发布审计](audits/2026-11-12-release-0.18.0-settings-navigation-audit.md)
 - [0.17.0 的首页交互发布审计](audits/2026-11-12-release-0.17.0-home-ux-audit.md)
 - [0.16.0 的右 Ctrl 触发发布审计](audits/2026-11-12-release-0.16.0-right-ctrl-audit.md)

@@ -74,6 +74,8 @@ Speech recognition is enough for basic dictation. Under Speech & Polishing → A
 
 Choose Natural, Formal, or Proofread only under AI polishing. Press an enabled trigger again while VoxType is polishing to output the original transcript immediately. When polishing changes the text, Home lets you compare or copy the original until you hide the window or start another recording.
 
+After dictating from the tray, you can open Home to recover the original transcript. Hiding the main window again clears the preview.
+
 ### Recording triggers and output
 
 | Setting | Default | How it works |
