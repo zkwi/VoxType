@@ -43,6 +43,7 @@ export function createOverlayController(options: OverlayControllerOptions) {
   let visible = $state(false);
   let dismissing = $state(false);
   let visibilityRevision = 0;
+  let textRevision = 0;
   let currentPayload: OverlayText | undefined;
   let configPollPending = false;
   let lastConfigPollAt = 0;
@@ -56,10 +57,11 @@ export function createOverlayController(options: OverlayControllerOptions) {
   });
 
   async function pollVisibleOverlay() {
-    const revision = visibilityRevision;
+    const visibilityAtRequest = visibilityRevision;
+    const textAtRequest = textRevision;
     const result = await options.safeInvoke<OverlayText>("get_overlay_text", undefined, true);
-    if (revision !== visibilityRevision || !result) return visible;
-    if (result?.text?.trim()) applyOverlayText(result);
+    if (visibilityAtRequest !== visibilityRevision || !result) return visible;
+    if (textAtRequest === textRevision && result.text?.trim()) applyOverlayText(result);
     if (result.visible !== visible) applyVisibility(result.visible === true);
     if (visible) void refreshConfig();
     return visible;
@@ -131,10 +133,13 @@ export function createOverlayController(options: OverlayControllerOptions) {
     );
     mode = layout.mode;
     fontSize = layout.fontSize;
-    displayLines = layout.lines;
+    if (layout.lines.length !== displayLines.length || layout.lines.some((line, index) => line !== displayLines[index])) {
+      displayLines = layout.lines;
+    }
   }
 
   function applyPayload(payload: OverlayText) {
+    textRevision += 1;
     poller.wake();
     applyOverlayText(payload);
   }

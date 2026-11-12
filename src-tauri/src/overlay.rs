@@ -56,6 +56,8 @@ pub fn create_overlay_window(app: &AppHandle) -> Result<(), String> {
             .inner_size(350.0, 64.0)
             .resizable(false)
             .decorations(false)
+            // Windows 给启用阴影的无边框窗口加 1px 白边。
+            .shadow(false)
             .always_on_top(true)
             .skip_taskbar(true)
             .transparent(true)

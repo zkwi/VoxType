@@ -42,11 +42,9 @@
       style={`font-size: ${fontSize}px`}
       bind:this={textElement}
     >
-      {#key displayLines}
-        {#each displayLines as line}
-          <span>{line || "\u00a0"}</span>
-        {/each}
-      {/key}
+      {#each displayLines as line}
+        <span>{line || "\u00a0"}</span>
+      {/each}
     </div>
   </div>
 </main>
@@ -64,7 +62,6 @@
   }
 
   .overlay-caption {
-    position: relative;
     display: grid;
     grid-template-columns: 34px minmax(0, 1fr);
     align-items: center;
@@ -80,7 +77,6 @@
     background: rgba(var(--overlay-bg-rgb, 23, 110, 230), var(--overlay-opacity, 0.9));
     border: 0;
     border-radius: 14px;
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
     opacity: 0;
     font-family: "Microsoft YaHei", "Segoe UI", "PingFang SC", "SF Pro Display", "Noto Sans CJK SC", sans-serif;
     text-align: left;
@@ -88,25 +84,13 @@
 
   .overlay-caption.visible {
     opacity: 1;
-    animation: caption-in 100ms ease-out both;
   }
 
   .overlay-caption.dismissing {
     animation: caption-out 140ms ease-in both;
   }
 
-  .overlay-caption.dismissing::after {
-    position: absolute;
-    inset: 0;
-    border: 1px solid rgba(255, 255, 255, 0.72);
-    border-radius: inherit;
-    content: "";
-    pointer-events: none;
-    animation: caption-glint 140ms ease-out both;
-  }
-
   .overlay-voice-meter {
-    position: relative;
     display: inline-flex;
     align-items: center;
     align-self: center;
@@ -117,12 +101,10 @@
     height: 25px;
     color: var(--overlay-text, #ffffff);
     background: color-mix(in srgb, currentColor 11%, transparent);
-    border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
     border-radius: 999px;
     opacity: 0.72;
     pointer-events: none;
     overflow: hidden;
-    transition: opacity 85ms ease;
   }
 
   [data-phase="recording"] .overlay-voice-meter,
@@ -140,15 +122,12 @@
   }
 
   [data-phase="waiting_final_result"] .overlay-voice-meter i {
-    animation: meter-wait 820ms ease-in-out infinite alternate;
+    transform: scaleY(0.28);
   }
 
-  [data-phase="post_editing"] .overlay-voice-meter::before {
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(100deg, transparent 15%, currentColor, transparent 85%);
-    content: "";
-    animation: meter-polish 1050ms ease-in-out infinite;
+  [data-phase="post_editing"] .overlay-voice-meter {
+    background: color-mix(in srgb, currentColor 22%, transparent);
+    opacity: 0.92;
   }
 
   .overlay-caption-text {
@@ -182,52 +161,18 @@
     overflow: hidden;
     text-overflow: clip;
     white-space: pre;
-    animation: caption-text-in 80ms ease-out;
-  }
-
-  @keyframes caption-in {
-    from { opacity: 0.68; transform: scale(0.985); }
-    to { opacity: 1; transform: scale(1); }
   }
 
   @keyframes caption-out {
-    from { opacity: 1; transform: scale(1); }
-    to { opacity: 0; transform: scale(0.985); }
-  }
-
-  @keyframes caption-glint {
-    0% { opacity: 0; }
-    23% { opacity: 1; }
-    100% { opacity: 0; }
-  }
-
-  @keyframes meter-wait {
-    from { opacity: 0.55; transform: scaleY(calc(var(--bar-scale) * 0.85)); }
-    to { opacity: 0.92; transform: scaleY(calc(var(--bar-scale) * 1.25)); }
-  }
-
-  @keyframes meter-polish {
-    0% { opacity: 0; transform: translateX(-80%); }
-    50% { opacity: 0.22; }
-    100% { opacity: 0; transform: translateX(80%); }
-  }
-
-  @keyframes caption-text-in {
-    from { opacity: 0.82; }
-    to { opacity: 1; }
+    from { opacity: 1; }
+    to { opacity: 0; }
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .overlay-caption.visible,
-    .overlay-caption.dismissing,
-    .overlay-caption.dismissing::after,
-    [data-phase="waiting_final_result"] .overlay-voice-meter i,
-    [data-phase="post_editing"] .overlay-voice-meter::before,
-    .overlay-caption-text span {
+    .overlay-caption.dismissing {
       animation: none;
     }
 
-    .overlay-voice-meter,
     .overlay-voice-meter i {
       transition: none;
     }
