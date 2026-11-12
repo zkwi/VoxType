@@ -104,7 +104,7 @@ impl SessionController {
     /// 启动一轮录音会话，并把后续 ASR worker 绑定到当前 generation。
     ///
     /// 已进入等待最终结果、润色或粘贴阶段时不会重新启动录音，调用方会拿到当前状态。
-    /// 这是全局热键、右 Alt、鼠标中键和托盘入口共用的保护边界。
+    /// 这是全局热键、备用触发键和主窗口共用的保护边界。
     pub fn start(&self, app: Option<AppHandle>) -> Result<SessionState, String> {
         let current = self.current_state();
         if is_processing_phase(current.phase) {

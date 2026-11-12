@@ -73,6 +73,7 @@ export function createSetupController(options: SetupControllerOptions) {
       );
     }
     options.setSetupStatusLoading(false);
+    return devicesResult !== null;
   }
 
   async function testAsrConfig() {

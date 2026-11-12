@@ -225,6 +225,8 @@ pub struct TriggerConfig {
     pub middle_mouse_enabled: bool,
     #[serde(default)]
     pub right_alt_enabled: bool,
+    #[serde(default)]
+    pub right_ctrl_enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -488,6 +490,7 @@ impl Default for TriggerConfig {
             hotkey_enabled: true,
             middle_mouse_enabled: false,
             right_alt_enabled: false,
+            right_ctrl_enabled: false,
         }
     }
 }
@@ -1242,6 +1245,7 @@ mod tests {
         assert!(config.triggers.hotkey_enabled);
         assert!(!config.triggers.middle_mouse_enabled);
         assert!(!config.triggers.right_alt_enabled);
+        assert!(!config.triggers.right_ctrl_enabled);
         assert!(!config.audio.mute_system_volume_while_recording);
         assert_eq!(config.audio.stop_grace_ms, 250);
         assert_eq!(config.audio.input_gain_db, 0.0);
@@ -1289,6 +1293,19 @@ mod tests {
 
         let explicit: AppConfig = toml::from_str("[request]\nenable_ddc = false\n").unwrap();
         assert!(!explicit.request.enable_ddc);
+    }
+
+    #[test]
+    fn older_trigger_config_defaults_right_ctrl_to_off() {
+        let legacy = "hotkey_enabled = false\nright_alt_enabled = true";
+        let config: super::TriggerConfig = toml::from_str(legacy).unwrap();
+        assert!(!config.hotkey_enabled);
+        assert!(config.right_alt_enabled);
+        assert!(!config.right_ctrl_enabled);
+
+        let enabled = format!("{legacy}\nright_ctrl_enabled = true");
+        let config: super::TriggerConfig = toml::from_str(&enabled).unwrap();
+        assert!(config.right_ctrl_enabled);
     }
 
     #[test]

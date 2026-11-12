@@ -212,6 +212,9 @@ pub(crate) fn enabled_trigger_summary(config: &config::AppConfig) -> String {
     if config.triggers.right_alt_enabled {
         triggers.push("右 Alt".to_string());
     }
+    if config.triggers.right_ctrl_enabled {
+        triggers.push("右 Ctrl".to_string());
+    }
     if config.triggers.middle_mouse_enabled {
         triggers.push("鼠标中键".to_string());
     }
@@ -260,9 +263,13 @@ mod tests {
         };
         config.triggers.hotkey_enabled = true;
         config.triggers.right_alt_enabled = true;
+        config.triggers.right_ctrl_enabled = true;
         config.triggers.middle_mouse_enabled = false;
 
-        assert_eq!(enabled_trigger_summary(&config), "CTRL+Q / 右 Alt");
+        assert_eq!(
+            enabled_trigger_summary(&config),
+            "CTRL+Q / 右 Alt / 右 Ctrl"
+        );
     }
 
     #[test]

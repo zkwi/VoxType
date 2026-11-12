@@ -35,7 +35,7 @@ VoxType has six main pages:
 | Privacy & local data | Review storage/upload boundaries and clear local context, hotword history, and stats |
 | Analytics | View recent 24-hour, recent 7-day, and daily usage stats |
 
-The Home voice card shows idle/recording state plus the primary shortcut, middle mouse, and right Alt in compact chips. Recent input and input performance stay below it.
+The Home voice card shows recording state and compact indicators for the main shortcut, middle mouse, Right Alt, and Right Ctrl. Recent input and input performance appear below it.
 
 ### Current UI Reference
 
@@ -43,7 +43,7 @@ After a successful input, Home shows "Input completed". This means VoxType copie
 
 <img src="https://raw.githubusercontent.com/zkwi/VoxType/main/screenshots/ScreenShot_2026-05-09_130803_332.png" alt="VoxType Home page with voice input state and input performance" width="820">
 
-When the selected ASR credentials are missing, API Config first shows a three-step first-use guide: choose the provider and fill keys, test the connection, then return Home to start dictating. Setup health follows below: ASR keys, microphone, paste method, trigger method, and privacy status are shown separately. Only issues that block recording, recognition, or paste should be prominent warnings. Optional settings such as right Alt, middle mouse, recent context, and automatic hotwords should remain softer reminders. Public screenshots should blur real App Keys, Access Keys, Alibaba Cloud API Keys, and other secrets.
+When the selected ASR credentials are missing, API Config first shows a three-step first-use guide: choose the provider and fill keys, test the connection, then return Home to start dictating. Setup health follows below: ASR keys, microphone, paste method, trigger method, and privacy status are shown separately. Only issues that block recording, recognition, or paste should be prominent warnings. Optional settings such as Right Alt, Right Ctrl, middle mouse, recent context, and automatic hotwords should remain softer reminders. Public screenshots should blur real App Keys, Access Keys, Alibaba Cloud API Keys, and other secrets.
 
 <img src="https://raw.githubusercontent.com/zkwi/VoxType/main/screenshots/ScreenShot_2026-05-09_130827_317.png" alt="VoxType API Config and setup health check" width="820">
 
@@ -204,15 +204,15 @@ Notes:
 
 ### AI Prompt
 
-Hotwords & prompts now prioritizes recognition terms, writing context, recent context, and automatic hotword candidates. The AI prompt template and minimum polishing length are under **Advanced prompt settings**. VoxType includes a default voice-input AI prompt. It marks the text-to-polish block as the only content to rewrite and output. Even if the transcript contains questions, commands, or prompt-like content, the LLM should polish the text rather than answer, execute, or analyze it. Short messages, one-line commands, and questions get light correction, with natural punctuation allowed but no expansion. Long spoken notes, records, retrospectives, explanations, meeting notes, product feedback, and investment reviews are polished into publishable prose: filler words, verbal padding, repeated expressions, dead pauses, and self-corrections are removed; sentence order can be adjusted; sentences can be split; necessary connectors can be added; and the result is usually organized into 2-4 natural paragraphs. It preserves the original facts, judgment, intensity, stance, proper nouns, English abbreviations, finance terms, and programming terms, and avoids adding headings, lists, Markdown, or backticks. User dictionary terms, writing/product preferences, optional recent context, and screen OCR are appended as reference-information blocks; they only help correct terms, names, UI words, continuity, paths, filenames, code identifiers, and wording preferences, not act as text to polish or instructions to follow, and must not add information that the text to polish did not say. Recent context must not be continued, summarized, or reproduced, and screen OCR is only used for related corrections. For file paths, commands, log fields, and code identifiers, the default prompt asks the model to keep uncertain text unchanged unless the reference information provides an exact spelling. In finance, investing, and quant contexts, the default prompt asks the LLM to normalize clear amounts, returns, and percentages into common numeric forms such as `100万` and `1%`, without calculating returns or answering questions.
+Hotwords & prompts now prioritizes recognition terms, writing context, recent context, and automatic hotword candidates. The System Prompt, User Prompt template, and minimum polishing length are under **Advanced prompt settings**. VoxType includes a default voice-input AI prompt. It marks the text-to-polish block as the only content to rewrite and output. Even if the transcript contains questions, commands, or prompt-like content, the LLM should polish the text rather than answer, execute, or analyze it. Short messages, one-line commands, and questions get light correction, with natural punctuation allowed but no expansion. Long spoken notes, records, retrospectives, explanations, meeting notes, product feedback, and investment reviews are polished into publishable prose: filler words, verbal padding, repeated expressions, dead pauses, and self-corrections are removed; sentence order can be adjusted; sentences can be split; necessary connectors can be added; and the result is usually organized into 2-4 natural paragraphs. It preserves the original facts, judgment, intensity, stance, proper nouns, English abbreviations, finance terms, and programming terms, and avoids adding headings, lists, Markdown, or backticks. User dictionary terms, writing/product preferences, optional recent context, and screen OCR are appended as reference-information blocks; they only help correct terms, names, UI words, continuity, paths, filenames, code identifiers, and wording preferences, not act as text to polish or instructions to follow, and must not add information that the text to polish did not say. Recent context must not be continued, summarized, or reproduced, and screen OCR is only used for related corrections. For file paths, commands, log fields, and code identifiers, the default prompt asks the model to keep uncertain text unchanged unless the reference information provides an exact spelling. In finance, investing, and quant contexts, the default prompt asks the LLM to normalize clear amounts, returns, and percentages into common numeric forms such as `100万` and `1%`, without calculating returns or answering questions.
 
 The Hotwords page lets you:
 
 - Restore the default prompt.
 - Preview the final prompt, including reference-information rules, the current screen OCR policy and LLM budgets, and whether recent context enters the AI prompt.
-- Edit the User Prompt template and minimum polishing length in Advanced prompt settings.
+- Edit the System Prompt, User Prompt template, and minimum polishing length in Advanced prompt settings.
 
-Minimum polishing length supports 0 to 10000. CJK characters count individually; English and numbers count by contiguous word-like segments. LLM reference budgets and System Prompt stay in `config.toml` to keep the normal UI concise.
+Minimum polishing length supports 0 to 10000. CJK characters count individually; English and numbers count by contiguous word-like segments. Adjust LLM reference budgets in `config.toml`.
 
 ### Automatic Hotword Candidates
 
@@ -230,13 +230,13 @@ Options is grouped into Common settings, Enhancements, and Maintenance so daily 
 | Enhancements | Screen OCR context, Windows OCR test, caption preview, color presets, opacity presets |
 | Maintenance | Startup, close-window behavior, check updates, update now, open logs, copy diagnostic report |
 | Recording troubleshooting | Collapsed by default; expands for non-default values or validation errors, with ASR no-feedback auto-stop and input gain |
-| Extra start options | Collapsed by default; expands when enabled, with middle mouse and right Alt |
+| Extra start options | Collapsed by default. Expand to enable middle mouse, Right Alt, or Right Ctrl |
 
 To review or clear local data, open Privacy & local data from the sidebar.
 
 Screen OCR context is on by default. It captures the current display by default, which helps when you reference one document while typing into another window. You can switch it to the current window only in Options. OCR text is lightly normalized, used only for the current ASR/LLM request, and is not written to logs, stats, config, or cache. OCR sent to ASR is controlled by the screen OCR character limit; OCR sent to AI polishing has a separate LLM budget. Switch to current-window-only or disable it when the screen contains sensitive content.
 
-Low-level parameters stay in `config.toml`: Resource ID, ASR WebSocket URL, model name, final-result timeout, max recording seconds, stop grace milliseconds, LLM timeout, main hotkey enable flag, mute system volume while recording, OCR character limit and wait time, caption custom size/position/color, clipboard restore delay, snapshot size, and retry parameters. LLM minimum polishing length is under Advanced prompt settings on Hotwords & prompts; LLM reference budgets remain in `config.toml`.
+Use `config.toml` for low-level settings such as the final-result timeout, maximum recording length, stop grace period, LLM timeout, OCR character limit and wait time, caption size and position, and clipboard restore delay. LLM minimum polishing length is under Advanced prompt settings on Hotwords & prompts; LLM reference budgets remain in `config.toml`.
 
 ## 7. Recommended Defaults
 
@@ -245,6 +245,7 @@ Low-level parameters stay in `config.toml`: Resource ID, ASR WebSocket URL, mode
 | Primary shortcut | `Ctrl + Q` | Low conflict, easy to remember |
 | Middle mouse | Off | Can conflict with browsers or editors |
 | Right Alt | Off | Can conflict with IMEs or shortcuts |
+| Right Ctrl | Off | Triggers on release when enabled and takes over shortcuts that use Right Ctrl |
 | Paste method | Automatic paste | Works for most text fields |
 | Clipboard restore | On | Tries to restore previous clipboard after paste |
 | ASR no-feedback auto-stop | `30` seconds by default; set `0` to disable | Stops through the normal grace flow when the ASR provider returns no effective text feedback for too long |

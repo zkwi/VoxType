@@ -136,7 +136,8 @@
   let showRecordingTroubleshooting = $state(false);
   let backupTriggersActive = $derived(Boolean(
     config.triggers.middle_mouse_enabled ||
-      config.triggers.right_alt_enabled,
+      config.triggers.right_alt_enabled ||
+      config.triggers.right_ctrl_enabled,
   ));
   let recordingTroubleshootingActive = $derived(Boolean(
     config.asr.no_feedback_auto_stop_seconds !== 30 ||
@@ -204,6 +205,7 @@
         <div class="toggle-grid">
           <label class="check"><input type="checkbox" bind:checked={config.triggers.middle_mouse_enabled} onchange={(event) => onOptionEnabledNotice("middle_mouse_enabled", event.currentTarget.checked)} /><span class="check-copy"><span>{t("middleMouse")}</span><small>{t("tagConflictRisk")}</small></span></label>
           <label class="check"><input type="checkbox" bind:checked={config.triggers.right_alt_enabled} onchange={(event) => onOptionEnabledNotice("right_alt_enabled", event.currentTarget.checked)} /><span class="check-copy"><span>{t("rightAlt")}</span><small>{t("tagConflictRisk")}</small></span></label>
+          <label class="check"><input type="checkbox" bind:checked={config.triggers.right_ctrl_enabled} onchange={(event) => onOptionEnabledNotice("right_ctrl_enabled", event.currentTarget.checked)} /><span class="check-copy"><span>{t("rightCtrl")}</span><small>{t("tagConflictRisk")}</small></span></label>
         </div>
         <p class="field-hint">{t("triggerConflictHint")}</p>
       </AdvancedSettings>
@@ -229,7 +231,7 @@
         {#if fieldError("audio.input_device")}<small id="setting-audio-input-device-error" class="field-error">{fieldError("audio.input_device")}</small>{/if}
       </div>
       <label class="check">
-        <input type="checkbox" bind:checked={config.audio.mute_system_volume_while_recording} />
+        <input type="checkbox" data-config-field="audio.mute_system_volume_while_recording" bind:checked={config.audio.mute_system_volume_while_recording} />
         <span class="check-copy"><span>{t("muteSystemAudioWhileRecording")}</span><small>{t("muteSystemAudioHint")}</small></span>
       </label>
       <AdvancedSettings

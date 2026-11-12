@@ -40,7 +40,10 @@ Use Options to turn the main shortcut off. Press Esc or move focus while capturi
 | --- | --- | --- |
 | Main shortcut | On | Keep it on |
 | Middle mouse | Off | Enable only after checking browser/editor conflicts |
-| Right Alt | Off | While enabled, right Alt belongs to VoxType and never reaches other apps, so right Alt combinations stop working. Left Alt is unaffected |
+| Right Alt | Off | Can conflict with IMEs or shortcuts |
+| Right Ctrl | Off | Release Right Ctrl to start or stop recording when enabled |
+
+Enable Right Ctrl under Options → Extra start options. VoxType takes over the key while enabled, so shortcuts using Right Ctrl stop working in other apps. Left Ctrl works as usual.
 
 Avoid enabling multiple easy-to-misfire triggers unless you really need them.
 
@@ -162,7 +165,7 @@ Preserve English technical terms and project names.
 In daily use, start with hotwords and scene notes. Open Advanced prompt settings only when you need a fixed rewriting style:
 
 - System Prompt, User Prompt template, and minimum polishing length are in Advanced prompt settings on Hotwords & prompts.
-- LLM reference budgets and System Prompt stay in `config.toml`.
+- Adjust LLM reference budgets in `config.toml`.
 - Final prompt preview shows how recognition terms, writing/product preferences, optional recent context, and screen OCR are appended as budgeted reference information.
 - The default prompt separates short and long text: short messages, one-line commands, and questions get light correction, with natural punctuation allowed but no expansion; long spoken notes, records, retrospectives, explanations, meeting notes, product feedback, and investment reviews are polished into publishable prose, usually as 2-4 natural paragraphs.
 - The default prompt preserves proper nouns, English abbreviations, finance terms, and programming terms.
@@ -272,5 +275,5 @@ Updates:
 | Faster final output | Disable LLM polishing or increase `min_chars` |
 | Faster polishing | Rerun the thinking adapter test, keep thinking disabled, and choose a faster model |
 | More reliable paste | Keep clipboard restore enabled and increase restore delay if needed |
-| Fewer accidental triggers | Keep right Alt and middle mouse disabled |
+| Fewer accidental triggers | Keep Right Alt, Right Ctrl, and middle mouse off |
 | Better proper nouns | Maintain hotwords, scene notes, and screen OCR context |

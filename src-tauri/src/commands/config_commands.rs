@@ -54,13 +54,14 @@ fn build_setup_status(data: AppConfig, has_audio_device: bool) -> SetupStatus {
     }
     let any_trigger_enabled = data.triggers.hotkey_enabled
         || data.triggers.middle_mouse_enabled
-        || data.triggers.right_alt_enabled;
+        || data.triggers.right_alt_enabled
+        || data.triggers.right_ctrl_enabled;
     if !any_trigger_enabled {
         warnings.push(SetupWarning {
             code: "TRIGGER_DISABLED".to_string(),
             level: "blocking".to_string(),
             title: "触发方式未开启".to_string(),
-            message: "请至少开启主快捷键、右 Alt 或鼠标中键中的一种。".to_string(),
+            message: "请至少开启主快捷键、右 Alt、右 Ctrl 或鼠标中键中的一种。".to_string(),
             action: "hotkey".to_string(),
         });
     }
@@ -148,10 +149,11 @@ pub(crate) fn save_app_config(
         Ok(loaded) => {
             apply_config_side_effects(app.clone(), &loaded, side_effects);
             app_log::info(format!(
-                "配置保存完成: hotkey_enabled={}, middle_mouse_enabled={}, right_alt_enabled={}, hotkey_restart_scheduled={}, launch_on_startup={}, autostart_sync_scheduled={}, update_auto_check={}, update_repo={}, llm_enabled={}, close_behavior={}",
+                "配置保存完成: hotkey_enabled={}, middle_mouse_enabled={}, right_alt_enabled={}, right_ctrl_enabled={}, hotkey_restart_scheduled={}, launch_on_startup={}, autostart_sync_scheduled={}, update_auto_check={}, update_repo={}, llm_enabled={}, close_behavior={}",
                 loaded.data.triggers.hotkey_enabled,
                 loaded.data.triggers.middle_mouse_enabled,
                 loaded.data.triggers.right_alt_enabled,
+                loaded.data.triggers.right_ctrl_enabled,
                 side_effects.restart_hotkey,
                 loaded.data.startup.launch_on_startup,
                 side_effects.apply_autostart,
@@ -559,6 +561,21 @@ mod tests {
         assert!(!status.missing_auth);
         assert!(status.has_audio_device);
         assert_eq!(status.hotkey, "ctrl+q");
+    }
+
+    #[test]
+    fn setup_status_is_ready_with_only_right_ctrl() {
+        let mut config = AppConfig::default();
+        config.auth.console_api_key = "test".to_string();
+        config.triggers.hotkey_enabled = false;
+        config.triggers.right_ctrl_enabled = true;
+
+        let status = build_setup_status(config, true);
+        assert!(status.ready);
+        assert!(!status
+            .warnings
+            .iter()
+            .any(|warning| warning.code == "TRIGGER_DISABLED"));
     }
 
     #[test]

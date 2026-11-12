@@ -254,6 +254,13 @@
               <small>{triggerLabel(config.triggers.right_alt_enabled)}</small>
             </span>
           </span>
+          <span class:enabled={config.triggers.right_ctrl_enabled} class="hero-trigger">
+            <Keyboard size={15} />
+            <span>
+              <strong>{t("rightCtrl")}</strong>
+              <small>{triggerLabel(config.triggers.right_ctrl_enabled)}</small>
+            </span>
+          </span>
         </div>
         <button type="button" class="hero-shortcut-button" onclick={() => onSelectSection("Options")}>
           {t("shortcutSettings")} <ChevronRight size={15} />
@@ -864,7 +871,7 @@
 
   .hero-trigger-row {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 112px), 1fr));
     gap: 6px;
     min-width: 0;
   }
@@ -1070,6 +1077,12 @@
 
   :global(.ui-compact) .stat-card strong {
     font-size: 15px;
+  }
+
+  @media (max-width: 1120px) {
+    .hero-trigger-row {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
   }
 
   @media (max-width: 920px) {

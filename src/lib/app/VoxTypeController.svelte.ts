@@ -918,7 +918,9 @@ export function createVoxTypeController() {
   }
   function optionEnabledNotice(key: SoftConfigNoticeKey, enabled: boolean) {
     if (!enabled) return "";
-    if (key === "middle_mouse_enabled" || key === "right_alt_enabled") return t("extraTriggerEnabledNotice");
+    if (key === "middle_mouse_enabled" || key === "right_alt_enabled" || key === "right_ctrl_enabled") {
+      return t("extraTriggerEnabledNotice");
+    }
     if (key === "enable_recent_context") return t("recentContextEnabledNotice");
     return "";
   }
@@ -953,6 +955,14 @@ export function createVoxTypeController() {
   }
   async function refreshSetupStatus(showLoading = true) {
     await setup.refreshSetupStatus(showLoading);
+  }
+  async function refreshAudioDevices() {
+    if (setupStatusLoading) return;
+    const refreshed = await setup.refreshSetupStatus();
+    notifications.show(
+      t(refreshed ? "audioDevicesRefreshed" : "audioDevicesRefreshFailed"),
+      refreshed ? "success" : "error",
+    );
   }
   function setupStatusItems(): SetupStatusItem[] {
     const localStatus = localSetupStatusFromConfig(config);
@@ -1388,9 +1398,7 @@ export function createVoxTypeController() {
       onHotkeyKeydown: hotkeyCapture.handleKeydown,
       onBeginHotkeyCapture: hotkeyCapture.beginCapture,
       onCancelHotkeyCapture: hotkeyCapture.cancelCapture,
-      onRefreshAudioDevices: () => {
-        if (!setupStatusLoading) void refreshSetupStatus();
-      },
+      onRefreshAudioDevices: refreshAudioDevices,
       onApplyOverlayPreset: overlay.applyPreset,
       onApplyOverlayOpacity: overlay.applyOpacity,
       onSetInputDevice: setInputDevice,

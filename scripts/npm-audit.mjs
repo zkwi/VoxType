@@ -1,11 +1,15 @@
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 
-const audit = spawnSync(
-  process.execPath,
-  [process.env.npm_execpath, "audit", "--registry=https://registry.npmjs.org", "--json"],
-  { encoding: "utf8" },
-);
+const npmExecPath = process.env.npm_execpath;
+const auditArgs = ["audit", "--registry=https://registry.npmjs.org", "--json"];
+// Windows runs npm.cmd through cmd.exe when Node was launched directly.
+const [command, args] = npmExecPath
+  ? [process.execPath, [npmExecPath, ...auditArgs]]
+  : process.platform === "win32"
+    ? ["cmd.exe", ["/d", "/c", "npm.cmd", ...auditArgs]]
+    : ["npm", auditArgs];
+const audit = spawnSync(command, args, { encoding: "utf8" });
 
 let report;
 try {
