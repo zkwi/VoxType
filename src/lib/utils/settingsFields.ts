@@ -1,6 +1,7 @@
 // Maps validation fields to stable settings panels. Keep ids aligned with
 // component root/panel ids so hidden advanced sections can open on errors.
 export function settingsPanelForField(field: string) {
+  if (field === "asr.no_feedback_auto_stop_seconds") return "settings-recording-troubleshooting";
   if (field.startsWith("asr.")) return "settings-auth";
   if (field === "auth.resource_id") return "settings-asr-language";
   if (field.startsWith("auth.")) return "settings-auth";
@@ -12,7 +13,6 @@ export function settingsPanelForField(field: string) {
   if (
     field === "llm_post_edit.system_prompt" ||
     field === "llm_post_edit.user_prompt_template" ||
-    field === "llm_post_edit.min_chars" ||
     field === "llm_post_edit.screen_context_max_chars" ||
     field === "llm_post_edit.screen_context_max_lines" ||
     field === "llm_post_edit.recent_context_max_chars" ||
@@ -24,7 +24,7 @@ export function settingsPanelForField(field: string) {
   if (field.startsWith("auto_hotwords.")) return "settings-auto-hotwords";
   if (field.startsWith("screen_context.")) return "settings-screen-context";
   if (field.startsWith("context.") && field !== "context.hotwords") return "settings-prompt-context";
-  if (field.startsWith("context.")) return "settings-context";
+  if (field === "context.hotwords") return "settings-hotwords";
   if (field === "typing.paste_method" || field === "typing.remove_trailing_period" || field === "typing.restore_clipboard_after_paste") return "settings-basic-output";
   if (field === "audio.input_device" || field === "audio.input_device_name" || field === "audio.mute_system_volume_while_recording") return "settings-audio";
   if (field.startsWith("audio.")) return "settings-recording-troubleshooting";

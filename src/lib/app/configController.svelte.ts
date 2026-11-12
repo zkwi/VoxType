@@ -184,6 +184,13 @@ export function createConfigController(options: ConfigControllerOptions) {
     lastSaveErrorFingerprint = "";
   }
 
+  function handleConfigReverted() {
+    clearAutoSaveTimer();
+    if (!lastSaveError) return;
+    clearSaveError();
+    options.setValidationErrors({});
+  }
+
   function activeSaveError() {
     if (!options.getSettingsDirty()) return "";
     return configFingerprint(options.getConfig()) === lastSaveErrorFingerprint ? lastSaveError : "";
@@ -212,7 +219,7 @@ export function createConfigController(options: ConfigControllerOptions) {
     get lastSaveError() { return activeSaveError(); },
     applyLoadedConfig,
     scheduleAutoSaveConfig,
-    clearAutoSaveTimer,
+    handleConfigReverted,
     persistConfig,
     retryFailedSave,
     discardUnsavedChanges,

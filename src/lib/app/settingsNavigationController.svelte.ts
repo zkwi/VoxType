@@ -11,7 +11,7 @@ type SettingsNavigationControllerOptions = {
 
 export function createSettingsNavigationController(options: SettingsNavigationControllerOptions) {
   let selectedSection = $state<Section>("Home");
-  let requestedPanel = $state<string | null>(null);
+  let requestedPanel = $state<{ id: string } | null>(null);
 
   function afterSectionRender(callback: () => void) {
     window.requestAnimationFrame(() => window.requestAnimationFrame(callback));
@@ -28,7 +28,7 @@ export function createSettingsNavigationController(options: SettingsNavigationCo
 
   function scrollToSettingsPanel(targetId: string) {
     if (!options.isBrowser()) return;
-    requestedPanel = targetId;
+    requestedPanel = { id: targetId };
     selectedSection = getSectionForSettingsPanel(targetId);
     afterSectionRender(() => {
       const scroller = contentScroller();

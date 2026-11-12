@@ -14,20 +14,20 @@ VoxType is an open-source Windows desktop dictation app. Put the cursor in a tex
 - **Native output.** Choose automatic paste or clipboard-only output. VoxType tries to restore the previous clipboard after pasting.
 - **Local controls.** You manage the credentials and settings. Usage stats store metrics such as character count, duration, and speed.
 
-<img src="screenshots/voxtype-0.17.0-home-en.png" alt="VoxType Home with a custom shortcut, settings summary, and sample usage" width="820">
+<img src="screenshots/voxtype-0.18.0-home-en.png" alt="VoxType Home with a custom shortcut, settings summary, and sample usage" width="820">
 
 ## 2. Quick start in three steps
 
 1. **Install and open VoxType.** Download the latest Windows x64 installer, `VoxType_*_x64-setup.exe`, run it, then open VoxType from the Start menu. VoxType supports Windows 10 and 11. [Download the installer](https://github.com/zkwi/VoxType/releases/latest)
-2. **Connect a speech service.** In API Config, choose Doubao streaming ASR or Alibaba Cloud Bailian FunASR, enter your provider credentials, and test the connection. The speech console's single API Key is recommended for Doubao. [Setup guide](docs/wiki/Setup-Guide-English.md)
-3. **Dictate.** Focus a text field and press `Ctrl + Q` to start speaking. Press it again to stop. VoxType outputs the final text using the selected paste method. Right Alt, Right Ctrl, and middle click are available in Options.
+2. **Connect a speech service.** In Speech & Polishing, choose Doubao streaming ASR or Alibaba Cloud Bailian FunASR, enter your provider credentials, and test the connection. The speech console's single API Key is recommended for Doubao. [Setup guide](docs/wiki/Setup-Guide-English.md)
+3. **Dictate.** Focus a text field and press `Ctrl + Q` to start speaking. Press it again to stop. VoxType outputs the final text using the selected paste method. Right Alt, Right Ctrl, and middle click are available in General & Shortcuts.
 
 The microphone status, triggers, and settings summary on Home open their respective settings. Choose **View usage details** to open Analytics. The Home footer shows the lifetime counts from local usage history.
 
 ### Microphone and first input
 
 - Allow desktop apps to access the microphone in Windows Settings → Privacy & security → Microphone.
-- If you have multiple microphones, select one in Options → Microphone. Refresh the list after connecting or reconnecting a device.
+- If you have multiple microphones, select one in General & Shortcuts → Microphone. Refresh the list after connecting or reconnecting a device.
 - Try your first dictation in a plain-text editor to see the caption and final output.
 - If the connection test passes and no text is inserted, check whether the target app allows paste. You can also select clipboard-only output and paste manually.
 
@@ -41,9 +41,9 @@ The minimum main-window size is `960 × 640`. Closing the window hides it to the
 | Choose **Open main window** from the tray menu | Restore the window from the tray |
 | Choose **Check updates** | Open the window and check for a newer release |
 | Choose **Exit** | Close VoxType |
-| Trigger recording from the tray before configuring ASR | Open API Config |
+| Trigger recording from the tray before configuring ASR | Open Speech & Polishing |
 
-Options includes the window close behavior and launch at Windows sign-in. A configured app can stay in the tray when launched at sign-in.
+General & Shortcuts includes the window close behavior and launch at Windows sign-in. A configured app can stay in the tray when launched at sign-in.
 
 See the troubleshooting guide for installation, permissions, or connection issues. [Troubleshooting](docs/wiki/Troubleshooting-English.md)
 
@@ -51,14 +51,14 @@ See the troubleshooting guide for installation, permissions, or connection issue
 
 | Feedback | What to do |
 | --- | --- |
-| Home says setup is required | Fill in and test the current provider's credentials in API Config |
+| Home says setup is required | Fill in and test the current provider's credentials in Speech & Polishing |
 | Interim text appears in the caption | Keep speaking and wait for final output after stopping |
 | The caption reports a microphone startup failure | Check Windows permissions or the input device, then retry |
 | VoxType says it copied the text | Press `Ctrl + V` if the target app did not paste it |
 
 ## 3. Configuration at a glance
 
-### API Config
+### Speech & Polishing
 
 | Service | In-app settings |
 | --- | --- |
@@ -70,7 +70,7 @@ See the troubleshooting guide for installation, permissions, or connection issue
 
 For standard Doubao access, select the hourly or concurrent resource plan available on your account under advanced ASR settings. Each authentication mode keeps its own credentials.
 
-Speech recognition is enough for basic dictation. If you enable LLM editing, test the model connection separately. Under Hotwords & prompts → Advanced prompt settings, edit the System Prompt, User Prompt template, and minimum editing length. The page also offers a preview and a reset to the default prompt.
+Speech recognition is enough for basic dictation. Under Speech & Polishing → AI polishing, you can test the model connection, enable polishing, and set its minimum length. In Vocabulary & Context, you can edit the system prompt and user prompt template, preview the prompt, or restore the default.
 
 ### Recording triggers and output
 
@@ -94,7 +94,7 @@ A valid shortcut combination is saved automatically. Press Esc or use Tab to mov
 
 - **Hotwords** help with names, product names, acronyms, and technical terms.
 - **Writing context** describes preferences and use cases such as support tickets or meeting notes.
-- **Screen OCR** is on by default. In Options, turn it off or limit capture to the active window.
+- **Screen OCR** is on by default. Under Vocabulary & Context → Screen text context, you can change the capture scope, preview a test, turn OCR off, or adjust the character limit in advanced settings.
 - **Recent context** is off by default. Enable it for continuous dictation, with a separate switch for LLM use.
 - **Automatic hotword candidates** are off by default. When enabled, local history can be used to generate candidates for you to review.
 
@@ -137,7 +137,7 @@ Privacy & local data offers controls to clear recent context, hotword history, a
 - You can enable recent context for ASR. LLM editing can use that context only after a separate opt-in.
 - If you enable automatic hotword history, you can clear the local history after generating candidates.
 
-Options can copy a redacted diagnostic report for troubleshooting. Check screenshots and attachments for personal data before sharing. [Security and privacy reporting](SECURITY.md)
+General & Shortcuts can copy a redacted diagnostic report for troubleshooting. Check screenshots and attachments for personal data before sharing. [Security and privacy reporting](SECURITY.md)
 
 ## 5. Development and local checks
 

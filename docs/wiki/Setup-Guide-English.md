@@ -29,11 +29,11 @@ VoxType has six main pages:
 | Page | Purpose |
 | --- | --- |
 | Home | Check current state, start/stop voice input, and see trigger methods |
-| Hotwords & prompts | Manage hotwords, scene notes, AI prompts, and automatic hotword candidates |
-| API Config | Select and configure ASR credentials and optional LLM API |
-| Options | Configure shortcuts, paste method, microphone, floating captions, startup, and close behavior |
-| Privacy & local data | Review storage/upload boundaries and clear local context, hotword history, and stats |
+| Speech & Polishing | Select and configure ASR credentials and optional LLM API |
+| General & Shortcuts | Configure triggers, output, microphone, captions, startup, and language |
+| Vocabulary & Context | Manage hotwords, automatic candidates, screen OCR, context, and AI prompts |
 | Analytics | View recent 24-hour, recent 7-day, and daily usage stats |
+| Privacy & local data | Review storage/upload boundaries and clear local context, hotword history, and stats |
 
 On Home, select a trigger to open its settings. Selecting a backup trigger expands its panel. The sidebar microphone status opens device settings. While idle, the settings summary links to the recognition provider, AI polishing, vocabulary, and paste settings.
 
@@ -41,23 +41,23 @@ On Home, select a trigger to open its settings. Selecting a backup trigger expan
 
 After a successful input, Home shows "Input completed". This means VoxType copied the text and attempted to paste it. If the target field did not receive text, press `Ctrl + V`, click "Copy text", or inspect the result with "View recognized text". The recognized text is kept only in the current window.
 
-<img src="https://raw.githubusercontent.com/zkwi/VoxType/main/screenshots/voxtype-0.17.0-home-en.png" alt="VoxType Home with triggers, settings summary, and sample usage" width="820">
+<img src="https://raw.githubusercontent.com/zkwi/VoxType/main/screenshots/voxtype-0.18.0-home-en.png" alt="VoxType Home with triggers, settings summary, and sample usage" width="820">
 
-When the selected ASR credentials are missing, API Config first shows a three-step first-use guide: choose the provider and fill keys, test the connection, then return Home to start dictating. Setup health follows below: ASR keys, microphone, paste method, trigger method, and privacy status are shown separately. Only issues that block recording, recognition, or paste should be prominent warnings. Optional settings such as Right Alt, Right Ctrl, middle mouse, recent context, and automatic hotwords should remain softer reminders. Public screenshots should blur real App Keys, Access Keys, Alibaba Cloud API Keys, and other secrets.
+When the selected ASR credentials are missing, Speech & Polishing first shows a three-step first-use guide: choose the provider and fill keys, test the connection, then return Home to start dictating. Setup health follows below: ASR keys, microphone, paste method, trigger method, and privacy status are shown separately. Only issues that block recording, recognition, or paste should be prominent warnings. Optional settings such as Right Alt, Right Ctrl, middle mouse, recent context, and automatic hotwords should remain softer reminders. Public screenshots should blur real App Keys, Access Keys, Alibaba Cloud API Keys, and other secrets.
 
-<img src="https://raw.githubusercontent.com/zkwi/VoxType/main/screenshots/ScreenShot_2026-05-09_130827_317.png" alt="VoxType API Config and setup health check" width="820">
+<img src="https://raw.githubusercontent.com/zkwi/VoxType/main/screenshots/voxtype-0.18.0-services-en.png" alt="VoxType Speech & Polishing and setup health check" width="820">
 
 Privacy & local data centralizes the storage/upload boundaries for recent context, automatic hotword history, usage stats, ASR audio, screen OCR, LLM polishing text, and clipboard snapshots. It also clears local context, hotword history, and usage stats.
 
 ## 3. Required: Configure ASR
 
-The core workflow depends on one working streaming ASR service. Doubao ASR remains the default; Alibaba Cloud FunASR can be selected from API Config. Without credentials for the selected ASR provider, recording, recognition, and paste stay locked.
+The core workflow depends on one working streaming ASR service. Doubao ASR remains the default; Alibaba Cloud FunASR can be selected from Speech & Polishing. Without credentials for the selected ASR provider, recording, recognition, and paste stay locked.
 
 Minimum setup rule: once the selected ASR test passes, you can return Home and start dictating. LLM polishing, hotwords, and screen OCR are optional quality improvements.
 
 ### Doubao ASR Setup
 
-Open **API Config -> Speech recognition provider**, choose "Doubao ASR", then select an access mode:
+Open **Speech & Polishing -> Speech recognition provider**, choose "Doubao ASR", then select an access mode:
 
 | Access mode | Required fields | Notes |
 | --- | --- | --- |
@@ -67,17 +67,17 @@ Open **API Config -> Speech recognition provider**, choose "Doubao ASR", then se
 
 For speech console API Key or legacy App Key access, select the enabled hourly or concurrent plan under Advanced ASR settings. Agent Plan uses a fixed resource.
 
-The three credential sets live in separate fields (`console_api_key`, `api_key`, and `app_key`/`access_key`) in the local config, so switching modes never overwrites another mode's key, and only the selected access mode is used. Speech console API Keys and Ark Agent Plan keys are not interchangeable and return 401 if swapped. Agent Plan is fixed to Doubao Streaming ASR 2.0 resource `volc.seedasr.sauc.duration` and automatically connects to `wss://openspeech.bytedance.com/api/v3/plan/sauc/bigmodel_async`; it does not use `[request].ws_url`. API Config resets the Resource ID when Agent Plan is selected. This release adds Agent Plan ASR only, not TTS.
+The three credential sets live in separate fields (`console_api_key`, `api_key`, and `app_key`/`access_key`) in the local config, so switching modes never overwrites another mode's key, and only the selected access mode is used. Speech console API Keys and Ark Agent Plan keys are not interchangeable and return 401 if swapped. Agent Plan is fixed to Doubao Streaming ASR 2.0 resource `volc.seedasr.sauc.duration` and automatically connects to `wss://openspeech.bytedance.com/api/v3/plan/sauc/bigmodel_async`; it does not use `[request].ws_url`. Speech & Polishing resets the Resource ID when Agent Plan is selected. This release adds Agent Plan ASR only, not TTS.
 
 The speech console API Key mode sends `X-Api-Key`, `X-Api-Resource-Id`, and `X-Api-Request-Id`; legacy standard access sends `X-Api-App-Key`, `X-Api-Access-Key`, and `X-Api-Resource-Id`; Agent Plan sends the dedicated Ark `X-Api-Key` and the fixed Resource ID. Do not paste a Bailian/DashScope LLM key, GitHub token, or unrelated cloud secret into ASR credentials. The Doubao panel opens the official docs for the selected access mode.
 
 Click **Test** after filling credentials. This connection test uses the current real credentials and sends a short program-generated silence packet to the selected ASR provider to verify authentication, TLS, and service access. It does not open the microphone and does not replace a real recording, final-event, and paste regression. When it passes, return to Home and start voice input.
 
-In Doubao mode, API Config normally only needs the provider and credential fields. **Recognition language** is under Advanced connection and language settings. The default is Auto/service default, which omits the `language` parameter. The main workflow uses `bigmodel_async + enable_nonstream` two-pass recognition, and Doubao documents `language` as unsupported by two-pass recognition, so leaving it blank is better for Chinese, English, dialect, and mixed input. Chinese Mandarin needs no setting, and existing `zh-CN` configs migrate to blank; only set a code such as `en-US`, `ja-JP`, or `yue-CN` when explicitly troubleshooting a non-default language.
+In Doubao mode, Speech & Polishing normally only needs the provider and credential fields. **Recognition language** is under Advanced connection and language settings. The default is Auto/service default, which omits the `language` parameter. The main workflow uses `bigmodel_async + enable_nonstream` two-pass recognition, and Doubao documents `language` as unsupported by two-pass recognition, so leaving it blank is better for Chinese, English, dialect, and mixed input. Chinese Mandarin needs no setting, and existing `zh-CN` configs migrate to blank; only set a code such as `en-US`, `ja-JP`, or `yue-CN` when explicitly troubleshooting a non-default language.
 
 ### Alibaba Cloud FunASR Setup
 
-Open **API Config -> Speech recognition provider**, choose "Alibaba Cloud FunASR", and fill in:
+Open **Speech & Polishing -> Speech recognition provider**, choose "Alibaba Cloud FunASR", and fill in:
 
 | Field | Required | Notes |
 | --- | --- | --- |
@@ -101,7 +101,7 @@ Alibaba Cloud mode uses FunASR `language_hints`. Leave it empty for auto detecti
 
 The production recording path also separates connection timeout, connection failure, final-result timeout, and early connection close. A failed session enters the failed state with a short error hint, and the next shortcut press starts a fresh recognition session instead of staying in "waiting for final result".
 
-If it still fails, open **Options -> Updates and diagnostics -> Copy diagnostic report** and include the redacted error code/status in an Issue. Do not paste real keys, full logs, or transcript text.
+If it still fails, open **General & Shortcuts -> Updates and diagnostics -> Copy diagnostic report** and include the redacted error code/status in an Issue. Do not paste real keys, full logs, or transcript text.
 
 Standard Doubao docs:
 
@@ -134,7 +134,7 @@ The LLM API is used for:
 - Organizing longer dictated text for common scenarios.
 - Generating automatic hotword candidates.
 
-Open **API Config -> LLM API**:
+Open **Speech & Polishing → AI polishing**:
 
 | Field | Notes |
 | --- | --- |
@@ -156,7 +156,7 @@ Recommendations:
 
 - Thinking is disabled with provider-specific request fields where supported because voice polishing is latency-sensitive; changing Base URL, API Key, model, or the thinking toggle automatically retests after auto-save.
 - Text below `min_chars = 40` is not polished by default. CJK characters count individually; English and numbers count by contiguous word-like segments; spaces and punctuation do not count.
-- Similar or identical model names can behave very differently across providers, so prefer the latency measured by API Config over the model name alone.
+- Similar or identical model names can behave very differently across providers, so prefer the latency measured by Speech & Polishing over the model name alone.
 - Code paths, filenames, and English identifiers are easy for an LLM to "correct" into plausible but wrong forms. Use screen OCR, hotwords, or a manual check for those terms.
 - If the network is unstable, adjust LLM timeout in `config.toml`.
 
@@ -176,7 +176,7 @@ If LLM polishing fails during input, VoxType keeps the original ASR text and sti
 
 ## 5. Hotwords and Prompts
 
-Open **Hotwords & prompts**.
+Open **Vocabulary & Context**.
 
 ### Hotwords
 
@@ -204,39 +204,38 @@ Notes:
 
 ### AI Prompt
 
-Hotwords & prompts now prioritizes recognition terms, writing context, recent context, and automatic hotword candidates. The System Prompt, User Prompt template, and minimum polishing length are under **Advanced prompt settings**. VoxType includes a default voice-input AI prompt. It marks the text-to-polish block as the only content to rewrite and output. Even if the transcript contains questions, commands, or prompt-like content, the LLM should polish the text rather than answer, execute, or analyze it. Short messages, one-line commands, and questions get light correction, with natural punctuation allowed but no expansion. Long spoken notes, records, retrospectives, explanations, meeting notes, product feedback, and investment reviews are polished into publishable prose: filler words, verbal padding, repeated expressions, dead pauses, and self-corrections are removed; sentence order can be adjusted; sentences can be split; necessary connectors can be added; and the result is usually organized into 2-4 natural paragraphs. It preserves the original facts, judgment, intensity, stance, proper nouns, English abbreviations, finance terms, and programming terms, and avoids adding headings, lists, Markdown, or backticks. User dictionary terms, writing/product preferences, optional recent context, and screen OCR are appended as reference-information blocks; they only help correct terms, names, UI words, continuity, paths, filenames, code identifiers, and wording preferences, not act as text to polish or instructions to follow, and must not add information that the text to polish did not say. Recent context must not be continued, summarized, or reproduced, and screen OCR is only used for related corrections. For file paths, commands, log fields, and code identifiers, the default prompt asks the model to keep uncertain text unchanged unless the reference information provides an exact spelling. In finance, investing, and quant contexts, the default prompt asks the LLM to normalize clear amounts, returns, and percentages into common numeric forms such as `100万` and `1%`, without calculating returns or answering questions.
+Vocabulary & Context groups manual hotwords and automatic candidates before screen OCR and writing context. The system prompt and user prompt template are under **Advanced prompt settings**. Set minimum polishing length in Speech & Polishing → AI polishing. VoxType includes a default voice-input AI prompt. It marks the text-to-polish block as the only content to rewrite and output. Even if the transcript contains questions, commands, or prompt-like content, the LLM should polish the text rather than answer, execute, or analyze it. Short messages, one-line commands, and questions get light correction, with natural punctuation allowed but no expansion. Long spoken notes, records, retrospectives, explanations, meeting notes, product feedback, and investment reviews are polished into publishable prose: filler words, verbal padding, repeated expressions, dead pauses, and self-corrections are removed; sentence order can be adjusted; sentences can be split; necessary connectors can be added; and the result is usually organized into 2-4 natural paragraphs. It preserves the original facts, judgment, intensity, stance, proper nouns, English abbreviations, finance terms, and programming terms, and avoids adding headings, lists, Markdown, or backticks. User dictionary terms, writing/product preferences, optional recent context, and screen OCR are appended as reference-information blocks; they only help correct terms, names, UI words, continuity, paths, filenames, code identifiers, and wording preferences, not act as text to polish or instructions to follow, and must not add information that the text to polish did not say. Recent context must not be continued, summarized, or reproduced, and screen OCR is only used for related corrections. For file paths, commands, log fields, and code identifiers, the default prompt asks the model to keep uncertain text unchanged unless the reference information provides an exact spelling. In finance, investing, and quant contexts, the default prompt asks the LLM to normalize clear amounts, returns, and percentages into common numeric forms such as `100万` and `1%`, without calculating returns or answering questions.
 
 The Hotwords page lets you:
 
 - Restore the default prompt.
 - Preview the final prompt, including reference-information rules, the current screen OCR policy and LLM budgets, and whether recent context enters the AI prompt.
-- Edit the System Prompt, User Prompt template, and minimum polishing length in Advanced prompt settings.
+- Edit the system prompt and user prompt template in Advanced prompt settings.
 
 Minimum polishing length supports 0 to 10000. CJK characters count individually; English and numbers count by contiguous word-like segments. Adjust LLM reference budgets in `config.toml`.
 
 ### Automatic Hotword Candidates
 
-Automatic hotword candidates are off by default. When enabled, VoxType saves final voice-input text locally. Only when the user clicks "Generate candidates" does it send a summary to the configured LLM service. Local history can be cleared from Hotwords & prompts or Privacy & local data.
+Automatic hotword candidates are off by default. When enabled, VoxType saves final voice-input text locally. Only when the user clicks "Generate candidates" does it send a summary to the configured LLM service. Local history can be cleared from Vocabulary & Context or Privacy & local data.
 
 Candidates are not added automatically. The user must review and confirm them. The default local history limit is 5000 characters; saved limits are preserved and are no longer rewritten by old default values.
 
-## 6. Daily Options
+## 6. General & Shortcuts
 
-Options is grouped into Common settings, Enhancements, and Maintenance so daily controls come first and maintenance entries are clearly separated:
+General & Shortcuts groups its six panels under Voice input and Appearance & system. The jump bar links to each panel.
 
 | Section | Visible Settings |
 | --- | --- |
-| Common settings | Primary shortcut, microphone, paste method, remove trailing period, restore clipboard after paste |
-| Enhancements | Screen OCR context, Windows OCR test, caption preview, color presets, opacity presets |
-| Maintenance | Startup, close-window behavior, check updates, update now, open logs, copy diagnostic report |
-| Recording troubleshooting | Collapsed by default; expands for non-default values or validation errors, with ASR no-feedback auto-stop and input gain |
+| Voice input | Primary shortcut, microphone, paste method, trailing punctuation, and clipboard restore |
+| Appearance & system | Caption appearance, startup, close behavior, interface language, updates, and diagnostics |
+| Recording troubleshooting | ASR no-feedback auto-stop and input gain. The Home troubleshooting link expands this panel |
 | Extra start options | Collapsed by default. Expand to enable middle mouse, Right Alt, or Right Ctrl |
 
 To review or clear local data, open Privacy & local data from the sidebar.
 
-Screen OCR context is on by default. It captures the current display by default, which helps when you reference one document while typing into another window. You can switch it to the current window only in Options. OCR text is lightly normalized, used only for the current ASR/LLM request, and is not written to logs, stats, config, or cache. OCR sent to ASR is controlled by the screen OCR character limit; OCR sent to AI polishing has a separate LLM budget. Switch to current-window-only or disable it when the screen contains sensitive content.
+Screen OCR captures the current display by default. Under Vocabulary & Context → Screen text context, you can switch to the current window, preview a test, or turn OCR off. Its advanced settings include the character limit. AI polishing applies a separate budget to this temporary context.
 
-Use `config.toml` for low-level settings such as the final-result timeout, maximum recording length, stop grace period, LLM timeout, OCR character limit and wait time, caption size and position, and clipboard restore delay. LLM minimum polishing length is under Advanced prompt settings on Hotwords & prompts; LLM reference budgets remain in `config.toml`.
+Use `config.toml` for low-level settings such as the final-result timeout, maximum recording length, stop grace period, LLM timeout, OCR wait time, caption size and position, and clipboard restore delay.
 
 ## 7. Recommended Defaults
 
@@ -319,7 +318,7 @@ mute_system_volume_while_recording = false
 # input_device = 1
 ```
 
-When you choose a microphone in Options, VoxType saves both the device name and the legacy numeric index. Recording startup prefers the saved name, so Bluetooth reconnects or device-order changes are less likely to pick the wrong microphone. If the saved microphone is unavailable, VoxType falls back to the system default input device and shows a non-blocking notice.
+When you choose a microphone in General & Shortcuts, VoxType saves both the device name and the legacy numeric index. Recording startup prefers the saved name, so Bluetooth reconnects or device-order changes are less likely to pick the wrong microphone. If the saved microphone is unavailable, VoxType falls back to the system default input device and shows a non-blocking notice.
 
 In Doubao mode, VoxType keeps actual ASR packets within Doubao's recommended `100-200ms` range, defaulting to `200ms`. About `50ms` of leading silence is merged into the first real-audio packet while keeping the first packet at the configured segment size, defaulting to about `200ms`; this helps Doubao stabilize initial speech recognition without sending a standalone 50ms packet. If no real microphone audio is captured, VoxType does not send an extra silence packet. Alibaba Cloud FunASR mode also sends `16000Hz` mono PCM and gates final output on the service's `task-finished` event.
 
@@ -373,11 +372,11 @@ github_repo = "zkwi/VoxType"
 ## 9. First Use Flow
 
 1. Install and start VoxType.
-2. Open API Config.
+2. Open Speech & Polishing.
 3. Choose Doubao ASR or Alibaba Cloud FunASR and fill in the selected provider's credentials.
 4. Click **Test** for the selected ASR provider.
 5. Return to Home and put the cursor in a target input field.
-6. Press `Ctrl + Q` to start recording; press it again to stop. ASR no-feedback auto-stop defaults to 30 seconds and can be increased or disabled from Options.
+6. Press `Ctrl + Q` to start recording; press it again to stop. ASR no-feedback auto-stop defaults to 30 seconds and can be increased or disabled from General & Shortcuts.
 7. Wait for final recognition and optional polishing.
 8. If text does not appear in the target field, press `Ctrl + V` manually.
 
@@ -394,7 +393,7 @@ No. VoxType's core workflow is Windows voice typing with the selected ASR speech
 
 ### Can I use clipboard-only output?
 
-Yes. In Options, choose clipboard-only output. VoxType will leave the recognized text in the clipboard and skip simulated paste.
+Yes. In General & Shortcuts, choose clipboard-only output. VoxType will leave the recognized text in the clipboard and skip simulated paste.
 
 ### What should I put in hotwords?
 

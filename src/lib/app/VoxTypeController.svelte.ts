@@ -517,7 +517,7 @@ export function createVoxTypeController() {
     if (shouldSave) {
       scheduleAutoSaveConfig();
     } else if (fingerprint === savedConfigFingerprint) {
-      clearAutoSaveTimer();
+      configController.handleConfigReverted();
     }
   });
 
@@ -527,9 +527,6 @@ export function createVoxTypeController() {
     void safeInvoke<void>("set_config_exit_guard", { active }, true);
   });
 
-  function clearAutoSaveTimer() {
-    configController.clearAutoSaveTimer();
-  }
   function scheduleAutoSaveConfig() {
     configController.scheduleAutoSaveConfig();
   }
@@ -1284,6 +1281,8 @@ export function createVoxTypeController() {
     return {
       selectedSection: settingsNav.selectedSection,
       requestedPanel: settingsNav.requestedPanel,
+      language,
+      onSetLanguage: setLanguage,
       stats: stats.snapshot,
       t,
       uiCompact,

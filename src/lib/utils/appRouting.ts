@@ -39,7 +39,13 @@ export function configSetupMessage(loaded: LoadedConfig | null, t: Translate) {
 }
 
 export function sectionForSettingsPanel(targetId: string): Section {
-  if (targetId === "settings-context" || targetId === "settings-prompt-context" || targetId === "settings-llm-prompt" || targetId === "settings-auto-hotwords") {
+  if (
+    targetId === "settings-hotwords" ||
+    targetId === "settings-auto-hotwords" ||
+    targetId === "settings-screen-context" ||
+    targetId === "settings-prompt-context" ||
+    targetId === "settings-llm-prompt"
+  ) {
     return "Hotwords";
   }
   if (targetId === "settings-auth" || targetId === "settings-asr-language" || targetId === "settings-llm-api") {

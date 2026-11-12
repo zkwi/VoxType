@@ -9,7 +9,7 @@
   import OptionsSection from "$lib/components/pages/OptionsSection.svelte";
   import PrivacySection from "$lib/components/pages/PrivacySection.svelte";
   import type { SetupStatusItem, SetupStatusWarning } from "$lib/components/overview/SetupStatusCard.svelte";
-  import type { CopyKey, UserErrorDetail } from "$lib/i18n";
+  import type { CopyKey, Language, UserErrorDetail } from "$lib/i18n";
   import type { LlmTestSummary } from "$lib/utils/llmTestHistory";
   import type {
     AppConfig,
@@ -31,7 +31,9 @@
 
   type Props = {
     selectedSection: Section;
-    requestedPanel: string | null;
+    requestedPanel: { id: string } | null;
+    language: Language;
+    onSetLanguage: (value: string) => void;
     config: AppConfig;
     stats: StatsSnapshot;
     autoHotwordCandidates: SelectableHotwordCandidate[];
@@ -168,6 +170,8 @@
   let {
     selectedSection,
     requestedPanel,
+    language,
+    onSetLanguage,
     config = $bindable<AppConfig>(),
     stats,
     autoHotwordCandidates = $bindable<SelectableHotwordCandidate[]>(),
@@ -346,6 +350,12 @@
     bind:config
     bind:autoHotwordCandidates
     {t}
+    {requestedPanel}
+    {testingScreenContext}
+    {screenContextTestResult}
+    {onTestScreenContext}
+    {onClearScreenContextPreview}
+    {onScrollToSettingsPanel}
     {generatingAutoHotwords}
     {clearingAutoHotwordHistory}
     {autoHotwordError}
@@ -409,6 +419,8 @@
   <OptionsSection
     bind:config
     {t}
+    {language}
+    {onSetLanguage}
     {requestedPanel}
     {hotkeyCaptureState}
     {hotkeyValidationMessage}
@@ -421,9 +433,6 @@
     {installingUpdate}
     {openingLog}
     {copyingDiagnosticReport}
-    {testingScreenContext}
-    {screenContextTestResult}
-    {onClearScreenContextPreview}
     {fieldError}
     {formatHotkey}
     {overlayBackgroundRgb}
@@ -447,7 +456,6 @@
     onDownloadLatestUpdate={onDownloadLatestUpdate}
     onOpenLog={onOpenLog}
     onCopyDiagnosticReport={onCopyDiagnosticReport}
-    onTestScreenContext={onTestScreenContext}
     onScrollToSettingsPanel={onScrollToSettingsPanel}
   />
 {:else if selectedSection === "Privacy"}
