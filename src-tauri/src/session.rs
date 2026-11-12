@@ -6,6 +6,7 @@ use std::sync::{
 use std::thread;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
+use tokio::sync::watch;
 
 use crate::app_log;
 use crate::asr_activity::AsrActivityReporter;
@@ -53,6 +54,7 @@ enum ToggleAction {
     Ignore,
     Stop,
     InterruptAndStart,
+    SkipPostEditing,
     Start,
 }
 
@@ -61,7 +63,8 @@ fn toggle_action_for_phase(phase: SessionPhase) -> ToggleAction {
         SessionPhase::Starting | SessionPhase::Stopping => ToggleAction::Ignore,
         SessionPhase::Recording => ToggleAction::Stop,
         SessionPhase::WaitingFinalResult => ToggleAction::InterruptAndStart,
-        SessionPhase::PostEditing | SessionPhase::Pasting => ToggleAction::Ignore,
+        SessionPhase::PostEditing => ToggleAction::SkipPostEditing,
+        SessionPhase::Pasting => ToggleAction::Ignore,
         SessionPhase::Idle | SessionPhase::Succeeded | SessionPhase::Failed => ToggleAction::Start,
     }
 }
@@ -78,6 +81,7 @@ struct InnerSession {
     message: String,
     error_code: Option<String>,
     generation: u64,
+    skip_post_editing: Option<watch::Sender<bool>>,
     audio_capture: Option<AudioCapture>,
     volume_state: Option<VolumeState>,
 }
@@ -155,6 +159,7 @@ impl SessionController {
             inner.message = "Recording is starting.".to_string();
             inner.error_code = None;
             inner.generation = inner.generation.wrapping_add(1);
+            inner.skip_post_editing = None;
             inner.audio_capture = None;
             inner.volume_state = None;
             inner.generation
@@ -379,13 +384,23 @@ impl SessionController {
     }
 
     pub fn toggle(&self, app: Option<AppHandle>) -> Result<SessionState, String> {
-        let current = self.current_state();
+        let (current, generation) = self
+            .inner
+            .lock()
+            .map(|inner| (state_from_inner(&inner), inner.generation))
+            .map_err(|_| "session mutex poisoned".to_string())?;
         match toggle_action_for_phase(current.phase) {
             ToggleAction::Ignore => {
                 emit_state(app.as_ref(), &current);
                 Ok(current)
             }
             ToggleAction::Stop => self.stop(app),
+            ToggleAction::SkipPostEditing => {
+                if self.request_skip_post_editing(generation) {
+                    app_log::info("用户跳过大模型润色，使用最终识别原文");
+                }
+                Ok(self.current_state())
+            }
             ToggleAction::InterruptAndStart => {
                 if !self.prepare_waiting_final_restart() {
                     let current = self.current_state();
@@ -396,6 +411,67 @@ impl SessionController {
                 self.start(app)
             }
             ToggleAction::Start => self.start(app),
+        }
+    }
+
+    fn request_skip_post_editing(&self, generation: u64) -> bool {
+        let Ok(inner) = self.inner.lock() else {
+            return false;
+        };
+        inner.generation == generation
+            && inner.phase == SessionPhase::PostEditing
+            && inner
+                .skip_post_editing
+                .as_ref()
+                .is_some_and(|skip| !skip.send_replace(true))
+    }
+
+    pub(crate) fn begin_post_editing(
+        &self,
+        generation: u64,
+        app: Option<&AppHandle>,
+    ) -> Option<watch::Receiver<bool>> {
+        let mut inner = self.inner.lock().ok()?;
+        if inner.generation != generation {
+            return None;
+        }
+        let (sender, receiver) = watch::channel(false);
+        inner.skip_post_editing = Some(sender);
+        inner.recording = false;
+        inner.phase = SessionPhase::PostEditing;
+        inner.message = "Post-editing transcript.".to_string();
+        inner.error_code = None;
+        let state = state_from_inner(&inner);
+        drop(inner);
+        emit_state(app, &state);
+        Some(receiver)
+    }
+
+    pub(crate) fn begin_pasting(&self, generation: u64, app: Option<&AppHandle>) -> Option<bool> {
+        let mut inner = self.inner.lock().ok()?;
+        if inner.generation != generation || inner.phase == SessionPhase::Pasting {
+            return None;
+        }
+        // 与热键共用一把锁。即使 HTTP 结果先返回，也尊重切换到粘贴之前的跳过请求。
+        let skipped = inner
+            .skip_post_editing
+            .take()
+            .is_some_and(|skip| *skip.borrow());
+        inner.recording = false;
+        inner.phase = SessionPhase::Pasting;
+        inner.message = "Pasting transcript.".to_string();
+        inner.error_code = None;
+        let state = state_from_inner(&inner);
+        drop(inner);
+        emit_state(app, &state);
+        Some(skipped)
+    }
+
+    pub(crate) fn with_current_generation(&self, generation: u64, action: impl FnOnce()) {
+        if let Ok(inner) = self.inner.lock() {
+            if inner.generation == generation {
+                action();
+            }
         }
     }
 
@@ -412,6 +488,7 @@ impl SessionController {
         inner.message = "Recognition interrupted by a new recording request.".to_string();
         inner.error_code = None;
         inner.generation = inner.generation.wrapping_add(1);
+        inner.skip_post_editing = None;
         true
     }
 
@@ -515,6 +592,7 @@ impl SessionController {
         inner.generation = inner.generation.wrapping_add(1);
         app_log::warn(message);
         let guard_generation = inner.generation;
+        inner.skip_post_editing = None;
         Some((state_from_inner(&inner), guard_generation))
     }
 
@@ -850,6 +928,8 @@ fn spawn_audio_error_listener(
             let _ = app.emit(
                 "asr-final-text",
                 asr_ws::AsrFinalText {
+                    generation: guard_generation,
+                    raw_text: None,
                     text: String::new(),
                     error: Some(message),
                     error_code: Some("MIC_STREAM_FAILED".to_string()),
@@ -864,9 +944,7 @@ fn spawn_audio_error_listener(
 
 fn hide_audio_error_overlay(controller: &SessionController, app: &AppHandle, generation: u64) {
     thread::sleep(AUDIO_ERROR_OVERLAY_DURATION);
-    if controller.is_current_generation(generation) {
-        overlay::hide(app);
-    }
+    overlay::run_for_generation(app, controller, generation, overlay::hide);
 }
 
 /// 等到本轮录音达到最长时长时返回 `true`；录音提前结束则返回 `false`。
@@ -1084,6 +1162,30 @@ mod tests {
         assert!(super::is_processing_phase(SessionPhase::Pasting));
         assert!(!super::is_processing_phase(SessionPhase::Idle));
         assert!(!super::is_processing_phase(SessionPhase::Recording));
+    }
+
+    #[test]
+    fn skip_polishing_is_scoped_and_pasting_consumes_the_request() {
+        let controller = SessionController::default();
+        {
+            let mut inner = controller.inner.lock().unwrap();
+            inner.generation = 4;
+            inner.phase = SessionPhase::WaitingFinalResult;
+        }
+        assert!(!controller.request_skip_post_editing(4));
+        assert!(controller.begin_post_editing(3, None).is_none());
+        let skip = controller.begin_post_editing(4, None).unwrap();
+        assert!(!controller.request_skip_post_editing(3));
+        assert_eq!(
+            controller.toggle(None).unwrap().phase,
+            SessionPhase::PostEditing
+        );
+        assert!(*skip.borrow());
+        assert!(!controller.request_skip_post_editing(4));
+        assert_eq!(controller.begin_pasting(3, None), None);
+        assert_eq!(controller.begin_pasting(4, None), Some(true));
+        assert_eq!(controller.begin_pasting(4, None), None);
+        assert!(!controller.request_skip_post_editing(4));
     }
 
     #[test]

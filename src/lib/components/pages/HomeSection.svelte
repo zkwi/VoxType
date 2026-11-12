@@ -126,7 +126,8 @@
   const outcomePreviewLimit = 500;
   let lastOutcomeExpanded = $state(false);
   let lastOutcomeCopied = $state(false);
-  let copyingLastOutcome = $state(false);
+  let lastRawOutcomeCopied = $state(false);
+  let copyingLastOutcome = $state<"final" | "raw" | null>(null);
   let lastOutcomeCreatedAt = $state<number | null>(null);
   let visibleAudioQualityDiagnostic = $derived(
     lastAudioQualityDiagnostic?.status === "low_activity" && lastSessionOutcome?.kind === "success"
@@ -140,7 +141,8 @@
       lastOutcomeCreatedAt = createdAt;
       lastOutcomeExpanded = false;
       lastOutcomeCopied = false;
-      copyingLastOutcome = false;
+      lastRawOutcomeCopied = false;
+      copyingLastOutcome = null;
     }
   });
 
@@ -165,17 +167,19 @@
     return text.length > outcomePreviewLimit ? text.slice(0, outcomePreviewLimit) : text;
   }
 
-  async function copyLastOutcome() {
+  async function copyLastOutcome(source: "final" | "raw") {
     const outcome = lastSessionOutcome;
-    if (!outcome || copyingLastOutcome) return;
-    copyingLastOutcome = true;
+    const text = source === "raw" ? outcome?.rawText : outcome?.text;
+    if (!outcome || !text || copyingLastOutcome) return;
+    copyingLastOutcome = source;
     try {
-      const copied = await onCopyLastOutcomeText(outcome.text);
+      const copied = await onCopyLastOutcomeText(text);
       if (copied && lastSessionOutcome?.createdAt === outcome.createdAt) {
-        lastOutcomeCopied = true;
+        if (source === "raw") lastRawOutcomeCopied = true;
+        else lastOutcomeCopied = true;
       }
     } finally {
-      copyingLastOutcome = false;
+      if (lastSessionOutcome?.createdAt === outcome.createdAt) copyingLastOutcome = null;
     }
   }
 
@@ -292,10 +296,16 @@
           {#if lastOutcomeExpanded}<EyeOff size={14} />{:else}<Eye size={14} />{/if}
           {lastOutcomeExpanded ? t("lastOutcomeHideText") : t("lastOutcomeViewText")}
         </button>
-        <button type="button" class="link-action compact copy-action" disabled={copyingLastOutcome} onclick={copyLastOutcome}>
+        <button type="button" class="link-action compact copy-action" disabled={copyingLastOutcome !== null} onclick={() => copyLastOutcome("final")}>
           <Copy size={14} />
-          {copyingLastOutcome ? t("lastOutcomeCopying") : lastOutcomeCopied ? t("lastOutcomeCopiedShort") : t("lastOutcomeCopyText")}
+          {copyingLastOutcome === "final" ? t("lastOutcomeCopying") : lastOutcomeCopied ? t("lastOutcomeCopiedShort") : t("lastOutcomeCopyText")}
         </button>
+        {#if lastSessionOutcome.rawText}
+          <button type="button" class="link-action compact" disabled={copyingLastOutcome !== null} onclick={() => copyLastOutcome("raw")}>
+            <Copy size={14} />
+            {copyingLastOutcome === "raw" ? t("lastOutcomeCopying") : lastRawOutcomeCopied ? t("lastOutcomeCopiedShort") : t("lastOutcomeCopyRawText")}
+          </button>
+        {/if}
         <button type="button" class="link-action compact clear-action" onclick={onClearLastOutcome}>
           <Trash2 size={14} />
           {t("clearPreview")}
@@ -316,6 +326,15 @@
           <small>{t("lastOutcomeTextTruncated")}</small>
         {/if}
       </div>
+      {#if lastSessionOutcome.rawText}
+        <div class="last-outcome-text">
+          <small>{t("lastOutcomeRawText")}</small>
+          <p>{outcomeTextPreview(lastSessionOutcome.rawText)}</p>
+          {#if lastSessionOutcome.rawText.length > outcomePreviewLimit}
+            <small>{t("lastOutcomeTextTruncated")}</small>
+          {/if}
+        </div>
+      {/if}
     {/if}
   </section>
 {:else if !lastSessionOutcome && !requiresAsrAuth && inputStatus === "idle"}

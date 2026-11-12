@@ -80,6 +80,8 @@ Doubao mode keeps two-pass recognition enabled by default. Live captions are fee
 
 While a session is waiting for its final result, pressing any enabled input trigger interrupts the old session and immediately starts a new recording. A late result from the interrupted session cannot continue to polishing, paste, or stats.
 
+Once the caption shows that VoxType is polishing, press an enabled trigger again to output the original final transcript immediately.
+
 Quality and latency factors:
 
 | Factor | Recommendation |
@@ -165,6 +167,8 @@ Preserve English technical terms and project names.
 In daily use, start with hotwords and scene notes. Open Advanced prompt settings only when you need a fixed rewriting style:
 
 - Edit the system prompt and user prompt template in Advanced prompt settings under Vocabulary & Context. Set minimum polishing length in Speech & Polishing → AI polishing.
+- AI polishing offers Natural, Formal, and Proofread only presets. Editing either prompt turns the style into Custom.
+- Truncated or unusually short model output falls back to the complete transcript. When polishing changes the text, Home lets you compare or copy the original until you clear the preview, hide the window, or start another recording.
 - Adjust LLM reference budgets in `config.toml`.
 - Final prompt preview shows how recognition terms, writing/product preferences, optional recent context, and screen OCR are appended as budgeted reference information.
 - The default prompt separates short and long text: short messages, one-line commands, and questions get light correction, with natural punctuation allowed but no expansion; long spoken notes, records, retrospectives, explanations, meeting notes, product feedback, and investment reviews are polished into publishable prose, usually as 2-4 natural paragraphs.

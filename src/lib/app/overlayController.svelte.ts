@@ -10,6 +10,7 @@ import {
 import {
   normalizeOverlayText,
   overlayAvailableTextHeight as getOverlayAvailableTextHeight,
+  overlayMeterScale,
   resolveOverlayDisplayText,
 } from "$lib/utils/overlayLayout";
 import { createAdaptivePoller } from "$lib/utils/adaptivePoller";
@@ -39,6 +40,10 @@ export function createOverlayController(options: OverlayControllerOptions) {
   let fontSize = $state(20);
   let displayLines = $state<string[]>([""]);
   let textElement = $state<HTMLDivElement | null>(null);
+  let visible = $state(false);
+  let dismissing = $state(false);
+  let visibilityRevision = 0;
+  let textRevision = 0;
   let currentPayload: OverlayText | undefined;
   let configPollPending = false;
   let lastConfigPollAt = 0;
@@ -52,11 +57,26 @@ export function createOverlayController(options: OverlayControllerOptions) {
   });
 
   async function pollVisibleOverlay() {
+    const visibilityAtRequest = visibilityRevision;
+    const textAtRequest = textRevision;
     const result = await options.safeInvoke<OverlayText>("get_overlay_text", undefined, true);
-    if (result?.text?.trim()) applyOverlayText(result);
-    const visible = result?.visible === true;
+    if (visibilityAtRequest !== visibilityRevision || !result) return visible;
+    if (textAtRequest === textRevision && result.text?.trim()) applyOverlayText(result);
+    if (result.visible !== visible) applyVisibility(result.visible === true);
     if (visible) void refreshConfig();
     return visible;
+  }
+
+  function applyVisibility(value: boolean) {
+    visibilityRevision += 1;
+    visible = value;
+    dismissing = false;
+    if (value) poller.wake();
+  }
+
+  function beginDismissal() {
+    visibilityRevision += 1;
+    if (visible) dismissing = true;
   }
 
   async function refreshConfig(force = false) {
@@ -113,10 +133,13 @@ export function createOverlayController(options: OverlayControllerOptions) {
     );
     mode = layout.mode;
     fontSize = layout.fontSize;
-    displayLines = layout.lines;
+    if (layout.lines.length !== displayLines.length || layout.lines.some((line, index) => line !== displayLines[index])) {
+      displayLines = layout.lines;
+    }
   }
 
   function applyPayload(payload: OverlayText) {
+    textRevision += 1;
     poller.wake();
     applyOverlayText(payload);
   }
@@ -168,28 +191,8 @@ export function createOverlayController(options: OverlayControllerOptions) {
     return getOverlayAvailableTextHeight(window.innerHeight);
   }
 
-  function clampAudioLevel(value: number) {
-    if (!Number.isFinite(value)) return 0;
-    return Math.max(0, Math.min(1, value));
-  }
-
-  function meterLevel() {
-    return options.isRecording() ? clampAudioLevel(options.getAudioLevel() * 3.2) : 0;
-  }
-
-  function meterBarHeight(index: number) {
-    const level = meterLevel();
-    const quietHeights = [5, 8, 10, 7];
-    const activeHeights = [8, 13, 17, 11];
-    const threshold = 0.1 + index * 0.16;
-    const target = options.isRecording() && level >= threshold ? activeHeights[index] : quietHeights[index];
-    return `${target}px`;
-  }
-
-  function meterBarOpacity(index: number) {
-    if (!options.isRecording()) return "0.42";
-    const level = meterLevel();
-    return level >= 0.1 + index * 0.16 ? "0.92" : "0.34";
+  function meterBarScale(index: number) {
+    return overlayMeterScale(index, options.isRecording() ? options.getAudioLevel() : 0);
   }
 
   function backgroundColor() {
@@ -228,6 +231,8 @@ export function createOverlayController(options: OverlayControllerOptions) {
     get mode() { return mode; },
     get fontSize() { return fontSize; },
     get displayLines() { return displayLines; },
+    get visible() { return visible; },
+    get dismissing() { return dismissing; },
     get textElement() { return textElement; },
     set textElement(value: HTMLDivElement | null) {
       textElement = value;
@@ -242,9 +247,10 @@ export function createOverlayController(options: OverlayControllerOptions) {
     refreshLanguage,
     applyConfig,
     applyPayload,
+    applyVisibility,
+    beginDismissal,
     dispose,
-    meterBarHeight,
-    meterBarOpacity,
+    meterBarScale,
     backgroundColor,
     textColor,
     backgroundRgb,

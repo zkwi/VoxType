@@ -136,6 +136,8 @@ The LLM API is used for:
 
 Open **Speech & Polishing → AI polishing**:
 
+Choose Natural, Formal, or Proofread only. Select **Edit prompt templates** to customize either prompt. Once the caption shows that VoxType is polishing, press an enabled trigger again to output the original transcript.
+
 | Field | Notes |
 | --- | --- |
 | Enable polishing | When off, VoxType uses ASR only |

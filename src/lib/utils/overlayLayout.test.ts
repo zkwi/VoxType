@@ -3,6 +3,8 @@ import {
   balanceOverlayLines,
   fitOverlayDisplayText,
   normalizeOverlayText,
+  overlayAvailableTextHeight,
+  overlayMeterScale,
   resolveOverlayDisplayText,
   wrapOverlayText,
 } from "./overlayLayout";
@@ -15,6 +17,14 @@ const measureMixedWidth = (text: string, fontSize: number) =>
   );
 
 describe("overlay layout", () => {
+  it("keeps the minimum-height caption usable and meters small level changes continuously", () => {
+    expect(overlayAvailableTextHeight(52)).toBe(36);
+    for (let index = 0; index < 4; index += 1) {
+      expect(overlayMeterScale(index, 0.02)).toBeGreaterThan(overlayMeterScale(index, 0.01));
+      expect(overlayMeterScale(index, NaN)).toBe(overlayMeterScale(index, 0));
+      expect(overlayMeterScale(index, 1)).toBeLessThanOrEqual(1);
+    }
+  });
   it("collapses preview line breaks and inline spacing", () => {
     expect(normalizeOverlayText("第一行\r\n第二行")).toBe("第一行第二行");
     expect(normalizeOverlayText("第一行\n\n\t第二行")).toBe("第一行第二行");

@@ -25,6 +25,7 @@ const LLM_CONNECTION_TEST_TEXT: &str = concat!(
 pub struct PolishOutcome {
     pub text: String,
     pub warning: Option<String>,
+    pub warning_code: Option<&'static str>,
 }
 
 pub struct LlmConnectionTestResult {
@@ -88,26 +89,12 @@ pub async fn polish(config: &AppConfig, text: &str, screen_context: Option<&str>
             .unwrap_or_else(|| "provider_default".to_string())
     ));
     match call_openai_compatible(config, base_url, api_key, model, &user_prompt, max_tokens).await {
-        Ok(polished) if !polished.trim().is_empty() => {
-            let polished = polished.trim().to_string();
-            app_log::info(format!(
-                "LLM polish finished: output_chars={}",
-                polished.chars().count()
-            ));
-            PolishOutcome {
-                text: polished,
-                warning: None,
-            }
-        }
-        Ok(_) => {
-            app_log::warn("LLM polish returned empty content, original text kept");
-            with_warning(text, "大模型润色返回空内容，已使用原始识别文本。")
-        }
+        Ok(response) => guard_polished_text(text, &response, max_tokens),
         Err(err) => {
             let warning = friendly_llm_error(&err);
             app_log::warn(format!(
-                "LLM polish failed, original text kept: {}; user_message={}",
-                err, warning
+                "LLM polish failed, original text kept: {}",
+                warning
             ));
             with_warning(text, &warning)
         }
@@ -370,10 +357,11 @@ pub async fn test_connection(config: &AppConfig) -> Result<LlmConnectionTestResu
     Ok(result)
 }
 
-fn unchanged(text: &str) -> PolishOutcome {
+pub(crate) fn unchanged(text: &str) -> PolishOutcome {
     PolishOutcome {
         text: text.to_string(),
         warning: None,
+        warning_code: None,
     }
 }
 
@@ -381,6 +369,14 @@ fn with_warning(text: &str, warning: &str) -> PolishOutcome {
     PolishOutcome {
         text: text.to_string(),
         warning: Some(warning.to_string()),
+        warning_code: None,
+    }
+}
+
+pub(crate) fn unusable_polish_fallback(text: &str) -> PolishOutcome {
+    PolishOutcome {
+        warning_code: Some("LLM_POLISH_TOO_SHORT"),
+        ..with_warning(text, "大模型润色结果明显缩短，已保留完整识别原文。")
     }
 }
 
@@ -391,7 +387,7 @@ async fn call_openai_compatible(
     model: &str,
     user_prompt: &str,
     max_tokens: Option<u32>,
-) -> Result<String, String> {
+) -> Result<Value, String> {
     let timeout = Duration::from_secs_f64(config.llm_post_edit.timeout_seconds.max(1.0));
     let client = build_client(timeout).map_err(|err| format!("创建 LLM 客户端失败: {}", err))?;
     let body = chat_body(
@@ -406,7 +402,66 @@ async fn call_openai_compatible(
     let result =
         send_chat_with_thinking_fallback(&client, base_url, api_key, &body, "解析 LLM 响应失败")
             .await?;
-    Ok(extract_message_content(&result.value))
+    Ok(result.value)
+}
+
+fn guard_polished_text(original: &str, response: &Value, max_tokens: Option<u32>) -> PolishOutcome {
+    let output = extract_message_content(response);
+    let input_chars = original.chars().filter(|ch| !ch.is_whitespace()).count();
+    let polished = strip_added_fence(original, &output);
+    let output_chars = polished.chars().filter(|ch| !ch.is_whitespace()).count();
+    let fallback = if response_was_truncated(response) {
+        Some((
+            "LLM_POLISH_TRUNCATED",
+            "大模型润色结果被截断，已保留完整识别原文。",
+        ))
+    } else if input_chars >= 60 && output_chars * 4 < input_chars {
+        Some((
+            "LLM_POLISH_TOO_SHORT",
+            "大模型润色结果明显缩短，已保留完整识别原文。",
+        ))
+    } else {
+        None
+    };
+    if let Some((code, warning)) = fallback {
+        app_log::warn(format!(
+            "LLM polish output rejected: {code}, input_chars={input_chars}, output_chars={output_chars}, max_tokens={max_tokens:?}"
+        ));
+        return PolishOutcome {
+            warning_code: Some(code),
+            ..with_warning(original, warning)
+        };
+    }
+    if polished.is_empty() {
+        app_log::warn("LLM polish returned empty content, original text kept");
+        return with_warning(original, "大模型润色返回空内容，已使用原始识别文本。");
+    }
+    app_log::info(format!("LLM polish finished: output_chars={output_chars}"));
+    unchanged(polished)
+}
+
+fn strip_added_fence<'a>(original: &str, output: &'a str) -> &'a str {
+    let output = output.trim();
+    if original.contains("```") {
+        return output;
+    }
+    let Some((opening, rest)) = output.split_once('\n') else {
+        return output;
+    };
+    let (body, closing) = rest.rsplit_once('\n').unwrap_or(("", rest));
+    let Some(language) = opening.trim_end().strip_prefix("```") else {
+        return output;
+    };
+    if closing.trim() == "```"
+        && !language.contains('`')
+        && !body
+            .lines()
+            .any(|line| line.trim_start().starts_with("```"))
+    {
+        body.trim()
+    } else {
+        output
+    }
 }
 
 fn polish_max_tokens_for_request(base_url: &str, input_chars: usize) -> Option<u32> {
@@ -419,9 +474,10 @@ fn polish_max_tokens_for_request(base_url: &str, input_chars: usize) -> Option<u
 
 fn polish_max_tokens_for_input(input_chars: usize) -> u32 {
     match input_chars {
-        0..=160 => 192,
-        161..=400 => 384,
-        _ => 1_024,
+        0..=160 => 288,
+        161..=400 => 640,
+        401..=900 => 1_280,
+        _ => 2_048,
     }
 }
 
@@ -715,9 +771,10 @@ mod tests {
 
     #[test]
     fn polish_output_budget_scales_with_input_length() {
-        assert_eq!(polish_max_tokens_for_input(90), 192);
-        assert_eq!(polish_max_tokens_for_input(300), 384);
-        assert_eq!(polish_max_tokens_for_input(900), 1_024);
+        assert_eq!(polish_max_tokens_for_input(160), 288);
+        assert_eq!(polish_max_tokens_for_input(161), 640);
+        assert_eq!(polish_max_tokens_for_input(401), 1_280);
+        assert_eq!(polish_max_tokens_for_input(901), 2_048);
     }
 
     #[test]
@@ -728,8 +785,43 @@ mod tests {
         );
         assert_eq!(
             polish_max_tokens_for_request("https://dashscope.aliyuncs.com/compatible-mode/v1", 90),
-            Some(192)
+            Some(288)
         );
+    }
+
+    #[test]
+    fn rejected_polish_preserves_the_complete_original() {
+        let original = "甲".repeat(60);
+        for (reason, output, code) in [
+            ("length", "部分内容", "LLM_POLISH_TRUNCATED"),
+            ("max_tokens", "", "LLM_POLISH_TRUNCATED"),
+            ("stop", "内容太短", "LLM_POLISH_TOO_SHORT"),
+        ] {
+            let response =
+                json!({"choices":[{"finish_reason":reason,"message":{"content":output}}]});
+            let outcome = super::guard_polished_text(&original, &response, Some(288));
+            assert_eq!(outcome.text, original);
+            assert_eq!(outcome.warning_code, Some(code));
+            assert!(outcome.warning.is_some());
+        }
+        let response =
+            json!({"choices":[{"finish_reason":"stop","message":{"content":"乙".repeat(15)}}]});
+        assert_eq!(
+            super::guard_polished_text(&original, &response, None).text,
+            "乙".repeat(15)
+        );
+    }
+
+    #[test]
+    fn strips_only_one_added_outer_fence() {
+        let wrapped = "```text\r\n保留换行\r\n第二行\r\n```";
+        assert_eq!(
+            super::strip_added_fence("原文", wrapped),
+            "保留换行\r\n第二行"
+        );
+        assert_eq!(super::strip_added_fence("```text", wrapped), wrapped);
+        let separate = "```\n第一段\n```\n```\n第二段\n```";
+        assert_eq!(super::strip_added_fence("原文", separate), separate);
     }
 
     #[test]

@@ -1,36 +1,38 @@
 <script lang="ts">
-  import type { OverlayMode } from "$lib/types/app";
+  import type { OverlayMode, SessionPhase } from "$lib/types/app";
 
   type Props = {
     meterBars: number[];
     displayLines: string[];
-    recording: boolean;
+    phase: SessionPhase;
+    visible: boolean;
+    dismissing: boolean;
     mode: OverlayMode;
     fontSize: number;
     rootStyle: string;
-    meterBarHeight: (bar: number) => string;
-    meterBarOpacity: (bar: number) => string;
+    meterBarScale: (bar: number) => number;
     textElement?: HTMLDivElement | null;
   };
 
   let {
     meterBars,
     displayLines,
-    recording,
+    phase,
+    visible,
+    dismissing,
     mode,
     fontSize,
     rootStyle,
-    meterBarHeight,
-    meterBarOpacity,
+    meterBarScale,
     textElement = $bindable<HTMLDivElement | null>(null),
   }: Props = $props();
 </script>
 
 <main class="overlay-root" style={rootStyle}>
-  <div class="overlay-caption">
-    <div class:active={recording} class="overlay-voice-meter" aria-hidden="true">
+  <div class="overlay-caption" class:visible class:dismissing data-phase={phase}>
+    <div class="overlay-voice-meter" aria-hidden="true">
       {#each meterBars as bar}
-        <i style:height={meterBarHeight(bar)} style:opacity={meterBarOpacity(bar)}></i>
+        <i style:--bar-scale={meterBarScale(bar)}></i>
       {/each}
     </div>
     <div
@@ -54,13 +56,12 @@
     justify-content: center;
     width: 100vw;
     height: 100vh;
-    padding: 0;
+    padding: 2px 4px;
     overflow: hidden;
     background: transparent;
   }
 
   .overlay-caption {
-    position: relative;
     display: grid;
     grid-template-columns: 34px minmax(0, 1fr);
     align-items: center;
@@ -70,15 +71,23 @@
     height: 100%;
     min-width: 0;
     min-height: 0;
-    padding: 8px 18px;
+    padding: 6px 14px;
     overflow: hidden;
     color: var(--overlay-text, #ffffff);
     background: rgba(var(--overlay-bg-rgb, 23, 110, 230), var(--overlay-opacity, 0.9));
     border: 0;
-    border-radius: 0;
-    box-shadow: none;
+    border-radius: 14px;
+    opacity: 0;
     font-family: "Microsoft YaHei", "Segoe UI", "PingFang SC", "SF Pro Display", "Noto Sans CJK SC", sans-serif;
     text-align: left;
+  }
+
+  .overlay-caption.visible {
+    opacity: 1;
+  }
+
+  .overlay-caption.dismissing {
+    animation: caption-out 140ms ease-in both;
   }
 
   .overlay-voice-meter {
@@ -92,23 +101,33 @@
     height: 25px;
     color: var(--overlay-text, #ffffff);
     background: color-mix(in srgb, currentColor 11%, transparent);
-    border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
     border-radius: 999px;
     opacity: 0.72;
     pointer-events: none;
-    transition: opacity 140ms ease, background 140ms ease, border-color 140ms ease;
+    overflow: hidden;
   }
 
-  .overlay-voice-meter.active {
+  [data-phase="recording"] .overlay-voice-meter,
+  [data-phase="stopping"] .overlay-voice-meter {
     opacity: 0.88;
   }
 
   .overlay-voice-meter i {
     width: 2px;
-    min-height: 4px;
+    height: 17px;
     background: currentColor;
     border-radius: 999px;
-    transition: height 120ms ease, opacity 120ms ease;
+    transform: scaleY(var(--bar-scale));
+    transition: transform 85ms ease-out;
+  }
+
+  [data-phase="waiting_final_result"] .overlay-voice-meter i {
+    transform: scaleY(0.28);
+  }
+
+  [data-phase="post_editing"] .overlay-voice-meter {
+    background: color-mix(in srgb, currentColor 22%, transparent);
+    opacity: 0.92;
   }
 
   .overlay-caption-text {
@@ -142,5 +161,20 @@
     overflow: hidden;
     text-overflow: clip;
     white-space: pre;
+  }
+
+  @keyframes caption-out {
+    from { opacity: 1; }
+    to { opacity: 0; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .overlay-caption.dismissing {
+      animation: none;
+    }
+
+    .overlay-voice-meter i {
+      transition: none;
+    }
   }
 </style>

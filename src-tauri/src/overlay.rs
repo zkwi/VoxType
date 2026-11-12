@@ -1,7 +1,9 @@
 use crate::config::{UiConfig, MIN_UI_HEIGHT};
+use crate::session::SessionController;
 use serde::Serialize;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
+use std::time::Duration;
 use tauri::{
     utils::config::Color, AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Monitor,
     WebviewUrl, WebviewWindow, WebviewWindowBuilder,
@@ -17,10 +19,12 @@ pub const EMPTY_TRANSCRIPT_TEXT: &str = "没有识别到文字，请重试一次
 pub const PASTE_FAILED_TEXT: &str = "粘贴失败，文本已复制，可手动 Ctrl+V。";
 const DEFAULT_TEXT: &str = RECORDING_TEXT;
 const TRANSPARENT_BACKGROUND: Color = Color(0, 0, 0, 0);
+const DISMISS_DURATION: Duration = Duration::from_millis(140);
 static OVERLAY_TEXT: OnceLock<Mutex<OverlayText>> = OnceLock::new();
 static OVERLAY_UI: OnceLock<Mutex<UiConfig>> = OnceLock::new();
 // 字幕页据此决定兜底轮询的快慢：隐藏时没有内容可更新，不需要每秒问好几次。
 static OVERLAY_VISIBLE: AtomicBool = AtomicBool::new(false);
+static OVERLAY_REVISION: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone, Serialize)]
 pub struct OverlayText {
@@ -52,6 +56,8 @@ pub fn create_overlay_window(app: &AppHandle) -> Result<(), String> {
             .inner_size(350.0, 64.0)
             .resizable(false)
             .decorations(false)
+            // Windows 给启用阴影的无边框窗口加 1px 白边。
+            .shadow(false)
             .always_on_top(true)
             .skip_taskbar(true)
             .transparent(true)
@@ -89,6 +95,7 @@ fn show_with_payload(app: &AppHandle, ui: &UiConfig, payload: OverlayText) {
     let Some(window) = app.get_webview_window(OVERLAY_LABEL) else {
         return;
     };
+    OVERLAY_REVISION.fetch_add(1, Ordering::AcqRel);
     let effective_height = effective_overlay_height(ui.height);
     let _ = window.set_size(LogicalSize::new(ui.width as f64, effective_height as f64));
     if let Some(monitor) = current_monitor(app).or_else(|| window.primary_monitor().ok().flatten())
@@ -117,6 +124,7 @@ fn show_with_payload(app: &AppHandle, ui: &UiConfig, payload: OverlayText) {
         OVERLAY_VISIBLE.store(false, Ordering::Release);
         crate::app_log::warn(format!("显示悬浮字幕窗失败: {}", err));
     } else {
+        let _ = app.emit_to(OVERLAY_LABEL, "overlay-visibility", true);
         let _ = window.set_focusable(false);
         refresh_visible_window(&window);
         crate::app_log::info("悬浮字幕窗已显示");
@@ -217,10 +225,66 @@ pub fn update_config(app: &AppHandle, ui: &UiConfig) {
 }
 
 pub fn hide(app: &AppHandle) {
+    OVERLAY_REVISION.fetch_add(1, Ordering::AcqRel);
     OVERLAY_VISIBLE.store(false, Ordering::Release);
     if let Some(window) = app.get_webview_window(OVERLAY_LABEL) {
         let _ = window.hide();
     }
+    let _ = app.emit_to(OVERLAY_LABEL, "overlay-visibility", false);
+}
+
+pub(crate) fn run_for_generation(
+    app: &AppHandle,
+    session: &SessionController,
+    generation: u64,
+    action: impl FnOnce(&AppHandle) + Send + 'static,
+) {
+    let app_owned = app.clone();
+    let session = session.clone();
+    let _ = app.run_on_main_thread(move || {
+        session.with_current_generation(generation, || action(&app_owned));
+    });
+}
+
+pub(crate) fn dismiss_after_paste(app: &AppHandle, session: &SessionController, generation: u64) {
+    if !client_animations_enabled() {
+        run_for_generation(app, session, generation, hide);
+        return;
+    }
+    let mut revision = None;
+    session.with_current_generation(generation, || {
+        if OVERLAY_VISIBLE.load(Ordering::Acquire) {
+            revision = Some(OVERLAY_REVISION.load(Ordering::Acquire));
+            let _ = app.emit_to(OVERLAY_LABEL, "overlay-dismissing", ());
+        }
+    });
+    let Some(revision) = revision else { return };
+    let app = app.clone();
+    let session = session.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(DISMISS_DURATION);
+        run_for_generation(&app, &session, generation, move |app| {
+            if OVERLAY_REVISION.load(Ordering::Acquire) == revision {
+                hide(app);
+            }
+        });
+    });
+}
+
+fn client_animations_enabled() -> bool {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        SystemParametersInfoW, SPI_GETCLIENTAREAANIMATION, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS,
+    };
+    let mut enabled: i32 = 1;
+    unsafe {
+        let _ = SystemParametersInfoW(
+            SPI_GETCLIENTAREAANIMATION,
+            0,
+            Some((&mut enabled as *mut i32).cast()),
+            SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
+        );
+    }
+    enabled != 0
 }
 
 pub fn current_payload() -> OverlayText {

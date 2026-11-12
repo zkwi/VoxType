@@ -1,14 +1,15 @@
 use super::errors::classify_asr_error;
 use super::output::{
-    emit_error, emit_successful_final_text, finish_output_sent_session, handle_empty_transcript,
-    record_successful_transcript_side_effects, should_hold_overlay_for_output_warning,
-    ATTENTION_OVERLAY_HOLD,
+    emit_error, emit_output_warning, emit_successful_final_text, finish_output_sent_session,
+    handle_empty_transcript, record_successful_transcript_side_effects,
+    should_hold_overlay_for_output_warning, ATTENTION_OVERLAY_HOLD,
 };
 use crate::session::{SessionController, SessionPhase};
 use crate::{
     app_log, asr, asr_activity::AsrActivityReporter, asr_provider, config::AppConfig,
     llm_post_edit, overlay, screen_context, text_output,
 };
+use futures_util::future::{select, Either};
 use std::sync::mpsc::Receiver;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -90,155 +91,130 @@ pub fn spawn_asr_worker(input: AsrWorkerInput) {
                 activity,
             })
             .await?;
-            if text.trim().is_empty() {
-                return Ok::<llm_post_edit::PolishOutcome, String>(llm_post_edit::PolishOutcome {
-                    text,
-                    warning: Some("EMPTY_TRANSCRIPT".to_string()),
-                });
-            }
-            if llm_post_edit::should_polish(&config, &text) {
+            let outcome = if !text.trim().is_empty() && llm_post_edit::should_polish(&config, &text)
+            {
                 // 首包等待超时的 OCR 结果到这里通常已经返回，润色仍可拿来做参考。
                 // 只在确实要润色时才取：取用会记一条"已用于润色参考"的日志，不润色时不能记。
                 let screen_context_text = screen_context.resolve_for_post_edit().await;
-                Ok::<llm_post_edit::PolishOutcome, String>(
-                    polish_with_delayed_status(
-                        &config,
-                        &text,
-                        screen_context_text.as_deref(),
-                        &app,
-                        &session,
-                        generation,
-                    )
-                    .await,
+                polish_with_delayed_status(
+                    &config,
+                    &text,
+                    screen_context_text.as_deref(),
+                    &app,
+                    &session,
+                    generation,
                 )
+                .await
             } else {
-                Ok::<llm_post_edit::PolishOutcome, String>(llm_post_edit::PolishOutcome {
-                    text,
-                    warning: None,
-                })
-            }
+                llm_post_edit::unchanged(&text)
+            };
+            Ok::<_, String>((text, outcome))
         });
         match runtime_result {
-            Ok(outcome) => {
-                let text = asr::normalize_final_text(&outcome.text, remove_trailing_period);
-                let llm_warning = outcome.warning;
-                let mut should_hold_overlay = false;
+            Ok((original, outcome)) => {
+                let original_normalized =
+                    asr::normalize_final_text(&original, remove_trailing_period);
                 if !session.is_current_generation(generation) {
                     app_log::info(format!(
                         "忽略过期 ASR worker 输出: generation={}, chars={}",
                         generation,
-                        text.chars().count()
+                        original_normalized.chars().count()
                     ));
                     return;
                 }
-                app_log::info(format!("ASR worker 返回文本长度: {}", text.chars().count()));
-                if text.trim().is_empty() {
+                if original_normalized.trim().is_empty() {
                     handle_empty_transcript(&app, &session, generation);
                     return;
                 }
-                if !text.trim().is_empty() {
-                    overlay::update_text(&app, &text);
-                    let duration = started_at.elapsed().as_secs_f64();
-                    if session
-                        .set_phase_for_generation(
-                            generation,
-                            Some(&app),
-                            SessionPhase::Pasting,
-                            "Pasting transcript.",
-                            None,
-                        )
-                        .is_none()
-                    {
+                let Some(skipped) = session.begin_pasting(generation, Some(&app)) else {
+                    return;
+                };
+                let mut outcome = if skipped {
+                    llm_post_edit::unchanged(&original)
+                } else {
+                    outcome
+                };
+                let mut text = asr::normalize_final_text(&outcome.text, remove_trailing_period);
+                if text.trim().is_empty() {
+                    app_log::warn("LLM polish normalized to empty content, original text kept");
+                    outcome = llm_post_edit::unusable_polish_fallback(&original);
+                    text = original_normalized.clone();
+                }
+                let llm_warning = outcome.warning;
+                let llm_warning_code = outcome.warning_code;
+                let raw_text =
+                    (llm_warning.is_none() && !text.is_empty() && text != original_normalized)
+                        .then_some(original.as_str());
+                app_log::info(format!("ASR worker 返回文本长度: {}", text.chars().count()));
+                overlay::update_text(&app, &text);
+                let duration = started_at.elapsed().as_secs_f64();
+                let output = match text_output::output_text(&text, &typing, || {
+                    if !finish_output_sent_session(&session, generation, Some(&app)) {
                         return;
                     }
-                    let llm_warning_for_final = llm_warning.clone();
-                    let mut output_sent_finalized = false;
-                    let (output_warning, output_warning_code) =
-                        match text_output::output_text(&text, &typing, || {
-                            if !output_sent_finalized {
-                                output_sent_finalized =
-                                    finish_output_sent_session(&session, generation, Some(&app));
-                                if output_sent_finalized {
-                                    overlay::hide(&app);
-                                    record_successful_transcript_side_effects(
-                                        &app, &text, duration,
-                                    );
-                                    emit_successful_final_text(
-                                        &app,
-                                        &text,
-                                        llm_warning_for_final.clone(),
-                                        None,
-                                    );
-                                    app_log::info(format!(
-                                        "ASR session output sent: chars={}",
-                                        text.chars().count()
-                                    ));
-                                }
-                            }
-                        }) {
-                            Ok(result) => (result.warning, result.warning_code),
-                            Err(err) => {
-                                let error_code = if err.contains("剪贴板") {
-                                    "CLIPBOARD_WRITE_FAILED"
-                                } else {
-                                    "PASTE_FAILED"
-                                };
-                                if let Some(guard_generation) = session
-                                    .reset_generation_from_worker_with_code(
-                                        &app, generation, &err, error_code,
-                                    )
-                                {
-                                    emit_error(&app, &session, guard_generation, error_code, err);
-                                }
-                                return;
-                            }
-                        };
-                    if !output_sent_finalized {
-                        output_sent_finalized =
-                            finish_output_sent_session(&session, generation, Some(&app));
-                        if output_sent_finalized {
-                            record_successful_transcript_side_effects(&app, &text, duration);
-                            emit_successful_final_text(&app, &text, llm_warning.clone(), None);
-                        }
+                    // 输出层已写入剪贴板并发出粘贴键。收起动画和恢复剪贴板各自继续。
+                    if llm_warning.is_none() && typing.paste_method != "clipboard_only" {
+                        overlay::dismiss_after_paste(&app, &session, generation);
+                    } else {
+                        overlay::run_for_generation(&app, &session, generation, overlay::hide);
                     }
-                    should_hold_overlay = should_hold_overlay_for_output_warning(
-                        output_warning.as_deref(),
-                        output_warning_code.as_deref(),
+                    emit_successful_final_text(
+                        &app,
+                        &session,
+                        generation,
+                        &text,
+                        raw_text,
+                        llm_warning.clone(),
+                        llm_warning_code,
                     );
-                    if session.is_current_generation(generation) {
-                        if should_hold_overlay {
-                            if let Some(warning) = output_warning.as_deref() {
-                                overlay::show_message(&app, &config.ui, warning);
-                            }
-                            if llm_warning.is_none() {
-                                emit_successful_final_text(
-                                    &app,
-                                    &text,
-                                    output_warning.clone(),
-                                    output_warning_code.clone(),
-                                );
-                            }
-                        } else {
-                            overlay::hide(&app);
-                        }
-                    }
-                    // 静默提示已由输出层记录；这里只把需要用户处理的提示记为告警。
-                    if should_hold_overlay {
-                        if let Some(warning) = output_warning.as_deref() {
-                            app_log::warn(format!("输出文本完成但存在提示: {}", warning));
-                        }
-                    }
+                    record_successful_transcript_side_effects(&app, &text, duration);
                     app_log::info(format!(
-                        "ASR session finished: chars={}",
+                        "ASR session output sent: chars={}",
                         text.chars().count()
                     ));
-                }
-                if should_hold_overlay {
+                }) {
+                    Ok(output) => output,
+                    Err(err) => {
+                        let error_code = if err.contains("剪贴板") {
+                            "CLIPBOARD_WRITE_FAILED"
+                        } else {
+                            "PASTE_FAILED"
+                        };
+                        if let Some(guard_generation) = session
+                            .reset_generation_from_worker_with_code(
+                                &app, generation, &err, error_code,
+                            )
+                        {
+                            emit_error(&app, &session, guard_generation, error_code, err);
+                        }
+                        return;
+                    }
+                };
+                if let Some(warning) = output.warning.filter(|warning| {
+                    should_hold_overlay_for_output_warning(
+                        Some(warning),
+                        output.warning_code.as_deref(),
+                    )
+                }) {
+                    emit_output_warning(
+                        &app,
+                        &session,
+                        generation,
+                        &warning,
+                        output.warning_code.as_deref(),
+                    );
+                    app_log::warn(format!("输出文本完成但存在提示: {warning}"));
+                    let ui = config.ui.clone();
+                    overlay::run_for_generation(&app, &session, generation, move |app| {
+                        overlay::show_message(app, &ui, warning);
+                    });
                     thread::sleep(ATTENTION_OVERLAY_HOLD);
+                    overlay::run_for_generation(&app, &session, generation, overlay::hide);
                 }
-                if session.is_current_generation(generation) {
-                    overlay::hide(&app);
-                }
+                app_log::info(format!(
+                    "ASR session finished: chars={}",
+                    text.chars().count()
+                ));
             }
             Err(err) => {
                 let error_code = classify_asr_error(&err);
@@ -268,37 +244,36 @@ async fn polish_with_delayed_status(
         llm_post_edit::polish(&config, &task_text, screen_context.as_deref()).await
     });
 
-    match tokio::time::timeout(POST_EDITING_OVERLAY_DELAY, &mut polish_task).await {
-        Ok(Ok(outcome)) => outcome,
-        Ok(Err(err)) => {
+    let result = match tokio::time::timeout(POST_EDITING_OVERLAY_DELAY, &mut polish_task).await {
+        Ok(result) => result,
+        Err(_) => {
+            let Some(mut skip) = session.begin_post_editing(generation, Some(app)) else {
+                polish_task.abort();
+                return llm_post_edit::unchanged(&original_text);
+            };
+            overlay::update_status(app, "post_editing", overlay::POST_EDITING_TEXT);
+            match select(
+                Box::pin(async move { skip.wait_for(|skipped| *skipped).await.is_ok() }),
+                &mut polish_task,
+            )
+            .await
+            {
+                Either::Left(_) => {
+                    polish_task.abort();
+                    return llm_post_edit::unchanged(&original_text);
+                }
+                Either::Right((result, _)) => result,
+            }
+        }
+    };
+    match result {
+        Ok(outcome) => outcome,
+        Err(err) => {
             app_log::warn(format!("大模型润色任务异常: {}", err));
             llm_post_edit::PolishOutcome {
                 text: original_text,
                 warning: Some("大模型润色任务异常，已使用原文。".to_string()),
-            }
-        }
-        Err(_) => {
-            if session
-                .set_phase_for_generation(
-                    generation,
-                    Some(app),
-                    SessionPhase::PostEditing,
-                    "Post-editing transcript.",
-                    None,
-                )
-                .is_some()
-            {
-                overlay::update_status(app, "post_editing", overlay::POST_EDITING_TEXT);
-            }
-            match polish_task.await {
-                Ok(outcome) => outcome,
-                Err(err) => {
-                    app_log::warn(format!("大模型润色任务异常: {}", err));
-                    llm_post_edit::PolishOutcome {
-                        text: original_text,
-                        warning: Some("大模型润色任务异常，已使用原文。".to_string()),
-                    }
-                }
+                warning_code: None,
             }
         }
     }

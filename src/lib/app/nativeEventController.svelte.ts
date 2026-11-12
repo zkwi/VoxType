@@ -1,6 +1,7 @@
 import { listen } from "@tauri-apps/api/event";
 import type {
   AsrFinalText,
+  AsrOutputWarning,
   AudioDeviceFallbackNotice,
   AudioLevel,
   AudioQualityDiagnostic,
@@ -23,11 +24,14 @@ type OverlayEventHandlers = {
   overlay: true;
   applyOverlayText: (payload: OverlayText) => void;
   applyOverlayConfig: (payload: OverlayConfig) => void;
+  applyOverlayVisibility: (visible: boolean) => void;
+  beginOverlayDismissal: () => void;
 };
 
 type MainEventHandlers = {
   overlay: false;
   applyAsrFinalText: (payload: AsrFinalText) => void;
+  applyOutputWarning: (payload: AsrOutputWarning) => void;
   applyStats: (payload: StatsSnapshot) => void;
   applyAudioQuality: (payload: AudioQualityDiagnostic) => void;
   handleAudioDeviceFallback: (payload: AudioDeviceFallbackNotice) => void;
@@ -59,6 +63,10 @@ export function registerNativeEventController(
       listen<OverlayConfig>("overlay-config", (event) => {
         options.applyOverlayConfig(event.payload);
       }),
+      listen<boolean>("overlay-visibility", (event) => {
+        options.applyOverlayVisibility(event.payload);
+      }),
+      listen("overlay-dismissing", options.beginOverlayDismissal),
     ];
   }
 
@@ -66,6 +74,9 @@ export function registerNativeEventController(
     ...sessionListeners,
     listen<AsrFinalText>("asr-final-text", (event) => {
       options.applyAsrFinalText(event.payload);
+    }),
+    listen<AsrOutputWarning>("asr-output-warning", (event) => {
+      options.applyOutputWarning(event.payload);
     }),
     listen<StatsSnapshot>("usage-stats-updated", (event) => {
       options.applyStats(event.payload);

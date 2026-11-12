@@ -35,12 +35,13 @@
   <OverlayWindow
     meterBars={overlayMeterBars}
     displayLines={app.overlayDisplayLines}
-    recording={app.recording}
+    phase={app.overlayPhase}
+    visible={app.overlayVisible}
+    dismissing={app.overlayDismissing}
     mode={app.overlayMode}
     fontSize={app.overlayFontSize}
     rootStyle={app.overlayRootStyle}
-    meterBarHeight={app.overlayMeterBarHeight}
-    meterBarOpacity={app.overlayMeterBarOpacity}
+    meterBarScale={app.overlayMeterBarScale}
     bind:textElement={app.overlayTextElement}
   />
 {:else}
