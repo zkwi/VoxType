@@ -1,5 +1,5 @@
 import { onMount } from "svelte";
-import { browser } from "$app/environment";
+import { browser } from "$app/env";
 import { createAutoHotwordsController } from "$lib/app/autoHotwordsController.svelte";
 import { createConfigController } from "$lib/app/configController.svelte";
 import { createDiagnosticsController } from "$lib/app/diagnosticsController.svelte";
@@ -424,38 +424,44 @@ export function createVoxTypeController() {
       `mounted mode=${frontendMode()} viewport=${window.innerWidth}x${window.innerHeight} dpr=${window.devicePixelRatio.toFixed(2)} compact=${uiCompact} language=${navigator.language} userAgent=${navigator.userAgent}`,
     );
     const savedLanguage = localStorage.getItem("voxtype-language");
-    if (savedLanguage === "zh-CN" || savedLanguage === "zh-TW" || savedLanguage === "en") {
+    if (isAppLanguage(savedLanguage)) {
       language = savedLanguage;
       statusMessage = t("bridgeLoading");
-      syncTrayLanguage(savedLanguage);
-    }
-    void bootstrapApp();
-    if (isOverlay) {
-      overlay.applyText("", true);
-      void overlay.refreshConfig(true);
-      window.addEventListener("resize", overlay.refreshLayout);
-      overlay.startPolling();
+      if (!isOverlay) syncTrayLanguage(savedLanguage);
     }
     let unlisteners: ReturnType<typeof registerNativeEventController> = [];
-    if (hasTauriApi()) {
+    if (isOverlay) {
+      overlay.refreshLanguage();
+      void overlay.refreshConfig(true);
+      window.addEventListener("resize", overlay.refreshLayout);
+      window.addEventListener("storage", syncOverlayLanguage);
+      overlay.startPolling();
+      if (hasTauriApi()) {
+        unlisteners = registerNativeEventController({
+          overlay: true,
+          applySessionState: (state) => {
+            recording = state.recording;
+            if (!recording) audioLevel = 0;
+          },
+          applyAudioLevel: (payload) => {
+            audioLevel = clampAudioLevel(payload.level);
+          },
+          applyOverlayText: overlay.applyPayload,
+          applyOverlayConfig: (payload) => overlay.applyConfig(payload.ui),
+        });
+      }
+    } else if (hasTauriApi()) {
       unlisteners = registerNativeEventController({
+        overlay: false,
         applySessionState,
         applyAsrFinalText: session.applyAsrFinalText,
-        applyOverlayText: (payload) => {
-          overlay.applyPayload(payload);
-        },
-        applyOverlayConfig: (payload) => {
-          overlay.applyConfig(payload.ui);
-        },
         applyStats: (payload) => {
-          if (!isOverlay) {
-            stats.apply(payload);
-            void autoHotwords.refreshStatus();
-          }
+          stats.apply(payload);
+          void autoHotwords.refreshStatus();
         },
         applyAudioLevel: (payload) => {
           // 主窗口在托盘里时没人看电平条，跳过更新，避免隐藏的窗口在录音期间持续重绘。
-          if (!isOverlay && !mainWindowVisible) return;
+          if (!mainWindowVisible) return;
           audioLevel = clampAudioLevel(payload.level);
         },
         applyAudioQuality: (payload) => {
@@ -473,8 +479,9 @@ export function createVoxTypeController() {
           void updates.check(true);
         },
       });
-      logFrontendEvent(`listeners registered mode=${frontendMode()}`);
     }
+    if (!isOverlay) void bootstrapApp();
+    if (unlisteners.length) logFrontendEvent(`listeners registered mode=${frontendMode()}`);
     return () => {
       notifications.dispose();
       if (succeededIdleTimer !== undefined) window.clearTimeout(succeededIdleTimer);
@@ -483,6 +490,7 @@ export function createVoxTypeController() {
       clearDocumentMode();
       window.removeEventListener("resize", refreshMainDensity);
       window.removeEventListener("resize", overlay.refreshLayout);
+      window.removeEventListener("storage", syncOverlayLanguage);
       window.removeEventListener("error", onError);
       window.removeEventListener("unhandledrejection", onUnhandledRejection);
       disposeNativeEventController(unlisteners);
@@ -559,8 +567,18 @@ export function createVoxTypeController() {
     return value;
   }
 
+  function isAppLanguage(value: string | null): value is Language {
+    return value === "zh-CN" || value === "zh-TW" || value === "en";
+  }
+
+  function syncOverlayLanguage(event: StorageEvent) {
+    if (event.key !== "voxtype-language" || !isAppLanguage(event.newValue)) return;
+    language = event.newValue;
+    overlay.refreshLanguage();
+  }
+
   function setLanguage(value: string) {
-    if (value !== "zh-CN" && value !== "zh-TW" && value !== "en") return;
+    if (!isAppLanguage(value)) return;
     language = value;
     localStorage.setItem("voxtype-language", value);
     syncTrayLanguage(value);
@@ -687,7 +705,7 @@ export function createVoxTypeController() {
 
   async function loadAll() {
     logFrontendEvent(`loadAll started mode=${frontendMode()}`);
-    if (!isOverlay && !setupStatus) setupStatusLoading = true;
+    if (!setupStatus) setupStatusLoading = true;
     const visibilityEventsBeforeLoad = mainWindowVisibilityEvents;
     const [snapshotResult, configResult, statsResult, devicesResult, setupResult, localDataResult] = await Promise.all([
       safeInvoke<AppSnapshot>("get_app_snapshot"),
@@ -711,7 +729,7 @@ export function createVoxTypeController() {
       const setupMessage = configSetupMessage(configResult);
       if (setupMessage) {
         statusMessage = setupMessage;
-        if (!isOverlay && requiresAsrAuth(configResult.data, configResult.exists)) {
+        if (requiresAsrAuth(configResult.data, configResult.exists)) {
           settingsNav.showApiConfigIntro();
         }
       }
@@ -724,7 +742,7 @@ export function createVoxTypeController() {
     } else if (!setupStatus && configResult) {
       setupStatus = localSetupStatusFromConfig(configResult.data, devicesResult ?? audioDevices);
     }
-    if (!isOverlay) setupStatusLoading = false;
+    setupStatusLoading = false;
     if (
       configLoadState !== "failed" &&
       (snapshotResult || configResult || statsResult) &&
@@ -843,6 +861,7 @@ export function createVoxTypeController() {
     delete next["auth.app_key"];
     delete next["auth.access_key"];
     delete next["auth.api_key"];
+    delete next["auth.console_api_key"];
     delete next["auth.mode"];
     delete next["auth.resource_id"];
     delete next["asr.provider"];
@@ -1290,6 +1309,7 @@ export function createVoxTypeController() {
       overlayColorPresets,
       overlayOpacityPresets,
       audioDevices,
+      refreshingAudioDevices: setupStatusLoading,
       updateStatus: updates.status,
       checkingUpdate: updates.checking,
       installingUpdate: updates.installing,
@@ -1361,11 +1381,16 @@ export function createVoxTypeController() {
       onOpenDoubaoAsrDocs: openDoubaoAsrDocs,
       onOpenAliyunAsrDocs: openAliyunAsrDocs,
       onTestAsrConfig: testAsrConfig,
+      onAsrAuthChange: clearAuthFieldErrors,
       onTestLlmConfig: testLlmConfig,
       onTestScreenContext: testScreenContext,
       onClearScreenContextPreview: clearScreenContextPreview,
       onHotkeyKeydown: hotkeyCapture.handleKeydown,
       onBeginHotkeyCapture: hotkeyCapture.beginCapture,
+      onCancelHotkeyCapture: hotkeyCapture.cancelCapture,
+      onRefreshAudioDevices: () => {
+        if (!setupStatusLoading) void refreshSetupStatus();
+      },
       onApplyOverlayPreset: overlay.applyPreset,
       onApplyOverlayOpacity: overlay.applyOpacity,
       onSetInputDevice: setInputDevice,

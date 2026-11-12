@@ -65,6 +65,7 @@
     overlayColorPresets: Array<{ label: CopyKey; background: string; text: string }>;
     overlayOpacityPresets: readonly number[];
     audioDevices: AudioDeviceInfo[];
+    refreshingAudioDevices: boolean;
     updateStatus: UpdateStatus | null;
     checkingUpdate: boolean;
     installingUpdate: boolean;
@@ -136,11 +137,14 @@
     onOpenDoubaoAsrDocs: () => void;
     onOpenAliyunAsrDocs: () => void;
     onTestAsrConfig: () => void;
+    onAsrAuthChange: () => void;
     onTestLlmConfig: () => void;
     onTestScreenContext: () => void;
     onClearScreenContextPreview: () => void;
     onHotkeyKeydown: (event: KeyboardEvent) => void;
     onBeginHotkeyCapture: () => void;
+    onCancelHotkeyCapture: () => void;
+    onRefreshAudioDevices: () => void;
     onApplyOverlayPreset: (background: string, text: string) => void;
     onApplyOverlayOpacity: (value: number) => void;
     onSetInputDevice: (value: string | number | null) => void;
@@ -195,6 +199,7 @@
     overlayColorPresets,
     overlayOpacityPresets,
     audioDevices,
+    refreshingAudioDevices,
     updateStatus,
     checkingUpdate,
     installingUpdate,
@@ -266,11 +271,14 @@
     onOpenDoubaoAsrDocs,
     onOpenAliyunAsrDocs,
     onTestAsrConfig,
+    onAsrAuthChange,
     onTestLlmConfig,
     onTestScreenContext,
     onClearScreenContextPreview,
     onHotkeyKeydown,
     onBeginHotkeyCapture,
+    onCancelHotkeyCapture,
+    onRefreshAudioDevices,
     onApplyOverlayPreset,
     onApplyOverlayOpacity,
     onSetInputDevice,
@@ -387,6 +395,7 @@
     onRefreshSetupStatus={onRefreshSetupStatus}
     onSetupAction={onSetupAction}
     onTestAsrConfig={onTestAsrConfig}
+    {onAsrAuthChange}
     onTestLlmConfig={onTestLlmConfig}
   />
 {:else if selectedSection === "Options"}
@@ -398,6 +407,7 @@
     {overlayColorPresets}
     {overlayOpacityPresets}
     {audioDevices}
+    {refreshingAudioDevices}
     {updateStatus}
     {checkingUpdate}
     {installingUpdate}
@@ -419,6 +429,8 @@
     {updateMetaText}
     onHotkeyKeydown={onHotkeyKeydown}
     onBeginHotkeyCapture={onBeginHotkeyCapture}
+    {onCancelHotkeyCapture}
+    {onRefreshAudioDevices}
     onOptionEnabledNotice={onOptionEnabledNotice}
     onApplyOverlayPreset={onApplyOverlayPreset}
     onApplyOverlayOpacity={onApplyOverlayOpacity}

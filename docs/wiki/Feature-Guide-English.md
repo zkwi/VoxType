@@ -34,6 +34,8 @@ The Home page is for daily use:
 
 Default trigger: `Ctrl + Q`.
 
+Use Options to turn the main shortcut off. Press Esc or move focus while capturing a shortcut to keep the previous combination.
+
 | Trigger | Default | Recommendation |
 | --- | --- | --- |
 | Main shortcut | On | Keep it on |
@@ -59,10 +61,11 @@ VoxType normalizes the actual microphone input to `16000Hz`, mono, 16-bit PCM be
 
 Tips:
 
-- Select a fixed input device if you have multiple microphones.
+- Select a fixed input device if you have multiple microphones. Use Refresh devices after connecting one to update the list and setup status.
 - Low volume, long distance, noisy rooms, and disabled Windows microphone permission can cause empty recognition.
 - If the microphone is quiet but clear, check the system microphone level and distance first; if the recording quality card still repeatedly reports low volume, raise input gain slightly in recording troubleshooting to `+3 dB` or `+6 dB`.
 - A microphone input-stream error fails the current session immediately, so incomplete audio is not polished, pasted, or counted as success.
+- If the microphone fails to start, the floating caption shows a troubleshooting message for about 1.8 seconds. Options → Microphone includes an off-by-default switch for muting system audio during recording.
 - ASR no-feedback auto-stop defaults to 30 seconds. If the provider returns no effective text feedback for that window, VoxType stops through the normal grace flow and does not depend on local volume thresholds.
 - System-volume mute while recording is off by default; enable it only if echo affects recognition.
 
@@ -158,7 +161,7 @@ Preserve English technical terms and project names.
 
 In daily use, start with hotwords and scene notes. Open Advanced prompt settings only when you need a fixed rewriting style:
 
-- User Prompt template and minimum polishing length are in Advanced prompt settings on Hotwords & prompts.
+- System Prompt, User Prompt template, and minimum polishing length are in Advanced prompt settings on Hotwords & prompts.
 - LLM reference budgets and System Prompt stay in `config.toml`.
 - Final prompt preview shows how recognition terms, writing/product preferences, optional recent context, and screen OCR are appended as budgeted reference information.
 - The default prompt separates short and long text: short messages, one-line commands, and questions get light correction, with natural punctuation allowed but no expansion; long spoken notes, records, retrospectives, explanations, meeting notes, product feedback, and investment reviews are polished into publishable prose, usually as 2-4 natural paragraphs.
@@ -245,6 +248,7 @@ Tray:
 
 - Closing the main window hides it to the tray by default.
 - Single-click the tray icon to open the main window.
+- Open main window is also the first tray menu item. When a recording shortcut is triggered from the tray with missing ASR credentials, VoxType opens API Config.
 - Tray menu can open the main window, open config, open logs, report an issue, check updates, restart the app, and exit.
 
 Startup:

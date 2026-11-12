@@ -20,6 +20,7 @@
   import { Activity, ExternalLink, ShieldCheck } from "lucide-svelte";
 
   type Translate = (key: CopyKey, values?: Record<string, string>) => string;
+  const concurrentResourceId = "volc.seedasr.sauc.concurrent";
 
   const asrLanguageOptions: Array<{ value: string; labelKey: CopyKey }> = [
     { value: "", labelKey: "asrLanguageAuto" },
@@ -101,6 +102,7 @@
     onRefreshSetupStatus: () => void;
     onSetupAction: (action: string) => void;
     onTestAsrConfig: () => void;
+    onAsrAuthChange: () => void;
     onTestLlmConfig: () => void;
   };
 
@@ -132,6 +134,7 @@
     onRefreshSetupStatus,
     onSetupAction,
     onTestAsrConfig,
+    onAsrAuthChange,
     onTestLlmConfig,
   }: Props = $props();
 
@@ -142,7 +145,8 @@
       fieldError("aliyun_asr.model") ||
       fieldError("aliyun_asr.websocket_url") ||
       fieldError("aliyun_asr.language_hint") ||
-      fieldError("request.language"),
+      fieldError("request.language") ||
+      (config.auth.mode !== DOUBAO_AUTH_MODE_AGENT_PLAN && fieldError("auth.resource_id")),
   ));
   let llmAdvancedHasError = $derived(Boolean(fieldError("llm_post_edit.thinking_strategy")));
   let asrAdvancedExpanded = $derived(showAsrAdvanced || asrAdvancedHasError);
@@ -154,6 +158,7 @@
     if (mode === DOUBAO_AUTH_MODE_AGENT_PLAN || !config.auth.resource_id.trim()) {
       config.auth.resource_id = DOUBAO_SEED_ASR_2_RESOURCE_ID;
     }
+    onAsrAuthChange();
   }
 </script>
 
@@ -249,7 +254,7 @@
       <div class="form-grid">
         <label class:field-invalid={Boolean(fieldError("asr.provider"))}>
           <span>{t("asrProviderSelect")}</span>
-          <select bind:value={config.asr.provider}>
+          <select bind:value={config.asr.provider} onchange={onAsrAuthChange}>
             <option value={ASR_PROVIDER_DOUBAO}>{t("asrProviderDoubao")}</option>
             <option value={ASR_PROVIDER_ALIYUN_FUN}>{t("asrProviderAliyun")}</option>
           </select>
@@ -377,6 +382,20 @@
               <small class="field-hint">{t("aliyunInputLanguageHint")}</small>
             </label>
           {:else}
+            {#if config.auth.mode !== DOUBAO_AUTH_MODE_AGENT_PLAN}
+              <label class:field-invalid={Boolean(fieldError("auth.resource_id"))}>
+                <span>{t("doubaoResourceId")}</span>
+                <select data-config-field="auth.resource_id" aria-invalid={Boolean(fieldError("auth.resource_id"))} aria-describedby="setting-doubao-resource-id-hint" bind:value={config.auth.resource_id}>
+                  <option value={DOUBAO_SEED_ASR_2_RESOURCE_ID}>{t("doubaoResourceDuration")}</option>
+                  <option value={concurrentResourceId}>{t("doubaoResourceConcurrent")}</option>
+                  {#if config.auth.resource_id !== DOUBAO_SEED_ASR_2_RESOURCE_ID && config.auth.resource_id !== concurrentResourceId}
+                    <option value={config.auth.resource_id}>{config.auth.resource_id || t("doubaoResourceDuration")}</option>
+                  {/if}
+                </select>
+                {#if fieldError("auth.resource_id")}<small class="field-error">{fieldError("auth.resource_id")}</small>{/if}
+                <small id="setting-doubao-resource-id-hint" class="field-hint">{t("doubaoResourceIdHint")}</small>
+              </label>
+            {/if}
             <label class:field-invalid={Boolean(fieldError("request.language"))}>
               <span>{t("asrInputLanguage")}</span>
               <select bind:value={config.request.language}>

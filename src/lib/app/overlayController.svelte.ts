@@ -39,6 +39,7 @@ export function createOverlayController(options: OverlayControllerOptions) {
   let fontSize = $state(20);
   let displayLines = $state<string[]>([""]);
   let textElement = $state<HTMLDivElement | null>(null);
+  let currentPayload: OverlayText | undefined;
   let configPollPending = false;
   let lastConfigPollAt = 0;
   const configPollIntervalMs = 1000;
@@ -107,6 +108,8 @@ export function createOverlayController(options: OverlayControllerOptions) {
       availableTextHeight(),
       textContentWidth(),
       measureText,
+      // 麦克风错误需要保留原因和操作提示，高 DPI 的较矮字幕窗也允许排两行。
+      currentPayload?.status_code?.startsWith("MIC_") ? 12 : undefined,
     );
     mode = layout.mode;
     fontSize = layout.fontSize;
@@ -114,20 +117,21 @@ export function createOverlayController(options: OverlayControllerOptions) {
   }
 
   function applyPayload(payload: OverlayText) {
-    // 字幕事件会广播给所有窗口；主窗口不渲染字幕，没必要跟着每条实时字幕做一遍排版测量。
-    if (!options.isOverlay()) return;
     poller.wake();
     applyOverlayText(payload);
   }
 
   function applyOverlayText(payload: OverlayText) {
-    applyText(
-      overlayStatusText(
-        payload.status_code,
-        payload.fallback_text ?? payload.text,
-        options.t,
-      ),
-    );
+    currentPayload = payload;
+    refreshLanguage();
+  }
+
+  function refreshLanguage() {
+    applyText(currentPayload ? overlayStatusText(
+      currentPayload.status_code,
+      currentPayload.fallback_text ?? currentPayload.text,
+      options.t,
+    ) : "");
   }
 
   function startPolling() {
@@ -235,8 +239,8 @@ export function createOverlayController(options: OverlayControllerOptions) {
     startPolling,
     refreshConfig,
     refreshLayout,
+    refreshLanguage,
     applyConfig,
-    applyText,
     applyPayload,
     dispose,
     meterBarHeight,
