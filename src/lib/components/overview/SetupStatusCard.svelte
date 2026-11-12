@@ -28,6 +28,8 @@
     readyTitle: string;
     readyDescription: string;
     refresh: string;
+    showDetails: string;
+    hideDetails: string;
     warningSummary: (count: number) => string;
     actionText: (action: string) => string;
   };
@@ -50,87 +52,109 @@
 
   let blockingWarnings = $derived(warnings.filter((warning) => warningLevel(warning) === "blocking"));
   let softWarnings = $derived(warnings.filter((warning) => warningLevel(warning) === "warning"));
+  let expanded = $state(false);
+  let readySummary = $derived(ready && !checking);
+  let detailsVisible = $derived(!readySummary || expanded);
 </script>
 
-<section class:ready={ready && !checking} class:checking class="setup-status-card">
-  <div class="setup-status-head">
-    <div>
-      <span>{texts.title}</span>
-      <strong>{checking ? texts.checkingTitle : ready ? texts.readyTitle : texts.pendingTitle}</strong>
-      <p>{checking ? texts.checkingDescription : ready ? texts.readyDescription : texts.pendingDescription}</p>
-    </div>
-    <button type="button" onclick={onRefresh}>
-      <RefreshCw size={15} />
-      {texts.refresh}
-    </button>
-  </div>
-
-  <div class="setup-check-grid">
-    {#each items as item}
-      <button
-        type="button"
-        class:ok={item.ok}
-        class:checking={item.checking}
-        class="setup-check-item"
-        onclick={() => onAction(item.action)}
-        disabled={item.checking}
-      >
-        <span class="setup-check-icon">
-          {#if item.checking}
-            <LoaderCircle size={17} />
-          {:else if item.ok}
-            <CheckCircle2 size={17} />
-          {:else}
-            <AlertCircle size={17} />
-          {/if}
-        </span>
-        <span>
-          <strong>{item.label}</strong>
-          <small>{item.value}</small>
-        </span>
-        <ChevronRight size={15} />
+<section class:ready={readySummary} class:checking class:compact={!detailsVisible} class="setup-status-card">
+  <div class="setup-status-head" class:summary={readySummary}>
+    {#if readySummary}
+      <div class="setup-ready-label">
+        <CheckCircle2 size={18} />
+        <strong>{texts.readyTitle}</strong>
+        {#if softWarnings.length > 0}<span>{texts.warningSummary(softWarnings.length)}</span>{/if}
+      </div>
+    {:else}
+      <div>
+        <span>{texts.title}</span>
+        <strong>{checking ? texts.checkingTitle : texts.pendingTitle}</strong>
+        <p>{checking ? texts.checkingDescription : texts.pendingDescription}</p>
+      </div>
+    {/if}
+    <div class="setup-status-actions">
+      {#if readySummary}
+        <button type="button" aria-expanded={detailsVisible} aria-controls="setup-health-details" onclick={() => (expanded = !expanded)}>
+          {expanded ? texts.hideDetails : texts.showDetails}
+        </button>
+      {/if}
+      <button type="button" onclick={onRefresh} disabled={checking}>
+        <RefreshCw size={15} />
+        {texts.refresh}
       </button>
-    {/each}
+    </div>
   </div>
 
-  {#if blockingWarnings.length > 0}
-    <div class="setup-warning-list blocking">
-      {#each blockingWarnings as warning}
-        <article>
-          <div>
-            <strong>{warning.title}</strong>
-            <p>{warning.message}</p>
-          </div>
-          <button type="button" onclick={() => onAction(warning.action)}>
-            {texts.actionText(warning.action)}
+  <div id="setup-health-details" class="setup-health-details" hidden={!detailsVisible}>
+    {#if detailsVisible}
+      {#if readySummary}<p class="setup-ready-description">{texts.readyDescription}</p>{/if}
+      <div class="setup-check-grid">
+        {#each items as item}
+          <button
+            type="button"
+            class:ok={item.ok}
+            class:checking={item.checking}
+            class="setup-check-item"
+            onclick={() => onAction(item.action)}
+            disabled={item.checking}
+          >
+            <span class="setup-check-icon">
+              {#if item.checking}
+                <LoaderCircle size={17} />
+              {:else if item.ok}
+                <CheckCircle2 size={17} />
+              {:else}
+                <AlertCircle size={17} />
+              {/if}
+            </span>
+            <span>
+              <strong>{item.label}</strong>
+              <small>{item.value}</small>
+            </span>
+            <ChevronRight size={15} />
           </button>
-        </article>
-      {/each}
-    </div>
-  {/if}
-
-  {#if softWarnings.length > 0}
-    <details class="setup-warning-details">
-      <summary>
-        <AlertCircle size={15} />
-        <span>{texts.warningSummary(softWarnings.length)}</span>
-      </summary>
-      <div class="setup-warning-list soft">
-        {#each softWarnings as warning}
-          <article>
-            <div>
-              <strong>{warning.title}</strong>
-              <p>{warning.message}</p>
-            </div>
-            <button type="button" onclick={() => onAction(warning.action)}>
-              {texts.actionText(warning.action)}
-            </button>
-          </article>
         {/each}
       </div>
-    </details>
-  {/if}
 
+      {#if blockingWarnings.length > 0}
+        <div class="setup-warning-list blocking">
+          {#each blockingWarnings as warning}
+            <article>
+              <div>
+                <strong>{warning.title}</strong>
+                <p>{warning.message}</p>
+              </div>
+              <button type="button" onclick={() => onAction(warning.action)}>
+                {texts.actionText(warning.action)}
+              </button>
+            </article>
+          {/each}
+        </div>
+      {/if}
+
+      {#if softWarnings.length > 0}
+        <details class="setup-warning-details">
+          <summary>
+            <AlertCircle size={15} />
+            <span>{texts.warningSummary(softWarnings.length)}</span>
+          </summary>
+          <div class="setup-warning-list soft">
+            {#each softWarnings as warning}
+              <article>
+                <div>
+                  <strong>{warning.title}</strong>
+                  <p>{warning.message}</p>
+                </div>
+                <button type="button" onclick={() => onAction(warning.action)}>
+                  {texts.actionText(warning.action)}
+                </button>
+              </article>
+            {/each}
+          </div>
+        </details>
+      {/if}
+    {/if}
+  </div>
 </section>
 
 <style>
@@ -152,6 +176,54 @@
   .setup-status-card.checking {
     border-color: rgba(100, 116, 139, 0.22);
     background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  }
+
+  .setup-status-card.compact {
+    gap: 0;
+    padding: 8px 12px;
+    box-shadow: none;
+  }
+
+  .setup-status-head.summary {
+    align-items: center;
+  }
+
+  .setup-status-head .setup-ready-label,
+  .setup-status-head .setup-status-actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px 8px;
+  }
+
+  .setup-status-head .setup-status-actions {
+    flex: 0 0 auto;
+    max-width: 100%;
+  }
+
+  .setup-ready-label :global(svg) {
+    color: var(--success);
+  }
+
+  .setup-status-head.summary .setup-ready-label strong {
+    margin-top: 0;
+    font-size: 14px;
+  }
+
+  .setup-status-head .setup-ready-label span {
+    color: var(--text-secondary);
+    font-weight: 600;
+  }
+
+  .setup-health-details:not([hidden]) {
+    display: grid;
+    gap: 12px;
+  }
+
+  .setup-ready-description {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 13px;
   }
 
   .setup-status-head {

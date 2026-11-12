@@ -79,16 +79,16 @@
 
   const navItems = [
     { id: "Home", icon: House },
-    { id: "Hotwords", icon: Sparkles },
     { id: "ApiConfig", icon: KeyRound },
     { id: "Options", icon: Settings },
-    { id: "Privacy", icon: LockKeyhole },
+    { id: "Hotwords", icon: Sparkles },
     { id: "History", icon: BarChart3 },
+    { id: "Privacy", icon: LockKeyhole },
   ] as const;
 
   const navLabelKeys: Record<Section, CopyKey> = {
     Home: "navHome",
-    Hotwords: "navHotwords",
+    Hotwords: "overviewVocabulary",
     ApiConfig: "navApiConfig",
     Options: "navOptions",
     Privacy: "navPrivacy",
@@ -531,9 +531,8 @@
 
   .nav-text {
     min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    overflow-wrap: anywhere;
+    line-height: 1.2;
   }
 
   .ui-compact nav button {
@@ -902,11 +901,6 @@
     .nav-icon :global(svg) {
       width: 13px;
       height: 13px;
-    }
-
-    .nav-text {
-      white-space: normal;
-      overflow-wrap: anywhere;
     }
 
     .language-control,

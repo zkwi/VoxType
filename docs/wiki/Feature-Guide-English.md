@@ -34,7 +34,7 @@ The Home page is for daily use:
 
 Default trigger: `Ctrl + Q`.
 
-Use Options to turn the main shortcut off. Backup triggers pause during shortcut capture and resume when it ends. Press Esc or move focus to keep the previous combination.
+Use General & Shortcuts to turn the main shortcut off. Backup triggers pause during shortcut capture and resume when it ends. Press Esc or move focus to keep the previous combination.
 
 | Trigger | Default | Recommendation |
 | --- | --- | --- |
@@ -43,7 +43,7 @@ Use Options to turn the main shortcut off. Backup triggers pause during shortcut
 | Right Alt | Off | Can conflict with IMEs or shortcuts |
 | Right Ctrl | Off | Release Right Ctrl to start or stop recording when enabled |
 
-Enable Right Ctrl under Options → Extra start options. VoxType takes over the key while enabled, so shortcuts using Right Ctrl stop working in other apps. Left Ctrl works as usual.
+Enable Right Ctrl under General & Shortcuts → Extra start options. VoxType takes over the key while enabled, so shortcuts using Right Ctrl stop working in other apps. Left Ctrl works as usual.
 
 Avoid enabling multiple easy-to-misfire triggers unless you really need them.
 
@@ -68,13 +68,13 @@ Tips:
 - Low volume, long distance, noisy rooms, and disabled Windows microphone permission can cause empty recognition.
 - If the microphone is quiet but clear, check the system microphone level and distance first; if the recording quality card still repeatedly reports low volume, raise input gain slightly in recording troubleshooting to `+3 dB` or `+6 dB`.
 - A microphone input-stream error fails the current session immediately, so incomplete audio is not polished, pasted, or counted as success.
-- If the microphone fails to start, the floating caption shows a troubleshooting message for about 1.8 seconds. Options → Microphone includes an off-by-default switch for muting system audio during recording.
+- If the microphone fails to start, the floating caption shows a troubleshooting message for about 1.8 seconds. General & Shortcuts → Microphone includes an off-by-default switch for muting system audio during recording.
 - ASR no-feedback auto-stop defaults to 30 seconds. If the provider returns no effective text feedback for that window, VoxType stops through the normal grace flow and does not depend on local volume thresholds.
 - System-volume mute while recording is off by default; enable it only if echo affects recognition.
 
 ## 5. ASR Service
 
-VoxType uses Doubao `bigmodel_async` WebSocket by default, and Alibaba Cloud FunASR can be selected from API Config. Doubao can use a speech console API Key, the legacy App Key + Access Key flow, or a dedicated Volcengine Ark Agent Plan API Key. Each credential set is stored locally, while Agent Plan automatically uses its fixed endpoint and Doubao Streaming ASR 2.0 Resource ID. Both ASR providers share the same recording, caption, final text, LLM, clipboard, and stats workflow.
+VoxType uses Doubao `bigmodel_async` WebSocket by default, and Alibaba Cloud FunASR can be selected from Speech & Polishing. Doubao can use a speech console API Key, the legacy App Key + Access Key flow, or a dedicated Volcengine Ark Agent Plan API Key. Each credential set is stored locally, while Agent Plan automatically uses its fixed endpoint and Doubao Streaming ASR 2.0 Resource ID. Both ASR providers share the same recording, caption, final text, LLM, clipboard, and stats workflow.
 
 Doubao mode keeps two-pass recognition enabled by default. Live captions are feedback only, while pasted output waits for Doubao's final package, prefers final `definite=true` utterances, and can use a highly overlapping final full text to recover missing head or tail words. Alibaba Cloud FunASR mode waits for `task-finished` and only uses final sentence text as output. If the connection closes early or the final wait times out, VoxType fails the session instead of pasting interim text. In Doubao mode, the main workflow forces two-pass recognition, utterance output, and `full` cumulative result delivery. First-word acceleration is disabled by default to prioritize beginning-word accuracy, while DDC semantic smoothing is enabled by default for light ASR-side smoothing on short and medium text.
 
@@ -104,7 +104,7 @@ After recognition, VoxType:
 2. Sends `Ctrl+V` or `Shift+Insert`.
 3. Tries to restore the previous clipboard.
 
-Options exposes:
+General & Shortcuts exposes:
 
 - `Ctrl+V`: default and suitable for most text fields.
 - `Shift+Insert`: useful for apps that intercept `Ctrl+V`.
@@ -164,7 +164,7 @@ Preserve English technical terms and project names.
 
 In daily use, start with hotwords and scene notes. Open Advanced prompt settings only when you need a fixed rewriting style:
 
-- System Prompt, User Prompt template, and minimum polishing length are in Advanced prompt settings on Hotwords & prompts.
+- Edit the system prompt and user prompt template in Advanced prompt settings under Vocabulary & Context. Set minimum polishing length in Speech & Polishing → AI polishing.
 - Adjust LLM reference budgets in `config.toml`.
 - Final prompt preview shows how recognition terms, writing/product preferences, optional recent context, and screen OCR are appended as budgeted reference information.
 - The default prompt separates short and long text: short messages, one-line commands, and questions get light correction, with natural punctuation allowed but no expansion; long spoken notes, records, retrospectives, explanations, meeting notes, product feedback, and investment reviews are polished into publishable prose, usually as 2-4 natural paragraphs.
@@ -185,7 +185,7 @@ Privacy behavior:
 - Stores only VoxType final voice input text.
 - Does not record keyboard input.
 - Does not read clipboard history.
-- Local history can be cleared from Hotwords & prompts or Privacy & local data.
+- Local history can be cleared from Vocabulary & Context or Privacy & local data.
 - Calls the configured LLM only when you manually generate candidates.
 - Candidates must be confirmed before joining hotwords.
 
@@ -197,13 +197,13 @@ Screen OCR context reads text from the current display or current window when re
 
 Privacy and stability:
 
-- On by default, with the current display as the capture range. You can switch to current-window-only in Options.
+- On by default, with the current display as the capture range. In Vocabulary & Context → Screen text context, you can switch to the current window and adjust the character limit in advanced settings.
 - OCR text is used only for the current request and is not written to logs, stats, config, or cache.
-- The Options-page OCR test preview can be cleared immediately and is cleared automatically when the window is hidden, the app exits, or a new recording starts.
+- The OCR test preview can be cleared immediately and is cleared automatically when the window is hidden, the app exits, or a new recording starts.
 - When included in LLM polishing, OCR is trimmed, deduplicated, budget-capped, and appended as a separate reference-information block that is explicitly marked as not text to polish or user instructions.
 - Failure or timeout is skipped automatically and does not block recording, ASR, polishing, clipboard, or paste.
 - An OCR result that arrives after the first-packet wait is too late for ASR, but it is still used as a reference for LLM polishing with no extra waiting.
-- Switch to current-window-only or disable it in Options when the screen contains sensitive content; Privacy & local data can jump back to that setting through Manage settings.
+- Manage settings on Privacy & local data opens Screen text context, where you can narrow capture or turn OCR off.
 
 ## 11. Privacy & Local Data
 
@@ -251,18 +251,18 @@ Tray:
 
 - Closing the main window hides it to the tray by default.
 - Single-click the tray icon to open the main window.
-- Open main window is also the first tray menu item. When a recording shortcut is triggered from the tray with missing ASR credentials, VoxType opens API Config.
+- Open main window is also the first tray menu item. When a recording shortcut is triggered from the tray with missing ASR credentials, VoxType opens Speech & Polishing.
 - Tray menu can open the main window, open config, open logs, report an issue, check updates, restart the app, and exit.
 
 Startup:
 
-- Can be enabled from Options.
+- Can be enabled from General & Shortcuts.
 - When Windows starts VoxType at sign-in and speech recognition is already configured, it stays in the tray without opening the main window. Click the tray icon to open it.
 - Launching it manually, or starting before setup is complete, still shows the main window.
 
 Updates:
 
-- Manual update check is available in Options and the tray menu.
+- Manual update check is available in General & Shortcuts and the tray menu.
 - Startup auto-check is enabled by default.
 - When a new version is available, notices and the update panel provide an "Update now" action.
 - Updates download the NSIS installer from GitHub Releases, exit the current app to release files, and try to open the new version after installation.

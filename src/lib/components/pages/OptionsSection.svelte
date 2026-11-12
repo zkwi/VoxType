@@ -4,14 +4,14 @@
     AppConfig,
     AudioDeviceInfo,
     HotkeyCaptureState,
-    ScreenContextTestResult,
     SoftConfigNoticeKey,
     UpdateStatus,
   } from "$lib/types/app";
   import ActionPanel from "$lib/components/common/ActionPanel.svelte";
   import AdvancedSettings from "$lib/components/common/AdvancedSettings.svelte";
-  import type { CopyKey } from "$lib/i18n";
-  import { ClipboardCopy, Download, FileText, Keyboard, RefreshCw, ScanText, ShieldCheck, Trash2 } from "lucide-svelte";
+  import SettingsJumpNav from "$lib/components/common/SettingsJumpNav.svelte";
+  import type { CopyKey, Language } from "$lib/i18n";
+  import { ClipboardCopy, Download, FileText, Keyboard, RefreshCw, ShieldCheck, Trash2 } from "lucide-svelte";
 
   type Translate = (key: CopyKey, values?: Record<string, string>) => string;
   type OverlayColorPreset = { label: CopyKey; background: string; text: string };
@@ -21,15 +21,17 @@
     { id: "settings-output", label: "usageModeTitle" },
     { id: "settings-audio", label: "microphoneTitle" },
     { id: "settings-basic-output", label: "inputResultTitle" },
-    { id: "settings-screen-context", label: "screenContextTitle" },
     { id: "settings-overlay", label: "floatingCaptionAppearance" },
+    { id: "settings-window", label: "windowBehaviorTitle" },
     { id: "settings-update", label: "updatesAndDiagnostics" },
   ];
 
   type Props = {
     config: AppConfig;
     t: Translate;
-    requestedPanel: string | null;
+    language: Language;
+    onSetLanguage: (value: string) => void;
+    requestedPanel: { id: string } | null;
     hotkeyCaptureState: HotkeyCaptureState;
     hotkeyValidationMessage: string;
     overlayColorPresets: OverlayColorPreset[];
@@ -41,8 +43,6 @@
     installingUpdate: boolean;
     openingLog: boolean;
     copyingDiagnosticReport: boolean;
-    testingScreenContext: boolean;
-    screenContextTestResult: ScreenContextTestResult | null;
     fieldError: (field: string) => string;
     formatHotkey: (value: string) => string;
     overlayBackgroundRgb: () => string;
@@ -66,14 +66,14 @@
     onDownloadLatestUpdate: () => void;
     onOpenLog: () => void;
     onCopyDiagnosticReport: () => void;
-    onTestScreenContext: () => void;
-    onClearScreenContextPreview: () => void;
     onScrollToSettingsPanel: (id: string) => void;
   };
 
   let {
     config = $bindable<AppConfig>(),
     t,
+    language,
+    onSetLanguage,
     requestedPanel,
     hotkeyCaptureState,
     hotkeyValidationMessage,
@@ -86,8 +86,6 @@
     installingUpdate,
     openingLog,
     copyingDiagnosticReport,
-    testingScreenContext,
-    screenContextTestResult,
     fieldError,
     formatHotkey,
     overlayBackgroundRgb,
@@ -111,8 +109,6 @@
     onDownloadLatestUpdate,
     onOpenLog,
     onCopyDiagnosticReport,
-    onTestScreenContext,
-    onClearScreenContextPreview,
     onScrollToSettingsPanel,
   }: Props = $props();
 
@@ -135,10 +131,11 @@
   });
 
   let showBackupTriggers = $state(false);
-  $effect(() => {
-    if (requestedPanel === "settings-backup-triggers") showBackupTriggers = true;
-  });
   let showRecordingTroubleshooting = $state(false);
+  $effect(() => {
+    if (requestedPanel?.id === "settings-backup-triggers") showBackupTriggers = true;
+    if (requestedPanel?.id === "settings-recording-troubleshooting") showRecordingTroubleshooting = true;
+  });
   let backupTriggersActive = $derived(Boolean(
     config.triggers.middle_mouse_enabled ||
       config.triggers.right_alt_enabled ||
@@ -166,17 +163,12 @@
 <section class="settings-stack">
   <section class="settings-group">
     <div class="settings-group-heading">
-      <h3>{t("optionsPageTitle")}</h3>
+      <h3>{t("navOptions")}</h3>
       <p>{t("optionsPageDescription")}</p>
     </div>
-    <nav class="settings-jump-nav" aria-label={t("optionsQuickNav")}>
-      {#each optionJumpTargets as target}
-        <button type="button" onclick={() => onScrollToSettingsPanel(target.id)}>{t(target.label)}</button>
-      {/each}
-    </nav>
+    <SettingsJumpNav targets={optionJumpTargets} {t} onJump={onScrollToSettingsPanel} />
     <div class="settings-cluster-heading">
       <span>{t("optionsEssentialsTitle")}</span>
-      <small>{t("optionsEssentialsDescription")}</small>
     </div>
     <div id="settings-output" class="form-panel">
       <div class="section-heading"><h3>{t("usageModeTitle")}</h3><p>{t("usageModeDescription")}</p></div>
@@ -252,12 +244,12 @@
         <div class="form-grid">
           <label class:field-invalid={Boolean(fieldError("asr.no_feedback_auto_stop_seconds"))}>
             <span>{t("asrNoFeedbackAutoStopSeconds")}</span>
-            <input type="number" min="0" max="300" step="1" bind:value={config.asr.no_feedback_auto_stop_seconds} />
+            <input type="number" min="0" max="300" step="1" data-config-field="asr.no_feedback_auto_stop_seconds" aria-invalid={Boolean(fieldError("asr.no_feedback_auto_stop_seconds"))} bind:value={config.asr.no_feedback_auto_stop_seconds} />
             {#if fieldError("asr.no_feedback_auto_stop_seconds")}<small class="field-error">{fieldError("asr.no_feedback_auto_stop_seconds")}</small>{/if}
           </label>
           <label class:field-invalid={Boolean(fieldError("audio.input_gain_db"))}>
             <span>{t("inputGainDb")}</span>
-            <input type="number" min="-12" max="24" step="1" bind:value={config.audio.input_gain_db} />
+            <input type="number" min="-12" max="24" step="1" data-config-field="audio.input_gain_db" aria-invalid={Boolean(fieldError("audio.input_gain_db"))} bind:value={config.audio.input_gain_db} />
             {#if fieldError("audio.input_gain_db")}<small class="field-error">{fieldError("audio.input_gain_db")}</small>{/if}
           </label>
         </div>
@@ -286,57 +278,7 @@
       <p class="field-hint">{t("clipboardTextRestoreHint")}</p>
     </div>
     <div class="settings-cluster-heading">
-      <span>{t("optionsEnhancementTitle")}</span>
-      <small>{t("optionsEnhancementDescription")}</small>
-    </div>
-    <div id="settings-screen-context" class="form-panel">
-      <div class="section-heading"><h3>{t("screenContextTitle")}</h3><p>{t("screenContextDescription")}</p></div>
-      <div class="toggle-grid">
-        <label class="check">
-          <input type="checkbox" bind:checked={config.screen_context.enabled} />
-          <span class="check-copy">
-            <span>{t("enableScreenContext")}</span>
-            <small>{t("screenContextSentToService")}</small>
-          </span>
-        </label>
-      </div>
-      <div class="form-grid">
-        <label>
-          <span>{t("screenContextScope")}</span>
-          <select bind:value={config.screen_context.capture_scope} disabled={!config.screen_context.enabled}>
-            <option value="screen">{t("screenContextScopeScreen")}</option>
-            <option value="window">{t("screenContextScopeWindow")}</option>
-          </select>
-        </label>
-      </div>
-      <p class="field-hint">{t("screenContextPrivacyHint")}</p>
-      <ActionPanel
-        title={t("screenContextTestTitle")}
-        description={t("screenContextTestDescription")}
-        meta={screenContextTestResult ? t("screenContextTestMeta", {
-          chars: String(screenContextTestResult.text_chars),
-          ms: String(screenContextTestResult.elapsed_ms),
-          lang: screenContextTestResult.selected_language ?? "-"
-        }) : ""}
-      >
-        {#snippet actions()}
-          <button type="button" onclick={onTestScreenContext} disabled={testingScreenContext}>
-            <ScanText size={16} />{testingScreenContext ? t("testingScreenContext") : t("testScreenContext")}
-          </button>
-        {/snippet}
-      </ActionPanel>
-      {#if screenContextTestResult}
-        <div class="ocr-preview" class:empty={!screenContextTestResult.text.trim()}>
-          <div class="ocr-preview-head">
-            <strong>{screenContextTestResult.warning ?? t("screenContextRecognizedText")}</strong>
-            <button type="button" class="link-action compact" onclick={onClearScreenContextPreview}>
-              <Trash2 size={14} />{t("clearPreview")}
-            </button>
-          </div>
-          <p>{t("screenContextPreviewSensitive")}</p>
-          <pre>{screenContextTestResult.text || t("screenContextNoText")}</pre>
-        </div>
-      {/if}
+      <span>{t("optionsMaintenanceTitle")}</span>
     </div>
     <div id="settings-overlay" class="form-panel">
       <div class="section-heading"><h3>{t("floatingCaptionAppearance")}</h3><p>{t("floatingCaptionAppearanceDescription")}</p></div>
@@ -386,10 +328,6 @@
         </div>
       </div>
     </div>
-    <div class="settings-cluster-heading">
-      <span>{t("optionsMaintenanceTitle")}</span>
-      <small>{t("optionsMaintenanceDescription")}</small>
-    </div>
     <div id="settings-window" class="form-panel">
       <div class="section-heading"><h3>{t("windowBehaviorTitle")}</h3><p>{t("windowBehaviorDescription")}</p></div>
       <div class="form-grid">
@@ -401,6 +339,14 @@
             <option value="ask_every_time">{t("closeBehaviorAskEveryTime")}</option>
           </select>
           {#if fieldError("tray.close_behavior")}<small class="field-error">{fieldError("tray.close_behavior")}</small>{/if}
+        </label>
+        <label>
+          <span>{t("language")}</span>
+          <select value={language} onchange={(event) => onSetLanguage(event.currentTarget.value)}>
+            <option value="zh-CN">简体中文</option>
+            <option value="zh-TW">繁體中文</option>
+            <option value="en">English</option>
+          </select>
         </label>
       </div>
       <p class="field-hint">{t("closeBehaviorHint")}</p>
@@ -465,42 +411,6 @@
     }
   }
 
-  .settings-jump-nav {
-    position: sticky;
-    top: -1px;
-    z-index: 4;
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(min(156px, 100%), 1fr));
-    gap: 8px;
-    padding: 10px;
-    background: rgba(247, 250, 254, 0.94);
-    border: 1px solid var(--border);
-    border-radius: 14px;
-    backdrop-filter: blur(12px);
-  }
-
-  .settings-jump-nav button {
-    min-width: 0;
-    min-height: 34px;
-    padding: 0 10px;
-    color: var(--text-secondary);
-    background: #ffffff;
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    font-size: 13px;
-    font-weight: 800;
-    line-height: 1.2;
-    overflow-wrap: anywhere;
-  }
-
-  .settings-jump-nav button:hover,
-  .settings-jump-nav button:focus-visible {
-    color: var(--primary);
-    border-color: rgba(47, 128, 237, 0.28);
-    box-shadow: 0 0 0 3px rgba(47, 128, 237, 0.1);
-    outline: 0;
-  }
-
   .settings-cluster-heading {
     display: grid;
     gap: 4px;
@@ -511,13 +421,6 @@
     color: var(--primary);
     font-size: 13px;
     font-weight: 900;
-  }
-
-  .settings-cluster-heading small {
-    color: var(--text-secondary);
-    font-size: 13px;
-    line-height: 1.45;
-    overflow-wrap: anywhere;
   }
 
   .subsection-heading {
@@ -713,56 +616,6 @@
   .opacity-preset-row button {
     justify-content: center;
     padding: 6px 8px;
-  }
-
-  .ocr-preview {
-    display: grid;
-    gap: 8px;
-    min-width: 0;
-    padding: 12px;
-    background: #f8fbff;
-    border: 1px solid var(--border);
-    border-radius: 12px;
-  }
-
-  .ocr-preview.empty {
-    background: #fff8ed;
-  }
-
-  .ocr-preview strong {
-    color: var(--text-main);
-    font-size: 13px;
-    font-weight: 800;
-  }
-
-  .ocr-preview-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-  }
-
-  .ocr-preview-head .link-action {
-    flex: 0 0 auto;
-  }
-
-  .ocr-preview p {
-    margin: 0;
-    color: var(--text-muted);
-    font-size: 12px;
-    line-height: 1.5;
-  }
-
-  .ocr-preview pre {
-    max-height: 168px;
-    margin: 0;
-    overflow: auto;
-    color: var(--text-secondary);
-    font-family: inherit;
-    font-size: 12px;
-    line-height: 1.5;
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
   }
 
   @media (max-width: 920px) {

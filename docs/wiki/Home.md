@@ -17,11 +17,11 @@ VoxType is a lightweight Rust/Tauri Windows desktop AI voice typing, dictation, 
 
 Home shows input status, links to trigger and microphone settings, and all-time local usage. 首页可直达触发和麦克风设置，并查看最近 7 日录音时长与累计用量。识别完成后可在首页查看、复制或立即清空本次文本。
 
-<img src="https://raw.githubusercontent.com/zkwi/VoxType/main/screenshots/voxtype-0.17.0-home-zh-CN.png" alt="VoxType 中文首页，显示启动方式、配置速览和示例统计" width="820">
+<img src="https://raw.githubusercontent.com/zkwi/VoxType/main/screenshots/voxtype-0.18.0-home-zh-CN.png" alt="VoxType 中文首页，显示启动方式、配置速览和示例统计" width="820">
 
-API Config shows setup health before the credential forms. API 配置页先展示 ASR 密钥、麦克风、粘贴方式、触发方式和隐私设置状态，再提供当前 ASR 服务与可选大模型测试入口。截图中的密钥已脱敏。
+Speech & Polishing shows a compact health summary once setup is ready. 语音与润色服务页就绪时收起健康检查，展开可查看详情。最小润色字数与大模型开关在同一面板。
 
-<img src="https://raw.githubusercontent.com/zkwi/VoxType/main/screenshots/ScreenShot_2026-05-09_130827_317.png" alt="VoxType English API Config and setup health check" width="820">
+<img src="https://raw.githubusercontent.com/zkwi/VoxType/main/screenshots/voxtype-0.18.0-services-en.png" alt="VoxType English Speech & Polishing and setup health check" width="820">
 
 ## 简体中文
 
@@ -70,7 +70,7 @@ Yes. VoxType is a Windows desktop dictation app that turns microphone speech int
 
 ### Does VoxType require Doubao ASR?
 
-No. VoxType uses Doubao ASR by default, but you can switch to Alibaba Cloud FunASR in API Config. The selected ASR provider's required credentials must be filled before recording, recognition, and paste actions are unlocked.
+No. VoxType uses Doubao ASR by default, but you can switch to Alibaba Cloud FunASR in Speech & Polishing. The selected ASR provider's required credentials must be filled before recording, recognition, and paste actions are unlocked.
 
 ### Is LLM polishing required?
 

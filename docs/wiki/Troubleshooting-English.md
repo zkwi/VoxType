@@ -8,13 +8,13 @@ This page is the repository draft mirror for the GitHub Wiki `Troubleshooting-En
 
 When something fails, check in this order:
 
-1. API Config setup health has no red blocking item.
+1. Speech & Polishing setup health has no red blocking item.
 2. Required credentials for the selected ASR provider are filled in.
 3. Windows allows desktop apps to access the microphone.
 4. Home shows at least one enabled trigger.
 5. The cursor is in an editable text field.
 6. The target app does not block paste shortcuts.
-7. Options can open logs or copy a redacted diagnostic report.
+7. General & Shortcuts can open logs or copy a redacted diagnostic report.
 
 ## Blank Startup Window or Stuck Startup Page
 
@@ -67,8 +67,8 @@ Possible causes:
 
 Fix:
 
-1. Open API Config and confirm required ASR fields are filled in.
-2. Open Options and confirm the main shortcut is `Ctrl + Q` and at least one trigger is enabled.
+1. Open Speech & Polishing and confirm required ASR fields are filled in.
+2. Open General & Shortcuts and confirm the main shortcut is `Ctrl + Q` and at least one trigger is enabled.
 3. Try another shortcut.
 4. If the target app runs as administrator, try starting VoxType with matching permissions.
 
@@ -86,9 +86,9 @@ Possible causes:
 Fix:
 
 1. Allow desktop microphone access in Windows Settings.
-2. Select the correct input device in Options.
-3. If the microphone is quiet but clear, check the Windows microphone level and speaking distance first; if the recording quality card still repeatedly reports low volume, raise input gain slightly in Options recording troubleshooting to `+3 dB` or `+6 dB`.
-4. Test the selected ASR provider from API Config.
+2. Select the correct input device in General & Shortcuts.
+3. If the microphone is quiet but clear, check the Windows microphone level and speaking distance first; if the recording quality card still repeatedly reports low volume, raise input gain slightly in General & Shortcuts recording troubleshooting to `+3 dB` or `+6 dB`.
+4. Test the selected ASR provider from Speech & Polishing.
 5. Try again in a quieter environment.
 6. If VoxType reports a microphone capture error, reconnect or switch the input device and close apps that may exclusively use the microphone.
 
@@ -98,13 +98,13 @@ Notes:
 - A microphone input-stream error also becomes a failure, so missing-frame audio does not produce low-quality recognized text.
 - Input gain defaults to `0 dB`; it only boosts the PCM sent to the selected ASR provider locally and does not save audio. Too much gain clips speech or amplifies room noise.
 - ASR no-feedback auto-stop defaults to `30` seconds and only stops through the normal grace flow when the provider returns no effective text feedback.
-- If the network or provider responds slowly, increase this value in Options; set `0` to disable it.
+- If the network or provider responds slowly, increase this value in General & Shortcuts; set `0` to disable it.
 
 ## ASR Test Fails
 
 If pressing right Alt or middle click inside a browser form drops focus, check whether that trigger is enabled. While enabled VoxType consumes the key and the browser never sees it, so focus stays put. While disabled the key passes through, and Chrome treats a solitary Alt as "open the menu bar" and a middle click as autoscroll, both of which blur the focused field.
 
-First confirm that API Config's selected ASR provider and Doubao access mode match the credential fields. The speech console API Key mode only needs a key from API Key management plus an enabled Resource ID. Legacy standard access requires App Key, Access Key, and Resource ID from the same speech service. Agent Plan requires the dedicated Ark API Key plus Doubao Streaming ASR 2.0 and overage post-pay configured in the Ark console. Alibaba Cloud FunASR requires API Key, Workspace ID, region, and model permission from the same Bailian workspace. Do not paste an LLM API key, GitHub token, Volcano Engine IAM secret, or another platform's key into the wrong ASR provider.
+First confirm that Speech & Polishing's selected ASR provider and Doubao access mode match the credential fields. The speech console API Key mode only needs a key from API Key management plus an enabled Resource ID. Legacy standard access requires App Key, Access Key, and Resource ID from the same speech service. Agent Plan requires the dedicated Ark API Key plus Doubao Streaming ASR 2.0 and overage post-pay configured in the Ark console. Alibaba Cloud FunASR requires API Key, Workspace ID, region, and model permission from the same Bailian workspace. Do not paste an LLM API key, GitHub token, Volcano Engine IAM secret, or another platform's key into the wrong ASR provider.
 
 Common fixes:
 
@@ -128,7 +128,7 @@ Fix:
 
 1. Test in Notepad first.
 2. If text was copied, press `Ctrl + V` manually.
-3. Try `Shift + Insert` or clipboard-only output in Options.
+3. Try `Shift + Insert` or clipboard-only output in General & Shortcuts.
 4. If the target app reads the clipboard slowly, increase clipboard restore delay in `config.toml`.
 
 ## Previous Clipboard Was Not Fully Restored
@@ -153,7 +153,7 @@ Possible causes:
 
 Fix:
 
-1. Enable LLM polishing in API Config.
+1. Enable LLM polishing in Speech & Polishing.
 2. Fill in Base URL, API Key, and model.
 3. Run the LLM test.
 4. Confirm Base URL, API Key, and model come from the same LLM platform/region.
@@ -172,7 +172,7 @@ Notes:
 Try:
 
 - `qwen3.7-max-preview` and `qwen3.7-max-2026-05-17` are thinking-only and cannot be switched off. Use `qwen3.7-max`, `qwen3.7-max-2026-05-20`, or `qwen3.7-max-2026-06-08` instead.
-- After changing Base URL, API Key, model, or the thinking toggle, wait for the automatic adapter test after auto-save; if polishing is still slow, rerun the LLM test manually in API Config and keep thinking disabled.
+- After changing Base URL, API Key, model, or the thinking toggle, wait for the automatic adapter test after auto-save; if polishing is still slow, rerun the LLM test manually in Speech & Polishing and keep thinking disabled.
 - Increase `min_chars` so short text skips polishing.
 - Lower the LLM reference budgets for terms, recent context, and screen OCR to send less context.
 - Use a faster model.
@@ -215,7 +215,7 @@ Possible causes:
 
 Fix:
 
-1. Enable automatic hotword candidates on Hotwords & prompts.
+1. Enable automatic hotword candidates on Vocabulary & Context.
 2. Use voice input a few times to accumulate local history.
 3. Configure and test LLM API.
 4. Generate candidates manually.
@@ -224,7 +224,7 @@ Fix:
 
 Since 0.1.62, VoxType merges extra spaces between adjacent CJK characters before sending screen OCR context to the selected ASR service and the optional LLM. For example, `屏 幕 OCR 上 下 文` is normalized to `屏幕 OCR 上下文`. English acronyms, shortcuts, paths, and number spacing are kept as much as possible.
 
-If the test preview is still obviously poor, confirm that the Windows Chinese OCR language capability is available, and keep the reference text clear and unobstructed. If the screen contains sensitive information, switch to current-window-only or disable Screen OCR context in Options; recording, ASR, and paste still work without it.
+If the test preview is poor, confirm that the Windows Chinese OCR language capability is available and keep the reference text unobstructed. For sensitive content, limit capture to the current window or turn OCR off under Vocabulary & Context → Screen text context.
 
 ## Update Fails
 
@@ -236,7 +236,7 @@ You usually do not need to uninstall the old version first. If the installer say
 
 ## Logs and Diagnostic Report
 
-Options and the tray menu can open logs. Options can also copy a redacted diagnostic report.
+General & Shortcuts and the tray menu can open logs. General & Shortcuts can also copy a redacted diagnostic report.
 
 When reporting an issue, include:
 

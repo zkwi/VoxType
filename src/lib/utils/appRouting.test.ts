@@ -10,7 +10,8 @@ import {
 
 describe("app routing", () => {
   it("routes known setting panels to their sections", () => {
-    expect(sectionForSettingsPanel("settings-context")).toBe("Hotwords");
+    expect(sectionForSettingsPanel("settings-hotwords")).toBe("Hotwords");
+    expect(sectionForSettingsPanel("settings-screen-context")).toBe("Hotwords");
     expect(sectionForSettingsPanel("settings-llm-api")).toBe("ApiConfig");
     expect(sectionForSettingsPanel("settings-audio")).toBe("Options");
   });

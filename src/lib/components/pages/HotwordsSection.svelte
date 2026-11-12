@@ -1,16 +1,32 @@
 <script lang="ts">
+  import ActionPanel from "$lib/components/common/ActionPanel.svelte";
+  import SettingsJumpNav from "$lib/components/common/SettingsJumpNav.svelte";
   import AdvancedSettings from "$lib/components/common/AdvancedSettings.svelte";
   import SettingTags from "$lib/components/common/SettingTags.svelte";
-  import type { AppConfig, SelectableHotwordCandidate } from "$lib/types/app";
+  import type { AppConfig, ScreenContextTestResult, SelectableHotwordCandidate } from "$lib/types/app";
   import type { CopyKey } from "$lib/i18n";
-  import { AlertCircle, Check, FileText, Info, Sparkles, Trash2 } from "lucide-svelte";
+  import { AlertCircle, Check, FileText, Info, ScanText, Sparkles, Trash2 } from "lucide-svelte";
 
   type Translate = (key: CopyKey, values?: Record<string, string>) => string;
+
+  const contextJumpTargets = [
+    { id: "settings-hotwords", label: "customHotwords" },
+    { id: "settings-auto-hotwords", label: "autoHotwordsTitle" },
+    { id: "settings-screen-context", label: "screenContextTitle" },
+    { id: "settings-prompt-context", label: "sceneContext" },
+    { id: "settings-llm-prompt", label: "polishingPromptTitle" },
+  ] as const;
 
   type Props = {
     config: AppConfig;
     autoHotwordCandidates: SelectableHotwordCandidate[];
     t: Translate;
+    requestedPanel: { id: string } | null;
+    testingScreenContext: boolean;
+    screenContextTestResult: ScreenContextTestResult | null;
+    onTestScreenContext: () => void;
+    onClearScreenContextPreview: () => void;
+    onScrollToSettingsPanel: (id: string) => void;
     generatingAutoHotwords: boolean;
     clearingAutoHotwordHistory: boolean;
     autoHotwordError: string;
@@ -43,6 +59,12 @@
     config = $bindable<AppConfig>(),
     autoHotwordCandidates = $bindable<SelectableHotwordCandidate[]>(),
     t,
+    requestedPanel,
+    testingScreenContext,
+    screenContextTestResult,
+    onTestScreenContext,
+    onClearScreenContextPreview,
+    onScrollToSettingsPanel,
     generatingAutoHotwords,
     clearingAutoHotwordHistory,
     autoHotwordError,
@@ -72,10 +94,14 @@
   }: Props = $props();
 
   let showPromptAdvanced = $state(false);
+  let showScreenContextAdvanced = $state(false);
+
+  $effect(() => {
+    if (requestedPanel?.id === "settings-llm-prompt") showPromptAdvanced = true;
+  });
   let promptAdvancedHasError = $derived(Boolean(
     fieldError("llm_post_edit.system_prompt") ||
-      fieldError("llm_post_edit.user_prompt_template") ||
-      fieldError("llm_post_edit.min_chars"),
+      fieldError("llm_post_edit.user_prompt_template"),
   ));
   let promptBudgetHasError = $derived(Boolean(
     fieldError("llm_post_edit.screen_context_max_chars") ||
@@ -87,12 +113,14 @@
 </script>
 
 <section class="settings-stack">
+  <div class="settings-group-heading">
+    <h3>{t("overviewVocabulary")}</h3>
+    <p>{t("hotwordsPageDescription")}</p>
+  </div>
+  <SettingsJumpNav targets={contextJumpTargets} {t} onJump={onScrollToSettingsPanel} />
   <section class="settings-group">
-    <div class="settings-group-heading">
-      <h3>{t("hotwordsPageTitle")}</h3>
-      <p>{t("hotwordsPageDescription")}</p>
-    </div>
-    <div id="settings-context" class="form-panel">
+    <div class="settings-group-heading"><h3>{t("vocabularyGroupTitle")}</h3></div>
+    <div id="settings-hotwords" class="form-panel">
       <div class="section-heading with-actions">
         <div class="section-heading-copy">
           <h3>{t("hotwordsCommonTitle")}</h3>
@@ -107,6 +135,151 @@
       <p class="field-hint">{t("customHotwordCount", { count: String(hotwordCount) })}</p>
       <label><span>{t("customHotwords")}</span><textarea value={config.context.hotwords.join("\n")} oninput={(event) => onUpdateHotwords(event.currentTarget.value)}></textarea></label>
       <p class="field-hint">{t("hotwordsPrivacyHint")}</p>
+    </div>
+    <div id="settings-auto-hotwords" class="form-panel auto-hotwords-panel">
+      <div class="section-heading with-actions">
+        <div class="section-heading-copy">
+          <h3>{t("autoHotwordsTitle")}</h3>
+          <p>{t("autoHotwordsDescription")}</p>
+          <SettingTags tags={[t("tagOptional"), t("tagLocalOnly"), t("tagSentToService")]} />
+        </div>
+        <div class="settings-inline-actions">
+          {#if showAutoHotwordDetails}
+            <button class="test-button" type="button" onclick={onGenerateAutoHotwords} disabled={generatingAutoHotwords || !hasLlmApiConfig || !config.auto_hotwords.enabled}>
+              <Sparkles size={16} />{generatingAutoHotwords ? t("autoHotwordsGenerating") : t("autoHotwordsGenerate")}
+            </button>
+            <button class="test-button" type="button" onclick={onClearAutoHotwordHistory} disabled={clearingAutoHotwordHistory}>
+              <Trash2 size={16} />{clearingAutoHotwordHistory ? t("autoHotwordsClearing") : t("autoHotwordsClearHistory")}
+            </button>
+          {/if}
+        </div>
+      </div>
+      <div class="toggle-grid">
+        <label class="check"><input type="checkbox" bind:checked={config.auto_hotwords.enabled} />{t("autoHotwordsEnabled")}</label>
+      </div>
+      <p class="field-hint">{t("autoHotwordsPrivacyHint")}</p>
+      {#if showAutoHotwordDetails && !hasLlmApiConfig}
+        <div class="inline-warning">
+          <AlertCircle size={16} />
+          <span>{t("autoHotwordsNeedsLlmApi")}</span>
+          <button class="link-button" type="button" onclick={onOpenLlmApiSettings}>{t("goApiConfig")}</button>
+        </div>
+      {/if}
+      {#if showAutoHotwordDetails}
+        <div class="auto-hotword-list-editor">
+          <div class="auto-hotword-list-head">
+            <div>
+              <strong>{t("autoHotwordsAcceptedTitle", { count: String(acceptedAutoHotwordCount) })}</strong>
+              <span>{t("autoHotwordsAcceptedDescription")}</span>
+            </div>
+            <div class="settings-inline-actions">
+              <button class="test-button" type="button" onclick={onTidyAcceptedAutoHotwords}><Sparkles size={16} />{t("tidyHotwords")}</button>
+              <button class="test-button" type="button" onclick={onClearAcceptedAutoHotwords}><Trash2 size={16} />{t("autoHotwordsAcceptedClear")}</button>
+            </div>
+          </div>
+          <label>
+            <span>{t("autoHotwordsAcceptedList")}</span>
+            <textarea value={config.auto_hotwords.accepted_hotwords.join("\n")} oninput={(event) => onUpdateAcceptedAutoHotwords(event.currentTarget.value)}></textarea>
+          </label>
+          <p class="field-hint">{t("autoHotwordsAcceptedHint")}</p>
+        </div>
+        <div class="auto-hotword-status">
+          <Info size={16} />
+          <span>{autoHotwordStatusText}</span>
+          <button class="link-button" type="button" onclick={onRefreshAutoHotwordStatus}>{t("refreshStatus")}</button>
+        </div>
+        {#if autoHotwordError}
+          <p class="field-error">{autoHotwordError}</p>
+        {/if}
+        {#if autoHotwordCandidates.length > 0}
+          <div class="auto-hotword-candidates">
+            <div class="candidate-list-head">
+              <strong>{t("autoHotwordsCandidatesTitle", { count: String(autoHotwordCandidates.length) })}</strong>
+              <button class="test-button" type="button" onclick={onApplySelectedAutoHotwords}>
+                <Check size={16} />{t("autoHotwordsApplySelected", { count: String(selectedAutoHotwordCount) })}
+              </button>
+            </div>
+            {#each autoHotwordCandidates as candidate}
+              <label class="candidate-row">
+                <input type="checkbox" bind:checked={candidate.selected} />
+                <span class="candidate-copy">
+                  <strong>{candidate.word}</strong>
+                  <small>{candidate.category || t("autoHotwordsUnknownCategory")} · {candidateConfidenceLabel(candidate.confidence)} · {t("autoHotwordsSourceCount", { count: String(candidate.source_count) })}</small>
+                  <span>{candidate.reason}</span>
+                </span>
+              </label>
+            {/each}
+          </div>
+        {/if}
+      {/if}
+    </div>
+  </section>
+  <section class="settings-group">
+    <div class="settings-group-heading"><h3>{t("contextGroupTitle")}</h3></div>
+    <div id="settings-screen-context" class="form-panel">
+      <div class="section-heading"><h3>{t("screenContextTitle")}</h3><p>{t("screenContextDescription")}</p></div>
+      <div class="toggle-grid">
+        <label class="check">
+          <input type="checkbox" bind:checked={config.screen_context.enabled} />
+          <span class="check-copy">
+            <span>{t("enableScreenContext")}</span>
+            <small>{t("screenContextSentToService")}</small>
+          </span>
+        </label>
+      </div>
+      <div class="form-grid">
+        <label class:field-invalid={Boolean(fieldError("screen_context.capture_scope"))}>
+          <span>{t("screenContextScope")}</span>
+          <select data-config-field="screen_context.capture_scope" aria-invalid={Boolean(fieldError("screen_context.capture_scope"))}
+            bind:value={config.screen_context.capture_scope}
+            disabled={!config.screen_context.enabled && !fieldError("screen_context.capture_scope")}>
+            <option value="screen">{t("screenContextScopeScreen")}</option>
+            <option value="window">{t("screenContextScopeWindow")}</option>
+          </select>
+          {#if fieldError("screen_context.capture_scope")}<small class="field-error">{fieldError("screen_context.capture_scope")}</small>{/if}
+        </label>
+      </div>
+      <p class="field-hint">{t("screenContextPrivacyHint")}</p>
+      <AdvancedSettings
+        title={t("screenContextAdvanced")}
+        description={t("screenContextMaxCharsHint")}
+        expanded={showScreenContextAdvanced || Boolean(fieldError("screen_context.max_chars"))}
+        onToggle={() => (showScreenContextAdvanced = !showScreenContextAdvanced)}
+      >
+        <label class:field-invalid={Boolean(fieldError("screen_context.max_chars"))}>
+          <span>{t("screenContextMaxChars")}</span>
+          <input type="number" min="100" max="4000" step="1" data-config-field="screen_context.max_chars"
+            aria-invalid={Boolean(fieldError("screen_context.max_chars"))} bind:value={config.screen_context.max_chars} />
+          {#if fieldError("screen_context.max_chars")}<small class="field-error">{fieldError("screen_context.max_chars")}</small>{/if}
+        </label>
+      </AdvancedSettings>
+      <ActionPanel
+        title={t("screenContextTestTitle")}
+        description={t("screenContextTestDescription")}
+        meta={screenContextTestResult ? t("screenContextTestMeta", {
+          chars: String(screenContextTestResult.text_chars),
+          ms: String(screenContextTestResult.elapsed_ms),
+          lang: screenContextTestResult.selected_language ?? "-"
+        }) : ""}
+      >
+        {#snippet actions()}
+          <button type="button" onclick={onTestScreenContext} disabled={testingScreenContext}>
+            <ScanText size={16} />{testingScreenContext ? t("testingScreenContext") : t("testScreenContext")}
+          </button>
+        {/snippet}
+      </ActionPanel>
+      {#if screenContextTestResult}
+        <div class="ocr-preview" class:empty={!screenContextTestResult.text.trim()}>
+          <div class="ocr-preview-head">
+            <strong>{screenContextTestResult.warning ?? t("screenContextRecognizedText")}</strong>
+            <button type="button" class="link-action compact" onclick={onClearScreenContextPreview}>
+              <Trash2 size={14} />{t("clearPreview")}
+            </button>
+          </div>
+          <p>{t("screenContextPreviewSensitive")}</p>
+          <pre>{screenContextTestResult.text || t("screenContextNoText")}</pre>
+        </div>
+      {/if}
     </div>
     <div id="settings-prompt-context" class="form-panel">
       <div class="section-heading">
@@ -130,6 +303,9 @@
         </div>
       {/if}
     </div>
+  </section>
+  <section class="settings-group">
+    <div class="settings-group-heading"><h3>{t("polishingRulesGroupTitle")}</h3></div>
     <div id="settings-llm-prompt" class="form-panel">
       <div class="section-heading with-actions">
         <div class="section-heading-copy">
@@ -141,6 +317,7 @@
           {/if}
         </div>
         <div class="settings-inline-actions">
+          <button class="test-button" type="button" onclick={onOpenLlmApiSettings}>{t("goApiConfig")}</button>
           <button class="test-button" type="button" onclick={onRestoreDefaultPrompt}><Sparkles size={16} />{t("restoreDefaultPrompt")}</button>
           <button class="test-button" type="button" onclick={onPreviewFinalPrompt}><FileText size={16} />{t("previewFinalPrompt")}</button>
         </div>
@@ -158,17 +335,9 @@
         </label>
         <label class:field-invalid={Boolean(fieldError("llm_post_edit.user_prompt_template"))}>
           <span>{t("userPromptTemplate")}</span>
-          <textarea bind:value={config.llm_post_edit.user_prompt_template}></textarea>
+          <textarea data-config-field="llm_post_edit.user_prompt_template" aria-invalid={Boolean(fieldError("llm_post_edit.user_prompt_template"))} bind:value={config.llm_post_edit.user_prompt_template}></textarea>
           {#if fieldError("llm_post_edit.user_prompt_template")}<small class="field-error">{fieldError("llm_post_edit.user_prompt_template")}</small>{/if}
         </label>
-        <div class="form-grid">
-          <label class:field-invalid={Boolean(fieldError("llm_post_edit.min_chars"))}>
-            <span>{t("minChars")}</span>
-            <input type="number" min="0" max="10000" step="1" bind:value={config.llm_post_edit.min_chars} />
-            {#if fieldError("llm_post_edit.min_chars")}<small class="field-error">{fieldError("llm_post_edit.min_chars")}</small>{/if}
-            <small class="field-hint">{t("minCharsHint")}</small>
-          </label>
-        </div>
         {#if promptBudgetHasError}
           <div class="inline-warning">
             <AlertCircle size={16} />
@@ -177,109 +346,82 @@
           <div class="form-grid">
             <label class:field-invalid={Boolean(fieldError("llm_post_edit.screen_context_max_chars"))}>
               <span>{t("llmScreenContextMaxChars")}</span>
-              <input type="number" min="0" max="2000" step="1" bind:value={config.llm_post_edit.screen_context_max_chars} />
+              <input type="number" min="0" max="2000" step="1" data-config-field="llm_post_edit.screen_context_max_chars" bind:value={config.llm_post_edit.screen_context_max_chars} />
               {#if fieldError("llm_post_edit.screen_context_max_chars")}<small class="field-error">{fieldError("llm_post_edit.screen_context_max_chars")}</small>{/if}
             </label>
             <label class:field-invalid={Boolean(fieldError("llm_post_edit.screen_context_max_lines"))}>
               <span>{t("llmScreenContextMaxLines")}</span>
-              <input type="number" min="0" max="100" step="1" bind:value={config.llm_post_edit.screen_context_max_lines} />
+              <input type="number" min="0" max="100" step="1" data-config-field="llm_post_edit.screen_context_max_lines" bind:value={config.llm_post_edit.screen_context_max_lines} />
               {#if fieldError("llm_post_edit.screen_context_max_lines")}<small class="field-error">{fieldError("llm_post_edit.screen_context_max_lines")}</small>{/if}
             </label>
             <label class:field-invalid={Boolean(fieldError("llm_post_edit.recent_context_max_chars"))}>
               <span>{t("llmRecentContextMaxChars")}</span>
-              <input type="number" min="0" max="2000" step="1" bind:value={config.llm_post_edit.recent_context_max_chars} />
+              <input type="number" min="0" max="2000" step="1" data-config-field="llm_post_edit.recent_context_max_chars" bind:value={config.llm_post_edit.recent_context_max_chars} />
               {#if fieldError("llm_post_edit.recent_context_max_chars")}<small class="field-error">{fieldError("llm_post_edit.recent_context_max_chars")}</small>{/if}
             </label>
             <label class:field-invalid={Boolean(fieldError("llm_post_edit.reference_hotwords_limit"))}>
               <span>{t("llmReferenceHotwordsLimit")}</span>
-              <input type="number" min="0" max="500" step="1" bind:value={config.llm_post_edit.reference_hotwords_limit} />
+              <input type="number" min="0" max="500" step="1" data-config-field="llm_post_edit.reference_hotwords_limit" bind:value={config.llm_post_edit.reference_hotwords_limit} />
               {#if fieldError("llm_post_edit.reference_hotwords_limit")}<small class="field-error">{fieldError("llm_post_edit.reference_hotwords_limit")}</small>{/if}
             </label>
           </div>
         {/if}
       </AdvancedSettings>
     </div>
-    <div id="settings-auto-hotwords" class="form-panel auto-hotwords-panel">
-        <div class="section-heading with-actions">
-          <div class="section-heading-copy">
-            <h3>{t("autoHotwordsTitle")}</h3>
-            <p>{t("autoHotwordsDescription")}</p>
-            <SettingTags tags={[t("tagOptional"), t("tagLocalOnly"), t("tagSentToService")]} />
-          </div>
-          <div class="settings-inline-actions">
-            {#if showAutoHotwordDetails}
-              <button class="test-button" type="button" onclick={onGenerateAutoHotwords} disabled={generatingAutoHotwords || !hasLlmApiConfig || !config.auto_hotwords.enabled}>
-                <Sparkles size={16} />{generatingAutoHotwords ? t("autoHotwordsGenerating") : t("autoHotwordsGenerate")}
-              </button>
-              <button class="test-button" type="button" onclick={onClearAutoHotwordHistory} disabled={clearingAutoHotwordHistory}>
-                <Trash2 size={16} />{clearingAutoHotwordHistory ? t("autoHotwordsClearing") : t("autoHotwordsClearHistory")}
-              </button>
-            {/if}
-          </div>
-        </div>
-        <div class="toggle-grid">
-          <label class="check"><input type="checkbox" bind:checked={config.auto_hotwords.enabled} />{t("autoHotwordsEnabled")}</label>
-        </div>
-        <p class="field-hint">{t("autoHotwordsPrivacyHint")}</p>
-        {#if showAutoHotwordDetails && !hasLlmApiConfig}
-          <div class="inline-warning">
-            <AlertCircle size={16} />
-            <span>{t("autoHotwordsNeedsLlmApi")}</span>
-            <button class="link-button" type="button" onclick={onOpenLlmApiSettings}>{t("goApiConfig")}</button>
-          </div>
-        {/if}
-        {#if showAutoHotwordDetails}
-          <div class="auto-hotword-list-editor">
-            <div class="auto-hotword-list-head">
-              <div>
-                <strong>{t("autoHotwordsAcceptedTitle", { count: String(acceptedAutoHotwordCount) })}</strong>
-                <span>{t("autoHotwordsAcceptedDescription")}</span>
-              </div>
-              <div class="settings-inline-actions">
-                <button class="test-button" type="button" onclick={onTidyAcceptedAutoHotwords}><Sparkles size={16} />{t("tidyHotwords")}</button>
-                <button class="test-button" type="button" onclick={onClearAcceptedAutoHotwords}><Trash2 size={16} />{t("autoHotwordsAcceptedClear")}</button>
-              </div>
-            </div>
-            <label>
-              <span>{t("autoHotwordsAcceptedList")}</span>
-              <textarea value={config.auto_hotwords.accepted_hotwords.join("\n")} oninput={(event) => onUpdateAcceptedAutoHotwords(event.currentTarget.value)}></textarea>
-            </label>
-            <p class="field-hint">{t("autoHotwordsAcceptedHint")}</p>
-          </div>
-          <div class="auto-hotword-status">
-            <Info size={16} />
-            <span>{autoHotwordStatusText}</span>
-            <button class="link-button" type="button" onclick={onRefreshAutoHotwordStatus}>{t("refreshStatus")}</button>
-          </div>
-          {#if autoHotwordError}
-            <p class="field-error">{autoHotwordError}</p>
-          {/if}
-          {#if autoHotwordCandidates.length > 0}
-            <div class="auto-hotword-candidates">
-              <div class="candidate-list-head">
-                <strong>{t("autoHotwordsCandidatesTitle", { count: String(autoHotwordCandidates.length) })}</strong>
-                <button class="test-button" type="button" onclick={onApplySelectedAutoHotwords}>
-                  <Check size={16} />{t("autoHotwordsApplySelected", { count: String(selectedAutoHotwordCount) })}
-                </button>
-              </div>
-              {#each autoHotwordCandidates as candidate}
-                <label class="candidate-row">
-                  <input type="checkbox" bind:checked={candidate.selected} />
-                  <span class="candidate-copy">
-                    <strong>{candidate.word}</strong>
-                    <small>{candidate.category || t("autoHotwordsUnknownCategory")} · {candidateConfidenceLabel(candidate.confidence)} · {t("autoHotwordsSourceCount", { count: String(candidate.source_count) })}</small>
-                    <span>{candidate.reason}</span>
-                  </span>
-                </label>
-              {/each}
-            </div>
-          {/if}
-        {/if}
-    </div>
   </section>
 </section>
 
 <style>
+  .ocr-preview {
+    display: grid;
+    gap: 8px;
+    min-width: 0;
+    padding: 12px;
+    background: #f8fbff;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+  }
+
+  .ocr-preview.empty {
+    background: #fff8ed;
+  }
+
+  .ocr-preview strong {
+    color: var(--text-main);
+    font-size: 13px;
+    font-weight: 800;
+  }
+
+  .ocr-preview-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .ocr-preview-head .link-action {
+    flex: 0 0 auto;
+  }
+
+  .ocr-preview p {
+    margin: 0;
+    color: var(--text-muted);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  .ocr-preview pre {
+    max-height: 168px;
+    margin: 0;
+    overflow: auto;
+    color: var(--text-secondary);
+    font-family: inherit;
+    font-size: 12px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
   .inline-warning {
     display: flex;
     flex-wrap: wrap;

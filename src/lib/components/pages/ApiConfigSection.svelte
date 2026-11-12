@@ -2,6 +2,7 @@
   import AdvancedSettings from "$lib/components/common/AdvancedSettings.svelte";
   import SecretInput from "$lib/components/common/SecretInput.svelte";
   import SettingTags from "$lib/components/common/SettingTags.svelte";
+  import SettingsJumpNav from "$lib/components/common/SettingsJumpNav.svelte";
   import SetupStatusCard, {
     type SetupStatusItem,
     type SetupStatusWarning,
@@ -21,6 +22,10 @@
 
   type Translate = (key: CopyKey, values?: Record<string, string>) => string;
   const concurrentResourceId = "volc.seedasr.sauc.concurrent";
+  const serviceJumpTargets = [
+    { id: "settings-auth", label: "asrProviderAuthTitle" },
+    { id: "settings-llm-api", label: "overviewLlm" },
+  ] as const;
 
   const asrLanguageOptions: Array<{ value: string; labelKey: CopyKey }> = [
     { value: "", labelKey: "asrLanguageAuto" },
@@ -199,7 +204,7 @@
     </section>
   {/if}
   <div class="settings-group-heading">
-    <h3>{t("apiConfigPageTitle")}</h3>
+    <h3>{t("navApiConfig")}</h3>
     <p>{t("apiConfigPageDescription")}</p>
   </div>
   <SetupStatusCard
@@ -216,12 +221,15 @@
       readyTitle: t("setupHealthReadyTitle"),
       readyDescription: t("setupHealthReadyDescription", { hotkey: startTriggerText }),
       refresh: t("refreshSetup"),
+      showDetails: t("setupShowDetails"),
+      hideDetails: t("setupHideDetails"),
       warningSummary: (count: number) => t("setupWarningSummary", { count: String(count) }),
       actionText: setupActionText,
     }}
     onAction={onSetupAction}
     onRefresh={onRefreshSetupStatus}
   />
+  <SettingsJumpNav targets={serviceJumpTargets} {t} onJump={onScrollToSettingsPanel} />
   <section class="settings-group">
     <div class="settings-group-heading">
       <h3>{t("speechRecognitionApiTitle")}</h3>
@@ -422,7 +430,7 @@
     <div id="settings-llm-api" class="form-panel">
       <div class="section-heading with-actions">
         <div class="section-heading-copy">
-          <h3>{t("llmApiOptionalTitle")}</h3>
+          <h3>{t("overviewLlm")}</h3>
           <p>{t("llmApiOptionalDescription")}</p>
           <SettingTags tags={[t("tagOptional"), t("tagSentToService")]} />
         </div>
@@ -478,6 +486,16 @@
             <input id="setting-llm-model" data-config-field="llm_post_edit.model" aria-invalid={Boolean(fieldError("llm_post_edit.model"))} aria-describedby={fieldError("llm_post_edit.model") ? "setting-llm-model-error setting-llm-model-hint" : "setting-llm-model-hint"} bind:value={config.llm_post_edit.model} />
             {#if fieldError("llm_post_edit.model")}<small id="setting-llm-model-error" class="field-error">{fieldError("llm_post_edit.model")}</small>{/if}
             <small id="setting-llm-model-hint" class="field-hint">{t("llmApiModelHint")}</small>
+          </label>
+          <label class:field-invalid={Boolean(fieldError("llm_post_edit.min_chars"))}>
+            <span>{t("minChars")}</span>
+            <input type="number" min="0" max="10000" step="1"
+              data-config-field="llm_post_edit.min_chars"
+              aria-invalid={Boolean(fieldError("llm_post_edit.min_chars"))}
+              aria-describedby={fieldError("llm_post_edit.min_chars") ? "setting-llm-min-chars-error setting-llm-min-chars-hint" : "setting-llm-min-chars-hint"}
+              bind:value={config.llm_post_edit.min_chars} />
+            {#if fieldError("llm_post_edit.min_chars")}<small id="setting-llm-min-chars-error" class="field-error">{fieldError("llm_post_edit.min_chars")}</small>{/if}
+            <small id="setting-llm-min-chars-hint" class="field-hint">{t("minCharsHint")}</small>
           </label>
           <section class="llm-test-summary" aria-live="polite">
             <div class="llm-test-summary-heading">
