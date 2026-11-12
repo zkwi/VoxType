@@ -95,6 +95,13 @@ describe("overlay layout", () => {
     expect(layout.lines.every((line) => line.length > 0)).toBe(true);
   });
 
+  it("keeps the microphone error and its next step in a short overlay", () => {
+    const message = "Mic won't start. Check access.";
+    const layout = resolveOverlayDisplayText(message, 34, 182, measureMixedWidth, 12);
+    expect(layout).toMatchObject({ mode: "double", lineLimit: 2 });
+    expect(layout.lines.join("").replace(/\s/g, "")).toBe(message.replace(/\s/g, ""));
+  });
+
   it("uses at most two fitted lines for longer text", () => {
     const shortLayout = resolveOverlayDisplayText("短句", 72, 260, measureByChar);
     const doubleLayout = resolveOverlayDisplayText(

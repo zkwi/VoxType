@@ -57,6 +57,7 @@ export function resolveOverlayDisplayText(
   availableHeight: number,
   maxWidth: number,
   measureText: (text: string, fontSize: number) => number,
+  minDoubleLineFontSize = DOUBLE_LINE_MIN_FONT_SIZE,
 ): OverlayDisplayLayout {
   const preferredSingleFont = fontForVisibleLines(
     1,
@@ -72,7 +73,7 @@ export function resolveOverlayDisplayText(
     ? null
     : singleFontCandidates.find((size) => overlayLinesFitWidth([text], size, maxWidth, measureText)) ?? null;
 
-  if (singleFont !== null || !canFitOverlayLines(2, availableHeight)) {
+  if (singleFont !== null || !canFitOverlayLines(2, availableHeight, minDoubleLineFontSize)) {
     const resolvedSingleFont = singleFont ?? preferredSingleFont;
     const lines = limitOverlayLines(wrapOverlayText(text, resolvedSingleFont, maxWidth, measureText), 1);
     return { mode: "single", fontSize: resolvedSingleFont, lineLimit: 1, lines };
@@ -80,10 +81,10 @@ export function resolveOverlayDisplayText(
 
   const maxDoubleFont = Math.min(
     preferredSingleFont,
-    fontForVisibleLines(2, DOUBLE_LINE_FONT_SIZE, DOUBLE_LINE_MIN_FONT_SIZE, availableHeight),
+    fontForVisibleLines(2, DOUBLE_LINE_FONT_SIZE, minDoubleLineFontSize, availableHeight),
   );
   const doubleFont = preferredDoubleLineFont(text, maxDoubleFont, maxWidth, measureText);
-  const fitted = fitOverlayDisplayText(text, 2, doubleFont, availableHeight, maxWidth, measureText);
+  const fitted = fitOverlayDisplayText(text, 2, doubleFont, availableHeight, maxWidth, measureText, minDoubleLineFontSize);
   const lineLimit = overlayVisibleLineCount(fitted.lines.length);
   return {
     mode: lineLimit >= 2 ? "double" : "single",

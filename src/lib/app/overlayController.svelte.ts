@@ -108,6 +108,8 @@ export function createOverlayController(options: OverlayControllerOptions) {
       availableTextHeight(),
       textContentWidth(),
       measureText,
+      // 麦克风错误需要保留原因和操作提示，高 DPI 的较矮字幕窗也允许排两行。
+      currentPayload?.status_code?.startsWith("MIC_") ? 12 : undefined,
     );
     mode = layout.mode;
     fontSize = layout.fontSize;
