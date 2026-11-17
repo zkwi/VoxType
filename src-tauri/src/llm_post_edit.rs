@@ -2,9 +2,9 @@ use crate::{
     app_log,
     config::{effective_hotwords, AppConfig},
     llm_client::{
-        base_chat_body, build_client, extract_message_content, extract_reasoning_content,
-        fetch_models_payload, response_was_truncated, send_chat_with_thinking_fallback,
-        send_chat_without_thinking_fallback,
+        base_chat_body, build_client, extract_message_content, fetch_models_payload,
+        response_used_reasoning, response_was_truncated, send_chat_with_thinking_fallback,
+        send_chat_without_thinking_fallback, ChatJsonResult,
     },
     llm_request_adapter::{
         apply_thinking_strategy, effective_thinking_strategy, get_cached_model_capability,
@@ -120,7 +120,54 @@ pub async fn polish(config: &AppConfig, text: &str, screen_context: Option<&str>
     )
     .await
     {
-        Ok(response) => guard_polished_text(text, &response, max_tokens),
+        Ok(chat_result) => {
+            let effective_strategy = if chat_result.retried_without_thinking {
+                STRATEGY_OMIT
+            } else {
+                resolved_strategy
+            };
+            if should_recover_reasoning_headroom(
+                base_url,
+                model,
+                settings.enable_thinking,
+                needs_reasoning_headroom,
+                effective_strategy,
+                &chat_result.value,
+            ) {
+                let retry_max_tokens = polish_max_tokens_for_request(base_url, input_chars, true);
+                if retry_max_tokens > max_tokens {
+                    mark_model_reasoning_truncation(base_url, model);
+                    app_log::info(format!(
+                        "LLM polish truncated without reasoning headroom, retrying once: model={}, strategy={}, retry_max_tokens={:?}",
+                        model, effective_strategy, retry_max_tokens
+                    ));
+                    return match call_openai_compatible(
+                        config,
+                        base_url,
+                        api_key,
+                        model,
+                        &user_prompt,
+                        effective_strategy,
+                        retry_max_tokens,
+                    )
+                    .await
+                    {
+                        Ok(retry_result) => {
+                            guard_polished_text(text, &retry_result.value, retry_max_tokens)
+                        }
+                        Err(err) => {
+                            let warning = friendly_llm_error(&err);
+                            app_log::warn(format!(
+                                "LLM polish retry failed, original text kept: {}",
+                                warning
+                            ));
+                            with_warning(text, &warning)
+                        }
+                    };
+                }
+            }
+            guard_polished_text(text, &chat_result.value, max_tokens)
+        }
         Err(err) => {
             let warning = friendly_llm_error(&err);
             app_log::warn(format!(
@@ -321,6 +368,28 @@ struct ConnectionAttemptOutcome {
     error: Option<String>,
 }
 
+pub(crate) fn should_recover_reasoning_headroom(
+    base_url: &str,
+    model: &str,
+    enable_thinking: bool,
+    needs_reasoning_headroom: bool,
+    effective_strategy: &str,
+    response: &Value,
+) -> bool {
+    if enable_thinking || needs_reasoning_headroom || !response_was_truncated(response) {
+        return false;
+    }
+    if matches!(
+        get_cached_model_capability(base_url, model),
+        Some(CachedModelCapability::Known(_))
+    ) {
+        return false;
+    }
+    response_used_reasoning(response)
+        || extract_message_content(response).trim().is_empty()
+        || effective_strategy == STRATEGY_OMIT
+}
+
 pub(crate) async fn resolve_runtime_thinking_profile(
     base_url: &str,
     api_key: &str,
@@ -329,7 +398,7 @@ pub(crate) async fn resolve_runtime_thinking_profile(
     configured_strategy: &str,
     timeout_seconds: f64,
 ) -> (&'static str, bool) {
-    let mut cached_capability = if !enable_thinking && should_probe_models_capability(base_url) {
+    let mut cached_capability = if !enable_thinking {
         get_cached_model_capability(base_url, model)
     } else {
         None
@@ -703,7 +772,7 @@ async fn call_openai_compatible(
     user_prompt: &str,
     thinking_strategy: &str,
     max_tokens: Option<u32>,
-) -> Result<Value, String> {
+) -> Result<ChatJsonResult, String> {
     let timeout = Duration::from_secs_f64(config.llm_post_edit.timeout_seconds.max(1.0));
     let client = build_client(timeout).map_err(|err| format!("创建 LLM 客户端失败: {}", err))?;
     let body = chat_body(
@@ -715,10 +784,7 @@ async fn call_openai_compatible(
         thinking_strategy,
         max_tokens,
     );
-    let result =
-        send_chat_with_thinking_fallback(&client, base_url, api_key, &body, "解析 LLM 响应失败")
-            .await?;
-    Ok(result.value)
+    send_chat_with_thinking_fallback(&client, base_url, api_key, &body, "解析 LLM 响应失败").await
 }
 
 fn guard_polished_text(original: &str, response: &Value, max_tokens: Option<u32>) -> PolishOutcome {
@@ -873,7 +939,7 @@ fn has_connection_test_output(value: &Value) -> bool {
 }
 
 fn connection_test_empty_output_error(value: &Value) -> String {
-    let has_reasoning = !extract_reasoning_content(value).trim().is_empty();
+    let has_reasoning = response_used_reasoning(value);
     let has_content = !extract_message_content(value).trim().is_empty();
     if response_was_truncated(value) {
         if has_content {
@@ -1873,6 +1939,78 @@ mod tests {
         );
         assert_eq!(
             requests[1].body.as_ref().expect("polish")["max_tokens"],
+            json!(1_312)
+        );
+    }
+
+    #[test]
+    fn polish_recovers_reasoning_headroom_after_restart_when_saved_strategy_is_omit() {
+        let gateway = MockGateway::start(|method, path, body| {
+            if method == "GET" && path == "/v1/models" {
+                return (404, json!({ "error": { "message": "not found" } }));
+            }
+            let body = body.expect("chat body");
+            let max_tokens = body.get("max_tokens").and_then(Value::as_u64).unwrap_or(0);
+            if max_tokens <= 288 {
+                return (
+                    200,
+                    json!({
+                        "choices": [{
+                            "finish_reason": "length",
+                            "message": { "content": "" }
+                        }],
+                        "usage": {
+                            "completion_tokens_details": {
+                                "reasoning_tokens": 260
+                            }
+                        }
+                    }),
+                );
+            }
+            (
+                200,
+                json!({
+                    "choices": [{
+                        "finish_reason": "stop",
+                        "message": { "content": "重启后自愈恢复的完整润色文本。" }
+                    }]
+                }),
+            )
+        });
+
+        let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
+        let config = mock_llm_config(&gateway.base_url, "unlisted-mandatory-thinker", "omit");
+
+        let first_outcome = runtime.block_on(super::polish(
+            &config,
+            "这是一段测试重启冷缓存后首次润色自动恢复输出余量的语音文本。",
+            None,
+        ));
+        assert!(first_outcome.warning.is_none());
+        assert_eq!(first_outcome.text, "重启后自愈恢复的完整润色文本。");
+
+        let second_outcome = runtime.block_on(super::polish(
+            &config,
+            "这是一段测试同进程第二次润色直接携带输出余量的语音文本。",
+            None,
+        ));
+        assert!(second_outcome.warning.is_none());
+        assert_eq!(second_outcome.text, "重启后自愈恢复的完整润色文本。");
+
+        let requests = gateway.requests();
+        assert_eq!(requests.len(), 4);
+        assert_eq!(requests[0].method, "GET");
+        assert_eq!(requests[0].path, "/v1/models");
+        assert_eq!(
+            requests[1].body.as_ref().expect("first polish")["max_tokens"],
+            json!(288)
+        );
+        assert_eq!(
+            requests[2].body.as_ref().expect("retry polish")["max_tokens"],
+            json!(1_312)
+        );
+        assert_eq!(
+            requests[3].body.as_ref().expect("second polish")["max_tokens"],
             json!(1_312)
         );
     }

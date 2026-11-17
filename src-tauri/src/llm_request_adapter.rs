@@ -293,6 +293,14 @@ pub fn strategy_uses_reasoning_tokens(
     if enable_thinking {
         return true;
     }
+    if matches!(
+        cached,
+        Some(CachedModelCapability::Unknown {
+            observed_reasoning_truncation: true
+        })
+    ) {
+        return true;
+    }
     match effective_strategy {
         STRATEGY_OPENROUTER_REASONING_LOW | STRATEGY_OPENROUTER_REASONING_MINIMAL => true,
         STRATEGY_DASHSCOPE_ENABLE_THINKING
@@ -779,6 +787,11 @@ mod tests {
         assert!(strategy_uses_reasoning_tokens(
             false,
             STRATEGY_OMIT,
+            get_cached_model_capability(gateway, unknown_model),
+        ));
+        assert!(strategy_uses_reasoning_tokens(
+            false,
+            STRATEGY_THINKING_DISABLED,
             get_cached_model_capability(gateway, unknown_model),
         ));
         assert!(strategy_uses_reasoning_tokens(

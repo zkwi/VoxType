@@ -115,6 +115,31 @@ pub fn extract_reasoning_content(value: &Value) -> String {
     }
 }
 
+/// 判断响应是否包含可见思考文本或非零推理 token 用量（兼容隐藏思考内容的网关）。
+pub fn response_used_reasoning(value: &Value) -> bool {
+    if !extract_reasoning_content(value).trim().is_empty() {
+        return true;
+    }
+    let Some(usage) = value.get("usage") else {
+        return false;
+    };
+    let completion_reasoning = usage
+        .get("completion_tokens_details")
+        .and_then(|details| details.get("reasoning_tokens"))
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let output_reasoning = usage
+        .get("output_tokens_details")
+        .and_then(|details| details.get("reasoning_tokens"))
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let direct_reasoning = usage
+        .get("reasoning_tokens")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    completion_reasoning > 0 || output_reasoning > 0 || direct_reasoning > 0
+}
+
 pub fn response_was_truncated(value: &Value) -> bool {
     value
         .get("choices")
@@ -174,7 +199,8 @@ async fn parse_chat_response(
 #[cfg(test)]
 mod tests {
     use super::{
-        base_chat_body, extract_message_content, extract_reasoning_content, response_was_truncated,
+        base_chat_body, extract_message_content, extract_reasoning_content,
+        response_used_reasoning, response_was_truncated,
     };
     use serde_json::json;
 
@@ -229,5 +255,36 @@ mod tests {
         assert_eq!(body["messages"][0]["content"], "system prompt");
         assert_eq!(body["messages"][1]["role"], "user");
         assert_eq!(body["messages"][1]["content"], "user prompt");
+    }
+
+    #[test]
+    fn detects_reasoning_from_text_or_usage_tokens() {
+        assert!(response_used_reasoning(&json!({
+            "choices": [{"message": {"reasoning_content": "thinking"}}]
+        })));
+        assert!(response_used_reasoning(&json!({
+            "choices": [{"message": {"content": ""}}],
+            "usage": {
+                "completion_tokens_details": {
+                    "reasoning_tokens": 253
+                }
+            }
+        })));
+        assert!(response_used_reasoning(&json!({
+            "choices": [{"message": {"content": ""}}],
+            "usage": {
+                "output_tokens_details": {
+                    "reasoning_tokens": 64
+                }
+            }
+        })));
+        assert!(!response_used_reasoning(&json!({
+            "choices": [{"message": {"content": "ok", "reasoning_content": "  "}}],
+            "usage": {
+                "completion_tokens_details": {
+                    "reasoning_tokens": 0
+                }
+            }
+        })));
     }
 }
