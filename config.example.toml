@@ -191,7 +191,7 @@ timeout_seconds = 30
 # 是否开启 thinking；默认关闭，语音润色通常不需要推理过程
 enable_thinking = false
 # 关闭 thinking 时的适配策略：auto / dashscope_enable_thinking / thinking_disabled / openrouter_reasoning_none / openrouter_reasoning_low / openrouter_reasoning_minimal / omit
-# auto 会按 Base URL 和模型选择常见最快策略；测试连接会尝试候选策略并保存最快的成功结果
+# auto 会优先读取网关 `/v1/models` 声明的最低思考档位（如 none / minimal / low），无声明时探测服务商兼容策略；连通测试遇到思考耗尽额度会自动提高测试预算重试一次，手动指定档位优先保留
 thinking_strategy = "auto"
 system_prompt = """
 你是 VoxType 的语音输入文本润色器。用户输入来自 ASR 识别，输出会直接粘贴到光标位置。

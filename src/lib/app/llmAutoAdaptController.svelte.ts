@@ -3,6 +3,7 @@ import type { AppConfig } from "$lib/types/app";
 import {
   hasLlmAdapterTestConfig,
   llmAdapterConfigFingerprint,
+  llmModelTargetFingerprint,
   LLM_THINKING_STRATEGY_AUTO,
 } from "$lib/utils/llmConfig";
 
@@ -26,10 +27,19 @@ type LlmAutoAdaptControllerOptions = {
 export function createLlmAutoAdaptController(options: LlmAutoAdaptControllerOptions) {
   let pendingFingerprint: string | null = null;
   let running = false;
+  let manualStrategyOverride = false;
+  let lastModelTarget = "";
 
   function markLoaded(config: AppConfig) {
     options.setTestedFingerprint(llmAdapterConfigFingerprint(config));
+    lastModelTarget = llmModelTargetFingerprint(config);
+    manualStrategyOverride = false;
     pendingFingerprint = null;
+  }
+
+  function markManualStrategyChange(strategy: string) {
+    manualStrategyOverride = strategy !== LLM_THINKING_STRATEGY_AUTO;
+    lastModelTarget = llmModelTargetFingerprint(options.getConfig());
   }
 
   function queueAfterSave(savedConfig: AppConfig) {
@@ -37,6 +47,7 @@ export function createLlmAutoAdaptController(options: LlmAutoAdaptControllerOpti
     if (!hasLlmAdapterTestConfig(savedConfig)) {
       options.setTestedFingerprint(fingerprint);
       options.setTestStatusMessage("");
+      lastModelTarget = llmModelTargetFingerprint(savedConfig);
       pendingFingerprint = null;
       return;
     }
@@ -56,6 +67,13 @@ export function createLlmAutoAdaptController(options: LlmAutoAdaptControllerOpti
       pendingFingerprint = null;
       return;
     }
+    const modelTarget = llmModelTargetFingerprint(currentConfig);
+    if (lastModelTarget && modelTarget !== lastModelTarget) {
+      manualStrategyOverride = false;
+    }
+    const useAutoStrategy = !manualStrategyOverride;
+    manualStrategyOverride = false;
+    lastModelTarget = modelTarget;
     pendingFingerprint = null;
     running = true;
     options.setTestedFingerprint(fingerprint);
@@ -63,7 +81,7 @@ export function createLlmAutoAdaptController(options: LlmAutoAdaptControllerOpti
       await options.runTest({
         automatic: true,
         expectedFingerprint: fingerprint,
-        forceThinkingStrategy: LLM_THINKING_STRATEGY_AUTO,
+        ...(useAutoStrategy ? { forceThinkingStrategy: LLM_THINKING_STRATEGY_AUTO } : {}),
       });
     } finally {
       running = false;
@@ -76,6 +94,8 @@ export function createLlmAutoAdaptController(options: LlmAutoAdaptControllerOpti
   async function testManually() {
     if (options.isTesting()) return;
     const testedFingerprint = llmAdapterConfigFingerprint(options.getConfig());
+    manualStrategyOverride = false;
+    lastModelTarget = llmModelTargetFingerprint(options.getConfig());
     await options.runTest();
     const currentConfig = options.getConfig();
     if (
@@ -100,6 +120,7 @@ export function createLlmAutoAdaptController(options: LlmAutoAdaptControllerOpti
 
   return {
     markLoaded,
+    markManualStrategyChange,
     queueAfterSave,
     testManually,
     statusText,

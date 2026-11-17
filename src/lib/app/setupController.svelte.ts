@@ -10,7 +10,10 @@ import type {
 } from "$lib/types/app";
 import { clonePlain } from "$lib/utils/config";
 import type { SetupStatus } from "$lib/utils/setupStatus";
-import { llmAdapterConfigFingerprint } from "$lib/utils/llmConfig";
+import {
+  llmAdapterConfigFingerprint,
+  llmThinkingStrategyLabelKey,
+} from "$lib/utils/llmConfig";
 import type { LlmTestRecord } from "$lib/utils/llmTestHistory";
 
 type NoticeKind = "success" | "info" | "warning" | "error";
@@ -134,11 +137,17 @@ export function createSetupController(options: SetupControllerOptions) {
           currentConfig.llm_post_edit.thinking_strategy = result.thinking_strategy;
           savedStrategy = Boolean(await options.persistConfig({ enforceAuth: false, focusErrors: false }));
         }
+        const strategyLabelKey = result.thinking_strategy
+          ? llmThinkingStrategyLabelKey(result.thinking_strategy)
+          : null;
+        const strategyLabel = strategyLabelKey
+          ? options.t(strategyLabelKey)
+          : (result.thinking_strategy ?? "");
         const message =
           typeof result.elapsed_ms === "number" && savedStrategy
             ? options.t("llmTestSucceededWithLatencyAndStrategy", {
                 ms: options.formatNumber(result.elapsed_ms),
-                strategy: result.thinking_strategy ?? "",
+                strategy: strategyLabel,
               })
             : typeof result.elapsed_ms === "number"
               ? options.t("llmTestSucceededWithLatency", { ms: options.formatNumber(result.elapsed_ms) })

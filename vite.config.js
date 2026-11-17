@@ -16,7 +16,7 @@ export default defineConfig(async () => ({
   })],
   resolve: { alias: { $lib: fileURLToPath(new URL("./src/lib", import.meta.url)) } },
   test: {
-    include: ["src/lib/utils/**/*.test.ts"],
+    include: ["src/lib/utils/**/*.test.ts", "src/lib/app/**/*.test.ts"],
     environment: "node",
   },
 

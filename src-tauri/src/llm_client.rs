@@ -1,6 +1,6 @@
 use crate::{
     app_log,
-    llm_endpoint::chat_completions_endpoint,
+    llm_endpoint::{chat_completions_endpoint, models_endpoint},
     llm_request_adapter::{remove_thinking_controls, should_retry_without_unsupported_thinking},
 };
 use serde_json::{json, Value};
@@ -25,6 +25,31 @@ pub fn base_chat_body(model: &str, system_prompt: &str, user_prompt: &str) -> Va
     })
 }
 
+/// 请求 OpenAI 兼容 `/models` 接口，用于读取服务商声明的模型思考能力。
+pub async fn fetch_models_payload(
+    client: &reqwest::Client,
+    base_url: &str,
+    api_key: &str,
+) -> Result<Value, String> {
+    let response = client
+        .get(models_endpoint(base_url))
+        .bearer_auth(api_key)
+        .send()
+        .await
+        .map_err(|err| format!("请求模型列表失败: {}", err))?;
+    if !response.status().is_success() {
+        return Err(format!("模型列表返回状态码: {}", response.status()));
+    }
+    let value: Value = response
+        .json()
+        .await
+        .map_err(|err| format!("解析模型列表响应失败: {}", err))?;
+    if value.get("error").is_some() {
+        return Err("模型列表响应包含错误".to_string());
+    }
+    Ok(value)
+}
+
 pub async fn send_chat_with_thinking_fallback(
     client: &reqwest::Client,
     base_url: &str,
@@ -32,8 +57,7 @@ pub async fn send_chat_with_thinking_fallback(
     body: &Value,
     parse_error_context: &str,
 ) -> Result<ChatJsonResult, String> {
-    let response = send_chat_request(client, base_url, api_key, body).await?;
-    match parse_chat_response(response, parse_error_context).await {
+    match send_chat_and_parse(client, base_url, api_key, body, parse_error_context).await {
         Ok(value) => Ok(ChatJsonResult {
             value,
             retried_without_thinking: false,
@@ -44,8 +68,9 @@ pub async fn send_chat_with_thinking_fallback(
             );
             let mut retry_body = body.clone();
             remove_thinking_controls(&mut retry_body);
-            let response = send_chat_request(client, base_url, api_key, &retry_body).await?;
-            let value = parse_chat_response(response, parse_error_context).await?;
+            let value =
+                send_chat_and_parse(client, base_url, api_key, &retry_body, parse_error_context)
+                    .await?;
             Ok(ChatJsonResult {
                 value,
                 retried_without_thinking: true,
@@ -53,6 +78,28 @@ pub async fn send_chat_with_thinking_fallback(
         }
         Err(err) => Err(err),
     }
+}
+
+/// 严格按请求体发送对话请求，不剥离思考参数，用于验证用户手选策略。
+pub async fn send_chat_without_thinking_fallback(
+    client: &reqwest::Client,
+    base_url: &str,
+    api_key: &str,
+    body: &Value,
+    parse_error_context: &str,
+) -> Result<Value, String> {
+    send_chat_and_parse(client, base_url, api_key, body, parse_error_context).await
+}
+
+async fn send_chat_and_parse(
+    client: &reqwest::Client,
+    base_url: &str,
+    api_key: &str,
+    body: &Value,
+    parse_error_context: &str,
+) -> Result<Value, String> {
+    let response = send_chat_request(client, base_url, api_key, body).await?;
+    parse_chat_response(response, parse_error_context).await
 }
 
 pub fn extract_message_content(value: &Value) -> String {

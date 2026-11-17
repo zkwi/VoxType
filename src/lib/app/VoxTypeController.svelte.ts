@@ -1399,6 +1399,7 @@ export function createVoxTypeController() {
       onTestAsrConfig: testAsrConfig,
       onAsrAuthChange: clearAuthFieldErrors,
       onTestLlmConfig: testLlmConfig,
+      onLlmThinkingStrategyChange: llmAutoAdapt.markManualStrategyChange,
       onTestScreenContext: testScreenContext,
       onClearScreenContextPreview: clearScreenContextPreview,
       onHotkeyKeydown: hotkeyCapture.handleKeydown,

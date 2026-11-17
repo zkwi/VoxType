@@ -110,6 +110,7 @@
     onTestAsrConfig: () => void;
     onAsrAuthChange: () => void;
     onTestLlmConfig: () => void;
+    onLlmThinkingStrategyChange?: (strategy: string) => void;
   };
 
   let {
@@ -142,6 +143,7 @@
     onTestAsrConfig,
     onAsrAuthChange,
     onTestLlmConfig,
+    onLlmThinkingStrategyChange,
   }: Props = $props();
 
   let showAsrAdvanced = $state(false);
@@ -566,7 +568,11 @@
           <div class="form-grid">
             <label class:field-invalid={Boolean(fieldError("llm_post_edit.thinking_strategy"))}>
               <span>{t("llmThinkingStrategy")}</span>
-              <select bind:value={config.llm_post_edit.thinking_strategy}>
+              <select
+                bind:value={config.llm_post_edit.thinking_strategy}
+                onchange={(event) =>
+                  onLlmThinkingStrategyChange?.((event.currentTarget as HTMLSelectElement).value)}
+              >
                 {#each llmThinkingStrategyOptions as option}
                   <option value={option.value}>{t(option.labelKey)}</option>
                 {/each}

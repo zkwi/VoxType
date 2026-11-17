@@ -3,11 +3,17 @@ use crate::{
     config::{effective_hotwords, AppConfig},
     llm_client::{
         base_chat_body, build_client, extract_message_content, extract_reasoning_content,
-        response_was_truncated, send_chat_with_thinking_fallback,
+        fetch_models_payload, response_was_truncated, send_chat_with_thinking_fallback,
+        send_chat_without_thinking_fallback,
     },
     llm_request_adapter::{
-        apply_thinking_strategy, is_thinking_only_model, thinking_strategy_candidates,
-        STRATEGY_OMIT,
+        apply_thinking_strategy, effective_thinking_strategy, get_cached_model_capability,
+        is_dashscope, is_thinking_only_model, is_valid_thinking_strategy,
+        mark_model_reasoning_truncation, parse_model_reasoning_profile,
+        should_probe_models_capability, store_cached_model_capability,
+        strategy_uses_reasoning_tokens, thinking_strategy_candidates, CachedModelCapability,
+        STRATEGY_AUTO, STRATEGY_DASHSCOPE_ENABLE_THINKING, STRATEGY_OMIT,
+        STRATEGY_OPENROUTER_REASONING_LOW,
     },
 };
 use serde_json::{json, Value};
@@ -15,6 +21,10 @@ use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
 const LLM_CONNECTION_TEST_MAX_TOKENS: u32 = 256;
+const LLM_CONNECTION_TEST_RETRY_MAX_TOKENS: u32 = 768;
+pub(crate) const LLM_POLISH_REASONING_HEADROOM_TOKENS: u32 = 1_024;
+const LLM_MODELS_PROBE_TEST_TIMEOUT: Duration = Duration::from_secs(3);
+const LLM_MODELS_PROBE_POLISH_TIMEOUT: Duration = Duration::from_secs(2);
 const LLM_CONNECTION_TEST_TEXT: &str = concat!(
     "今天下午三点开会，先确认 VoxType 的大模型 API 延迟和配置体验。",
     "然后我想把最近几次语音输入的体验复盘一下，主要问题是短句还可以接受，",
@@ -78,17 +88,38 @@ pub async fn polish(config: &AppConfig, text: &str, screen_context: Option<&str>
 
     let user_prompt = build_polish_user_prompt(config, text, screen_context);
 
-    let max_tokens = polish_max_tokens_for_request(base_url, input_chars);
+    let (resolved_strategy, needs_reasoning_headroom) = resolve_runtime_thinking_profile(
+        base_url,
+        api_key,
+        model,
+        settings.enable_thinking,
+        &settings.thinking_strategy,
+        settings.timeout_seconds,
+    )
+    .await;
+
+    let max_tokens = polish_max_tokens_for_request(base_url, input_chars, needs_reasoning_headroom);
     app_log::info(format!(
-        "LLM polish started: model={}, chars={}, trigger_units={}, max_tokens={}",
+        "LLM polish started: model={}, chars={}, trigger_units={}, strategy={}, max_tokens={}",
         model,
         input_chars,
         trigger_units,
+        resolved_strategy,
         max_tokens
             .map(|value| value.to_string())
             .unwrap_or_else(|| "provider_default".to_string())
     ));
-    match call_openai_compatible(config, base_url, api_key, model, &user_prompt, max_tokens).await {
+    match call_openai_compatible(
+        config,
+        base_url,
+        api_key,
+        model,
+        &user_prompt,
+        resolved_strategy,
+        max_tokens,
+    )
+    .await
+    {
         Ok(response) => guard_polished_text(text, &response, max_tokens),
         Err(err) => {
             let warning = friendly_llm_error(&err);
@@ -284,6 +315,191 @@ fn compact_screen_context_for_llm(
     }
 }
 
+struct ConnectionAttemptOutcome {
+    result: Option<LlmConnectionTestResult>,
+    truncated_strategy: Option<&'static str>,
+    error: Option<String>,
+}
+
+pub(crate) async fn resolve_runtime_thinking_profile(
+    base_url: &str,
+    api_key: &str,
+    model: &str,
+    enable_thinking: bool,
+    configured_strategy: &str,
+    timeout_seconds: f64,
+) -> (&'static str, bool) {
+    let mut cached_capability = if !enable_thinking && should_probe_models_capability(base_url) {
+        get_cached_model_capability(base_url, model)
+    } else {
+        None
+    };
+    if !enable_thinking
+        && should_probe_models_capability(base_url)
+        && cached_capability.is_none()
+        && matches!(configured_strategy, STRATEGY_AUTO | STRATEGY_OMIT)
+    {
+        let probe_timeout =
+            Duration::from_secs_f64(timeout_seconds.max(1.0)).min(LLM_MODELS_PROBE_POLISH_TIMEOUT);
+        cached_capability = probe_models_capability(base_url, api_key, model, probe_timeout).await;
+    }
+
+    let resolved_strategy = if enable_thinking {
+        STRATEGY_DASHSCOPE_ENABLE_THINKING
+    } else if configured_strategy == STRATEGY_AUTO {
+        match cached_capability {
+            Some(CachedModelCapability::Known(profile)) => profile.preferred_strategy,
+            _ => effective_thinking_strategy(base_url, model, configured_strategy),
+        }
+    } else {
+        effective_thinking_strategy(base_url, model, configured_strategy)
+    };
+    let needs_reasoning_headroom =
+        strategy_uses_reasoning_tokens(enable_thinking, resolved_strategy, cached_capability);
+    (resolved_strategy, needs_reasoning_headroom)
+}
+
+pub(crate) async fn probe_models_capability(
+    base_url: &str,
+    api_key: &str,
+    model: &str,
+    timeout: Duration,
+) -> Option<CachedModelCapability> {
+    if !should_probe_models_capability(base_url) {
+        return None;
+    }
+    let client = build_client(timeout).ok()?;
+    let payload = match fetch_models_payload(&client, base_url, api_key).await {
+        Ok(payload) => payload,
+        Err(err) => {
+            app_log::info(format!(
+                "LLM models capability probe skipped: model={}, reason={}",
+                model, err
+            ));
+            let capability = CachedModelCapability::Unknown {
+                observed_reasoning_truncation: false,
+            };
+            store_cached_model_capability(base_url, model, capability);
+            return Some(capability);
+        }
+    };
+    let capability = match parse_model_reasoning_profile(&payload, model) {
+        Some(profile) => {
+            app_log::info(format!(
+                "LLM model capability probed: model={}, strategy={}, uses_reasoning_tokens={}",
+                model, profile.preferred_strategy, profile.uses_reasoning_tokens
+            ));
+            CachedModelCapability::Known(profile)
+        }
+        None => {
+            app_log::info(format!(
+                "LLM model capability not declared by endpoint: model={}",
+                model
+            ));
+            CachedModelCapability::Unknown {
+                observed_reasoning_truncation: false,
+            }
+        }
+    };
+    store_cached_model_capability(base_url, model, capability);
+    Some(capability)
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn run_connection_test_attempt(
+    client: &reqwest::Client,
+    config: &AppConfig,
+    base_url: &str,
+    api_key: &str,
+    model: &str,
+    candidate: &'static str,
+    max_tokens: u32,
+    manual_strategy: bool,
+) -> ConnectionAttemptOutcome {
+    let body = connection_test_chat_body(config, base_url, model, candidate, max_tokens);
+    let started_at = Instant::now();
+    if manual_strategy && candidate != STRATEGY_OMIT {
+        return match send_chat_without_thinking_fallback(
+            client,
+            base_url,
+            api_key,
+            &body,
+            "解析 LLM 响应失败",
+        )
+        .await
+        {
+            Ok(value) if has_connection_test_output(&value) => {
+                let elapsed_ms = elapsed_millis(started_at);
+                app_log::info(format!(
+                    "LLM connection strategy passed: strategy={} elapsed_ms={}",
+                    candidate, elapsed_ms
+                ));
+                ConnectionAttemptOutcome {
+                    result: Some(LlmConnectionTestResult {
+                        elapsed_ms,
+                        thinking_strategy: candidate.to_string(),
+                    }),
+                    truncated_strategy: None,
+                    error: None,
+                }
+            }
+            Ok(value) => ConnectionAttemptOutcome {
+                result: None,
+                truncated_strategy: response_was_truncated(&value).then_some(candidate),
+                error: Some(connection_test_empty_output_error(&value)),
+            },
+            Err(err) => ConnectionAttemptOutcome {
+                result: None,
+                truncated_strategy: None,
+                error: Some(friendly_llm_test_error(&err)),
+            },
+        };
+    }
+
+    match send_chat_with_thinking_fallback(client, base_url, api_key, &body, "解析 LLM 响应失败")
+        .await
+    {
+        Ok(result) if has_connection_test_output(&result.value) => {
+            let elapsed_ms = elapsed_millis(started_at);
+            let thinking_strategy = if result.retried_without_thinking {
+                STRATEGY_OMIT
+            } else {
+                candidate
+            };
+            app_log::info(format!(
+                "LLM connection strategy passed: strategy={} elapsed_ms={}",
+                thinking_strategy, elapsed_ms
+            ));
+            ConnectionAttemptOutcome {
+                result: Some(LlmConnectionTestResult {
+                    elapsed_ms,
+                    thinking_strategy: thinking_strategy.to_string(),
+                }),
+                truncated_strategy: None,
+                error: None,
+            }
+        }
+        Ok(result) => {
+            let effective_strategy = if result.retried_without_thinking {
+                STRATEGY_OMIT
+            } else {
+                candidate
+            };
+            ConnectionAttemptOutcome {
+                result: None,
+                truncated_strategy: response_was_truncated(&result.value)
+                    .then_some(effective_strategy),
+                error: Some(connection_test_empty_output_error(&result.value)),
+            }
+        }
+        Err(err) => ConnectionAttemptOutcome {
+            result: None,
+            truncated_strategy: None,
+            error: Some(friendly_llm_test_error(&err)),
+        },
+    }
+}
+
 pub async fn test_connection(config: &AppConfig) -> Result<LlmConnectionTestResult, String> {
     let settings = &config.llm_post_edit;
     let api_key = settings.api_key.trim();
@@ -302,51 +518,123 @@ pub async fn test_connection(config: &AppConfig) -> Result<LlmConnectionTestResu
     let timeout = Duration::from_secs_f64(settings.timeout_seconds.clamp(1.0, 60.0));
     let client =
         build_client(timeout).map_err(|err| format!("创建大模型测试客户端失败: {}", err))?;
-    let candidates = thinking_strategy_candidates(base_url, model, &settings.thinking_strategy);
+
+    let mut manual_strategy = false;
+    let mut probed_capability: Option<CachedModelCapability> = None;
+    let mut probed_preferred: Option<&'static str> = None;
+    let candidates = if settings.enable_thinking {
+        vec![STRATEGY_DASHSCOPE_ENABLE_THINKING]
+    } else if settings.thinking_strategy != STRATEGY_AUTO
+        && is_valid_thinking_strategy(&settings.thinking_strategy)
+    {
+        manual_strategy = true;
+        thinking_strategy_candidates(base_url, model, &settings.thinking_strategy)
+    } else {
+        if should_probe_models_capability(base_url) {
+            probed_capability = probe_models_capability(
+                base_url,
+                api_key,
+                model,
+                timeout.min(LLM_MODELS_PROBE_TEST_TIMEOUT),
+            )
+            .await;
+        }
+        if let Some(CachedModelCapability::Known(profile)) = probed_capability {
+            probed_preferred = Some(profile.preferred_strategy);
+            vec![profile.preferred_strategy]
+        } else {
+            thinking_strategy_candidates(base_url, model, STRATEGY_AUTO)
+        }
+    };
+
     let mut best_result: Option<LlmConnectionTestResult> = None;
+    let mut truncated_candidates: Vec<&'static str> = Vec::new();
     let mut last_error = None;
+
     for candidate in candidates {
-        let body = connection_test_chat_body(config, base_url, model, candidate);
-        let started_at = Instant::now();
-        match send_chat_with_thinking_fallback(
+        let outcome = run_connection_test_attempt(
             &client,
+            config,
             base_url,
             api_key,
-            &body,
-            "解析 LLM 响应失败",
+            model,
+            candidate,
+            LLM_CONNECTION_TEST_MAX_TOKENS,
+            manual_strategy,
         )
-        .await
-        {
-            Ok(result) if has_connection_test_output(&result.value) => {
-                let elapsed_ms = elapsed_millis(started_at);
-                let thinking_strategy = if result.retried_without_thinking {
-                    STRATEGY_OMIT.to_string()
-                } else {
-                    candidate.to_string()
-                };
-                app_log::info(format!(
-                    "LLM connection strategy passed: strategy={} elapsed_ms={}",
-                    thinking_strategy, elapsed_ms
-                ));
-                let next = LlmConnectionTestResult {
-                    elapsed_ms,
-                    thinking_strategy,
-                };
-                if best_result
-                    .as_ref()
-                    .is_none_or(|current| next.elapsed_ms < current.elapsed_ms)
-                {
-                    best_result = Some(next);
+        .await;
+        record_connection_attempt(
+            outcome,
+            &mut best_result,
+            &mut truncated_candidates,
+            &mut last_error,
+        );
+    }
+
+    if !manual_strategy && best_result.is_none() && truncated_candidates.is_empty() {
+        if let Some(preferred) = probed_preferred {
+            for candidate in thinking_strategy_candidates(base_url, model, STRATEGY_AUTO) {
+                if candidate == preferred {
+                    continue;
                 }
-            }
-            Ok(result) => {
-                last_error = Some(connection_test_empty_output_error(&result.value));
-            }
-            Err(err) => {
-                last_error = Some(friendly_llm_test_error(&err));
+                let outcome = run_connection_test_attempt(
+                    &client,
+                    config,
+                    base_url,
+                    api_key,
+                    model,
+                    candidate,
+                    LLM_CONNECTION_TEST_MAX_TOKENS,
+                    false,
+                )
+                .await;
+                record_connection_attempt(
+                    outcome,
+                    &mut best_result,
+                    &mut truncated_candidates,
+                    &mut last_error,
+                );
             }
         }
     }
+
+    if best_result.is_none() && !truncated_candidates.is_empty() {
+        let mut retry_candidates = truncated_candidates.clone();
+        let cache_is_known = matches!(probed_capability, Some(CachedModelCapability::Known(_)));
+        if !manual_strategy
+            && !cache_is_known
+            && !is_dashscope(base_url)
+            && !retry_candidates.contains(&STRATEGY_OPENROUTER_REASONING_LOW)
+        {
+            retry_candidates.insert(0, STRATEGY_OPENROUTER_REASONING_LOW);
+        }
+        for candidate in retry_candidates {
+            let outcome = run_connection_test_attempt(
+                &client,
+                config,
+                base_url,
+                api_key,
+                model,
+                candidate,
+                LLM_CONNECTION_TEST_RETRY_MAX_TOKENS,
+                manual_strategy,
+            )
+            .await;
+            record_connection_attempt(
+                outcome,
+                &mut best_result,
+                &mut truncated_candidates,
+                &mut last_error,
+            );
+            if best_result.is_some() {
+                if !cache_is_known {
+                    mark_model_reasoning_truncation(base_url, model);
+                }
+                break;
+            }
+        }
+    }
+
     let Some(result) = best_result else {
         return Err(last_error.unwrap_or_else(|| "大模型测试失败，请检查模型配置。".to_string()));
     };
@@ -355,6 +643,30 @@ pub async fn test_connection(config: &AppConfig) -> Result<LlmConnectionTestResu
         result.elapsed_ms, result.thinking_strategy
     ));
     Ok(result)
+}
+
+fn record_connection_attempt(
+    outcome: ConnectionAttemptOutcome,
+    best_result: &mut Option<LlmConnectionTestResult>,
+    truncated_candidates: &mut Vec<&'static str>,
+    last_error: &mut Option<String>,
+) {
+    if let Some(next) = outcome.result {
+        if best_result
+            .as_ref()
+            .is_none_or(|current| next.elapsed_ms < current.elapsed_ms)
+        {
+            *best_result = Some(next);
+        }
+    }
+    if let Some(strategy) = outcome.truncated_strategy {
+        if !truncated_candidates.contains(&strategy) {
+            truncated_candidates.push(strategy);
+        }
+    }
+    if let Some(err) = outcome.error {
+        *last_error = Some(err);
+    }
 }
 
 pub(crate) fn unchanged(text: &str) -> PolishOutcome {
@@ -386,6 +698,7 @@ async fn call_openai_compatible(
     api_key: &str,
     model: &str,
     user_prompt: &str,
+    thinking_strategy: &str,
     max_tokens: Option<u32>,
 ) -> Result<Value, String> {
     let timeout = Duration::from_secs_f64(config.llm_post_edit.timeout_seconds.max(1.0));
@@ -396,7 +709,7 @@ async fn call_openai_compatible(
         user_prompt,
         base_url,
         config.llm_post_edit.enable_thinking,
-        &config.llm_post_edit.thinking_strategy,
+        thinking_strategy,
         max_tokens,
     );
     let result =
@@ -464,11 +777,21 @@ fn strip_added_fence<'a>(original: &str, output: &'a str) -> &'a str {
     }
 }
 
-fn polish_max_tokens_for_request(base_url: &str, input_chars: usize) -> Option<u32> {
+fn polish_max_tokens_for_request(
+    base_url: &str,
+    input_chars: usize,
+    needs_reasoning_headroom: bool,
+) -> Option<u32> {
     if base_url.to_ascii_lowercase().contains("stepfun") {
         None
     } else {
-        Some(polish_max_tokens_for_input(input_chars))
+        let base = polish_max_tokens_for_input(input_chars);
+        let budget = if needs_reasoning_headroom {
+            base.saturating_add(LLM_POLISH_REASONING_HEADROOM_TOKENS)
+        } else {
+            base
+        };
+        Some(budget)
     }
 }
 
@@ -520,6 +843,7 @@ fn connection_test_chat_body(
     base_url: &str,
     model: &str,
     thinking_strategy: &str,
+    max_tokens: u32,
 ) -> Value {
     let mut test_config = config.clone();
     test_config.llm_post_edit.use_recent_context = false;
@@ -533,7 +857,7 @@ fn connection_test_chat_body(
         base_url,
         test_config.llm_post_edit.enable_thinking,
         thinking_strategy,
-        Some(LLM_CONNECTION_TEST_MAX_TOKENS),
+        Some(max_tokens),
     )
 }
 
@@ -542,12 +866,17 @@ fn elapsed_millis(started_at: Instant) -> u64 {
 }
 
 fn has_connection_test_output(value: &Value) -> bool {
-    !extract_message_content(value).trim().is_empty()
+    !extract_message_content(value).trim().is_empty() && !response_was_truncated(value)
 }
 
 fn connection_test_empty_output_error(value: &Value) -> String {
     let has_reasoning = !extract_reasoning_content(value).trim().is_empty();
+    let has_content = !extract_message_content(value).trim().is_empty();
     if response_was_truncated(value) {
+        if has_content {
+            return "大模型已响应，但输出被截断，未返回完整测试文本；请关闭思考模式或改用兼容的思考适配策略。"
+                .to_string();
+        }
         if has_reasoning {
             return "大模型已响应，但思考内容耗尽了测试输出额度，未返回最终文本；请关闭思考模式或改用兼容的思考适配策略。"
                 .to_string();
@@ -597,6 +926,33 @@ fn friendly_llm_test_error(error: &str) -> String {
         || lower.contains("invalid_api_key")
     {
         "大模型 API Key 或权限校验失败，请检查 API Key、Base URL 和模型名称。".to_string()
+    } else if lower.contains("429")
+        || lower.contains("rate limit")
+        || lower.contains("ratelimit")
+        || lower.contains("quota")
+        || lower.contains("insufficient_quota")
+    {
+        "大模型服务限流或额度不足，请稍后重试或检查账号额度。".to_string()
+    } else if (lower.contains("reasoning_effort")
+        || lower.contains("enable_thinking")
+        || lower.contains("reasoning")
+        || lower.contains("thinking"))
+        && (lower.contains("400")
+            || lower.contains("invalid")
+            || lower.contains("unsupported")
+            || lower.contains("unrecognized")
+            || lower.contains("mandatory")
+            || lower.contains("cannot be disabled"))
+    {
+        "当前模型不支持所选的思考适配参数，请将「思考适配」改回自动选择或更换兼容档位后重试。"
+            .to_string()
+    } else if lower.contains("model not found")
+        || lower.contains("model_not_found")
+        || lower.contains("invalid model")
+        || lower.contains("does not exist")
+        || lower.contains("模型不存在")
+    {
+        "大模型名称不可用，请检查模型名称是否与当前 Base URL 和账号权限匹配。".to_string()
     } else if lower.contains("timeout")
         || lower.contains("timed out")
         || lower.contains("dns")
@@ -637,9 +993,10 @@ mod tests {
     };
     use crate::config::{AppConfig, TextContext};
     use crate::llm_request_adapter::{
-        STRATEGY_AUTO, STRATEGY_DASHSCOPE_ENABLE_THINKING, STRATEGY_THINKING_DISABLED,
+        STRATEGY_AUTO, STRATEGY_DASHSCOPE_ENABLE_THINKING, STRATEGY_OPENROUTER_REASONING_LOW,
+        STRATEGY_THINKING_DISABLED,
     };
-    use serde_json::json;
+    use serde_json::{json, Value};
 
     #[test]
     fn explains_common_llm_failures() {
@@ -647,6 +1004,12 @@ mod tests {
         assert!(friendly_llm_error("dns lookup failed").contains("网络"));
         assert!(friendly_llm_error("model not found").contains("模型名称"));
         assert!(friendly_llm_test_error("403 forbidden").contains("权限"));
+        assert!(friendly_llm_test_error("429 rate limit").contains("限流"));
+        assert!(
+            friendly_llm_test_error("400 unsupported parameter: reasoning_effort")
+                .contains("思考适配")
+        );
+        assert!(friendly_llm_test_error("model_not_found").contains("模型名称"));
         assert!(friendly_llm_test_error("connection reset").contains("网络"));
     }
 
@@ -780,12 +1143,36 @@ mod tests {
     #[test]
     fn polish_output_budget_skips_stepfun_compatible_endpoint() {
         assert_eq!(
-            polish_max_tokens_for_request("https://api.stepfun.com/v1", 90),
+            polish_max_tokens_for_request("https://api.stepfun.com/v1", 90, false),
             None
         );
         assert_eq!(
-            polish_max_tokens_for_request("https://dashscope.aliyuncs.com/compatible-mode/v1", 90),
+            polish_max_tokens_for_request("https://api.stepfun.com/v1", 90, true),
+            None
+        );
+        assert_eq!(
+            polish_max_tokens_for_request(
+                "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                90,
+                false
+            ),
             Some(288)
+        );
+        assert_eq!(
+            polish_max_tokens_for_request("http://127.0.0.1:3425/v1", 90, true),
+            Some(1_312)
+        );
+        assert_eq!(
+            polish_max_tokens_for_request("http://127.0.0.1:3425/v1", 200, true),
+            Some(1_664)
+        );
+        assert_eq!(
+            polish_max_tokens_for_request("http://127.0.0.1:3425/v1", 500, true),
+            Some(2_304)
+        );
+        assert_eq!(
+            polish_max_tokens_for_request("http://127.0.0.1:3425/v1", 1000, true),
+            Some(3_072)
         );
     }
 
@@ -832,6 +1219,7 @@ mod tests {
             "https://api.openai.com/v1",
             "test-model",
             STRATEGY_THINKING_DISABLED,
+            LLM_CONNECTION_TEST_MAX_TOKENS,
         );
         let messages = body
             .get("messages")
@@ -870,6 +1258,7 @@ mod tests {
             "https://api.openai.com/v1",
             "test-model",
             STRATEGY_THINKING_DISABLED,
+            LLM_CONNECTION_TEST_MAX_TOKENS,
         );
         let user_prompt = body["messages"][1]["content"].as_str().unwrap_or_default();
 
@@ -1052,5 +1441,429 @@ mod tests {
         let prompt = system_prompt_for_request(&config);
         assert!(prompt.contains("已关闭自动移除句末句号"));
         assert!(prompt.contains("请保留"));
+    }
+
+    #[test]
+    fn connection_test_rejects_truncated_partial_content() {
+        let value = json!({
+            "choices": [{
+                "message": {
+                    "reasoning_content": "先想一下",
+                    "content": "半截输出"
+                },
+                "finish_reason": "length"
+            }]
+        });
+
+        assert!(!has_connection_test_output(&value));
+        assert!(connection_test_empty_output_error(&value).contains("输出被截断"));
+    }
+
+    #[derive(Clone)]
+    struct RecordedGatewayRequest {
+        method: String,
+        path: String,
+        body: Option<Value>,
+    }
+
+    struct MockGateway {
+        base_url: String,
+        recorded: std::sync::Arc<std::sync::Mutex<Vec<RecordedGatewayRequest>>>,
+        stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+        addr: std::net::SocketAddr,
+        handle: Option<std::thread::JoinHandle<()>>,
+    }
+
+    impl MockGateway {
+        fn start<F>(handler: F) -> Self
+        where
+            F: Fn(&str, &str, Option<&Value>) -> (u16, Value) + Send + Sync + 'static,
+        {
+            use std::io::{Read, Write};
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind localhost");
+            let addr = listener.local_addr().expect("local addr");
+            let recorded = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+            let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let recorded_clone = std::sync::Arc::clone(&recorded);
+            let stop_clone = std::sync::Arc::clone(&stop);
+
+            let handle = std::thread::spawn(move || {
+                for stream in listener.incoming() {
+                    let Ok(mut stream) = stream else { break };
+                    if stop_clone.load(std::sync::atomic::Ordering::SeqCst) {
+                        break;
+                    }
+                    let mut buf = Vec::new();
+                    let mut chunk = [0u8; 4096];
+                    let mut header_end = None;
+                    while header_end.is_none() {
+                        let Ok(n) = stream.read(&mut chunk) else {
+                            break;
+                        };
+                        if n == 0 {
+                            break;
+                        }
+                        buf.extend_from_slice(&chunk[..n]);
+                        header_end = buf.windows(4).position(|window| window == b"\r\n\r\n");
+                    }
+                    let Some(header_end) = header_end else {
+                        continue;
+                    };
+                    let header_text = String::from_utf8_lossy(&buf[..header_end]).to_string();
+                    let mut lines = header_text.lines();
+                    let request_line = lines.next().unwrap_or("");
+                    let mut parts = request_line.split_whitespace();
+                    let method = parts.next().unwrap_or("").to_string();
+                    let path = parts.next().unwrap_or("").to_string();
+                    let content_length = lines
+                        .find_map(|line| {
+                            let (name, value) = line.split_once(':')?;
+                            if name.trim().eq_ignore_ascii_case("content-length") {
+                                value.trim().parse::<usize>().ok()
+                            } else {
+                                None
+                            }
+                        })
+                        .unwrap_or(0);
+                    let body_start = header_end + 4;
+                    while buf.len() < body_start + content_length {
+                        let Ok(n) = stream.read(&mut chunk) else {
+                            break;
+                        };
+                        if n == 0 {
+                            break;
+                        }
+                        buf.extend_from_slice(&chunk[..n]);
+                    }
+                    let body = if content_length > 0 && buf.len() >= body_start + content_length {
+                        serde_json::from_slice::<Value>(
+                            &buf[body_start..body_start + content_length],
+                        )
+                        .ok()
+                    } else {
+                        None
+                    };
+                    if let Ok(mut guard) = recorded_clone.lock() {
+                        guard.push(RecordedGatewayRequest {
+                            method: method.clone(),
+                            path: path.clone(),
+                            body: body.clone(),
+                        });
+                    }
+
+                    let (status, response_json) = handler(&method, &path, body.as_ref());
+                    let reason = match status {
+                        200 => "OK",
+                        400 => "Bad Request",
+                        404 => "Not Found",
+                        _ => "Error",
+                    };
+                    let payload = serde_json::to_vec(&response_json).expect("serialize response");
+                    let response_head = format!(
+                        "HTTP/1.1 {} {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        status,
+                        reason,
+                        payload.len()
+                    );
+                    let _ = stream.write_all(response_head.as_bytes());
+                    let _ = stream.write_all(&payload);
+                    let _ = stream.flush();
+                }
+            });
+
+            Self {
+                base_url: format!("http://{}/v1", addr),
+                recorded,
+                stop,
+                addr,
+                handle: Some(handle),
+            }
+        }
+
+        fn requests(&self) -> Vec<RecordedGatewayRequest> {
+            self.recorded.lock().expect("recorded lock").clone()
+        }
+    }
+
+    impl Drop for MockGateway {
+        fn drop(&mut self) {
+            self.stop.store(true, std::sync::atomic::Ordering::SeqCst);
+            let _ = std::net::TcpStream::connect(self.addr);
+            if let Some(handle) = self.handle.take() {
+                let _ = handle.join();
+            }
+        }
+    }
+
+    fn mock_llm_config(base_url: &str, model: &str, strategy: &str) -> AppConfig {
+        let mut config = AppConfig::default();
+        config.llm_post_edit.enabled = true;
+        config.llm_post_edit.min_chars = 5;
+        config.llm_post_edit.base_url = base_url.to_string();
+        config.llm_post_edit.api_key = "mock-key".to_string();
+        config.llm_post_edit.model = model.to_string();
+        config.llm_post_edit.thinking_strategy = strategy.to_string();
+        config.llm_post_edit.timeout_seconds = 10.0;
+        config
+    }
+
+    #[test]
+    fn auto_adapts_none_tier_from_models_endpoint_without_extra_polish_headroom() {
+        let gateway = MockGateway::start(|method, path, body| {
+            if method == "GET" && path == "/v1/models" {
+                return (
+                    200,
+                    json!({
+                        "data": [{
+                            "id": "deepseek-flash",
+                            "reasoning": false,
+                            "reasoning_levels": ["none"]
+                        }]
+                    }),
+                );
+            }
+            let body = body.expect("chat body");
+            if body.get("reasoning_effort").and_then(Value::as_str) == Some("none") {
+                return (
+                    200,
+                    json!({
+                        "choices": [{
+                            "finish_reason": "stop",
+                            "message": { "content": "这是润色后的短句输出内容。" }
+                        }]
+                    }),
+                );
+            }
+            (
+                400,
+                json!({ "error": { "message": "unexpected strategy" } }),
+            )
+        });
+
+        let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
+        let mut config = mock_llm_config(&gateway.base_url, "deepseek-flash", STRATEGY_AUTO);
+        let test_result = runtime
+            .block_on(super::test_connection(&config))
+            .expect("connection test should pass");
+        assert_eq!(test_result.thinking_strategy, "openrouter_reasoning_none");
+
+        config.llm_post_edit.thinking_strategy = test_result.thinking_strategy;
+        let outcome = runtime.block_on(super::polish(
+            &config,
+            "这是一段测试自动选择最低思考档位并且不做多余推理预算的语音输入文本。",
+            None,
+        ));
+        assert!(outcome.warning.is_none());
+        assert_eq!(outcome.text, "这是润色后的短句输出内容。");
+
+        let requests = gateway.requests();
+        assert_eq!(requests[0].method, "GET");
+        assert_eq!(requests[0].path, "/v1/models");
+        let test_chat = requests[1].body.as_ref().expect("test chat body");
+        assert_eq!(test_chat["reasoning_effort"], json!("none"));
+        assert_eq!(test_chat["max_tokens"], json!(256));
+        let polish_chat = requests[2].body.as_ref().expect("polish chat body");
+        assert_eq!(polish_chat["reasoning_effort"], json!("none"));
+        assert_eq!(polish_chat["max_tokens"], json!(288));
+    }
+
+    #[test]
+    fn auto_adapts_low_tier_retries_truncated_test_at_768_and_adds_polish_headroom() {
+        let gateway = MockGateway::start(|method, path, body| {
+            if method == "GET" && path == "/v1/models" {
+                return (
+                    200,
+                    json!({
+                        "data": [{
+                            "id": "google-vertex/gemini-4-hydrogen",
+                            "reasoning": true,
+                            "reasoning_levels": ["low", "medium", "high"]
+                        }]
+                    }),
+                );
+            }
+            let body = body.expect("chat body");
+            let max_tokens = body.get("max_tokens").and_then(Value::as_u64).unwrap_or(0);
+            if body.get("reasoning_effort").and_then(Value::as_str) != Some("low") {
+                return (400, json!({ "error": { "message": "expected low" } }));
+            }
+            if max_tokens <= 256 {
+                return (
+                    200,
+                    json!({
+                        "choices": [{
+                            "finish_reason": "length",
+                            "message": {
+                                "reasoning_content": "先思考一下句子结构",
+                                "content": ""
+                            }
+                        }]
+                    }),
+                );
+            }
+            (
+                200,
+                json!({
+                    "choices": [{
+                        "finish_reason": "stop",
+                        "message": { "content": "这是低思考强度下返回的完整润色结果。" }
+                    }]
+                }),
+            )
+        });
+
+        let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
+        let config = mock_llm_config(
+            &gateway.base_url,
+            "google-vertex/gemini-4-hydrogen",
+            STRATEGY_AUTO,
+        );
+        let test_result = runtime
+            .block_on(super::test_connection(&config))
+            .expect("connection test should retry at 768 and pass");
+        assert_eq!(
+            test_result.thinking_strategy,
+            STRATEGY_OPENROUTER_REASONING_LOW
+        );
+
+        // 保持 config.thinking_strategy 为 auto，也应复用已缓存的 low 策略并自动增加 1024 输出余量
+        let outcome = runtime.block_on(super::polish(
+            &config,
+            "这是一段包含产品名和英文缩写的测试短句需要返回完整润色结果。",
+            None,
+        ));
+        assert!(outcome.warning.is_none());
+        assert_eq!(outcome.text, "这是低思考强度下返回的完整润色结果。");
+
+        let requests = gateway.requests();
+        assert_eq!(requests.len(), 4);
+        let first_test = requests[1].body.as_ref().expect("first test body");
+        assert_eq!(first_test["reasoning_effort"], json!("low"));
+        assert_eq!(first_test["max_tokens"], json!(256));
+
+        let retry_test = requests[2].body.as_ref().expect("retry test body");
+        assert_eq!(retry_test["reasoning_effort"], json!("low"));
+        assert_eq!(retry_test["max_tokens"], json!(768));
+
+        let polish_req = requests[3].body.as_ref().expect("polish body");
+        assert_eq!(polish_req["reasoning_effort"], json!("low"));
+        assert_eq!(polish_req["max_tokens"], json!(1_312));
+    }
+
+    #[test]
+    fn falls_back_when_models_endpoint_404_and_recovers_via_low_768_retry() {
+        let gateway = MockGateway::start(|method, path, body| {
+            if method == "GET" && path == "/v1/models" {
+                return (404, json!({ "error": { "message": "not found" } }));
+            }
+            let body = body.expect("chat body");
+            let max_tokens = body.get("max_tokens").and_then(Value::as_u64).unwrap_or(0);
+            let effort = body.get("reasoning_effort").and_then(Value::as_str);
+            if effort == Some("low") && max_tokens >= 768 {
+                return (
+                    200,
+                    json!({
+                        "choices": [{
+                            "finish_reason": "stop",
+                            "message": { "content": "回退重试后返回的完整文本。" }
+                        }]
+                    }),
+                );
+            }
+            (
+                200,
+                json!({
+                    "choices": [{
+                        "finish_reason": "length",
+                        "message": {
+                            "reasoning_content": "思考耗尽了 256 输出额度",
+                            "content": ""
+                        }
+                    }]
+                }),
+            )
+        });
+
+        let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
+        let config = mock_llm_config(&gateway.base_url, "unlisted-model", STRATEGY_AUTO);
+        let test_result = runtime
+            .block_on(super::test_connection(&config))
+            .expect("fallback retry with low + 768 should succeed");
+        assert_eq!(
+            test_result.thinking_strategy,
+            STRATEGY_OPENROUTER_REASONING_LOW
+        );
+    }
+
+    #[test]
+    fn manual_low_strategy_is_respected_in_test_and_polish() {
+        let gateway = MockGateway::start(|method, path, body| {
+            if method == "GET" && path == "/v1/models" {
+                return (
+                    200,
+                    json!({
+                        "data": [{
+                            "id": "custom-model",
+                            "reasoning_levels": ["none", "low"]
+                        }]
+                    }),
+                );
+            }
+            let body = body.expect("chat body");
+            if body.get("reasoning_effort").and_then(Value::as_str) != Some("low") {
+                return (
+                    400,
+                    json!({ "error": { "message": "expected manual low" } }),
+                );
+            }
+            (
+                200,
+                json!({
+                    "choices": [{
+                        "finish_reason": "stop",
+                        "message": { "content": "手动低思考档位润色成功。" }
+                    }]
+                }),
+            )
+        });
+
+        let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
+        let config = mock_llm_config(
+            &gateway.base_url,
+            "custom-model",
+            STRATEGY_OPENROUTER_REASONING_LOW,
+        );
+        let test_result = runtime
+            .block_on(super::test_connection(&config))
+            .expect("manual low test should pass");
+        assert_eq!(
+            test_result.thinking_strategy,
+            STRATEGY_OPENROUTER_REASONING_LOW
+        );
+
+        let outcome = runtime.block_on(super::polish(
+            &config,
+            "这是一段测试手动指定低思考强度并保留用户配置的语音文本。",
+            None,
+        ));
+        assert!(outcome.warning.is_none());
+        assert_eq!(outcome.text, "手动低思考档位润色成功。");
+
+        let requests = gateway.requests();
+        assert!(requests
+            .iter()
+            .all(|req| req.path == "/v1/chat/completions"));
+        assert_eq!(
+            requests[0].body.as_ref().expect("test")["reasoning_effort"],
+            json!("low")
+        );
+        assert_eq!(
+            requests[1].body.as_ref().expect("polish")["reasoning_effort"],
+            json!("low")
+        );
+        assert_eq!(
+            requests[1].body.as_ref().expect("polish")["max_tokens"],
+            json!(1_312)
+        );
     }
 }
