@@ -506,12 +506,14 @@ pub async fn test_connection(config: &AppConfig) -> Result<LlmConnectionTestResu
     let base_url = settings.base_url.trim().trim_end_matches('/');
     let model = settings.model.trim();
     if api_key.is_empty() || base_url.is_empty() || model.is_empty() {
-        return Err("请先填写大模型 Base URL、API Key 和模型名称。".to_string());
+        return Err(
+            "LLM_TEST_MISSING_CONFIG: 请先填写大模型 Base URL、API Key 和模型名称。".to_string(),
+        );
     }
     if let Some(warning) =
         thinking_disabled_model_warning(base_url, model, settings.enable_thinking)
     {
-        return Err(warning.to_string());
+        return Err(format!("LLM_TEST_THINKING_ONLY_MODEL: {}", warning));
     }
 
     app_log::info(format!("LLM connection test started: model={}", model));
@@ -636,7 +638,8 @@ pub async fn test_connection(config: &AppConfig) -> Result<LlmConnectionTestResu
     }
 
     let Some(result) = best_result else {
-        return Err(last_error.unwrap_or_else(|| "大模型测试失败，请检查模型配置。".to_string()));
+        return Err(last_error
+            .unwrap_or_else(|| "LLM_TEST_FAILED: 大模型测试失败，请检查模型配置。".to_string()));
     };
     app_log::info(format!(
         "LLM connection test finished: elapsed_ms={} thinking_strategy={}",
@@ -874,21 +877,22 @@ fn connection_test_empty_output_error(value: &Value) -> String {
     let has_content = !extract_message_content(value).trim().is_empty();
     if response_was_truncated(value) {
         if has_content {
-            return "大模型已响应，但输出被截断，未返回完整测试文本；请关闭思考模式或改用兼容的思考适配策略。"
+            return "LLM_TEST_OUTPUT_TRUNCATED: 大模型已响应，但输出被截断，未返回完整测试文本；请关闭思考模式或改用兼容的思考适配策略。"
                 .to_string();
         }
         if has_reasoning {
-            return "大模型已响应，但思考内容耗尽了测试输出额度，未返回最终文本；请关闭思考模式或改用兼容的思考适配策略。"
+            return "LLM_TEST_REASONING_BUDGET_EXHAUSTED: 大模型已响应，但思考内容耗尽了测试输出额度，未返回最终文本；请关闭思考模式或改用兼容的思考适配策略。"
                 .to_string();
         }
-        return "大模型已响应，但测试输出额度耗尽且未返回最终文本；请关闭思考模式或改用兼容的思考适配策略。"
+        return "LLM_TEST_BUDGET_EXHAUSTED: 大模型已响应，但测试输出额度耗尽且未返回最终文本；请关闭思考模式或改用兼容的思考适配策略。"
             .to_string();
     }
     if has_reasoning {
-        return "大模型已响应，但只返回了思考内容，没有可用于润色的最终文本；请关闭思考模式或改用兼容的思考适配策略。"
+        return "LLM_TEST_REASONING_ONLY: 大模型已响应，但只返回了思考内容，没有可用于润色的最终文本；请关闭思考模式或改用兼容的思考适配策略。"
             .to_string();
     }
-    "大模型已响应，但测试返回空内容；请检查模型名称，或关闭思考模式后再测试。".to_string()
+    "LLM_TEST_EMPTY_OUTPUT: 大模型已响应，但测试返回空内容；请检查模型名称，或关闭思考模式后再测试。"
+        .to_string()
 }
 
 fn friendly_llm_error(error: &str) -> String {
@@ -925,14 +929,15 @@ fn friendly_llm_test_error(error: &str) -> String {
         || lower.contains("invalid api key")
         || lower.contains("invalid_api_key")
     {
-        "大模型 API Key 或权限校验失败，请检查 API Key、Base URL 和模型名称。".to_string()
+        "LLM_TEST_AUTH_FAILED: 大模型 API Key 或权限校验失败，请检查 API Key、Base URL 和模型名称。"
+            .to_string()
     } else if lower.contains("429")
         || lower.contains("rate limit")
         || lower.contains("ratelimit")
         || lower.contains("quota")
         || lower.contains("insufficient_quota")
     {
-        "大模型服务限流或额度不足，请稍后重试或检查账号额度。".to_string()
+        "LLM_TEST_RATE_LIMITED: 大模型服务限流或额度不足，请稍后重试或检查账号额度。".to_string()
     } else if (lower.contains("reasoning_effort")
         || lower.contains("enable_thinking")
         || lower.contains("reasoning")
@@ -944,7 +949,7 @@ fn friendly_llm_test_error(error: &str) -> String {
             || lower.contains("mandatory")
             || lower.contains("cannot be disabled"))
     {
-        "当前模型不支持所选的思考适配参数，请将「思考适配」改回自动选择或更换兼容档位后重试。"
+        "LLM_TEST_THINKING_UNSUPPORTED: 当前模型不支持所选的思考适配参数，请将「思考适配」改回自动选择或更换兼容档位后重试。"
             .to_string()
     } else if lower.contains("model not found")
         || lower.contains("model_not_found")
@@ -952,7 +957,8 @@ fn friendly_llm_test_error(error: &str) -> String {
         || lower.contains("does not exist")
         || lower.contains("模型不存在")
     {
-        "大模型名称不可用，请检查模型名称是否与当前 Base URL 和账号权限匹配。".to_string()
+        "LLM_TEST_MODEL_UNAVAILABLE: 大模型名称不可用，请检查模型名称是否与当前 Base URL 和账号权限匹配。"
+            .to_string()
     } else if lower.contains("timeout")
         || lower.contains("timed out")
         || lower.contains("dns")
@@ -960,9 +966,10 @@ fn friendly_llm_test_error(error: &str) -> String {
         || lower.contains("connect")
         || lower.contains("proxy")
     {
-        "无法连接大模型服务，请检查网络、代理或 Base URL。".to_string()
+        "LLM_TEST_NETWORK_FAILED: 无法连接大模型服务，请检查网络、代理或 Base URL。".to_string()
     } else {
-        "大模型测试失败，请检查 API Key、Base URL、模型名称或网络环境。".to_string()
+        "LLM_TEST_FAILED: 大模型测试失败，请检查 API Key、Base URL、模型名称或网络环境。"
+            .to_string()
     }
 }
 
@@ -1003,14 +1010,17 @@ mod tests {
         assert!(friendly_llm_error("401 invalid_api_key").contains("API Key"));
         assert!(friendly_llm_error("dns lookup failed").contains("网络"));
         assert!(friendly_llm_error("model not found").contains("模型名称"));
-        assert!(friendly_llm_test_error("403 forbidden").contains("权限"));
-        assert!(friendly_llm_test_error("429 rate limit").contains("限流"));
+        assert!(friendly_llm_test_error("403 forbidden").starts_with("LLM_TEST_AUTH_FAILED:"));
+        assert!(friendly_llm_test_error("429 rate limit").starts_with("LLM_TEST_RATE_LIMITED:"));
         assert!(
             friendly_llm_test_error("400 unsupported parameter: reasoning_effort")
-                .contains("思考适配")
+                .starts_with("LLM_TEST_THINKING_UNSUPPORTED:")
         );
-        assert!(friendly_llm_test_error("model_not_found").contains("模型名称"));
-        assert!(friendly_llm_test_error("connection reset").contains("网络"));
+        assert!(
+            friendly_llm_test_error("model_not_found").starts_with("LLM_TEST_MODEL_UNAVAILABLE:")
+        );
+        assert!(friendly_llm_test_error("connection reset").starts_with("LLM_TEST_NETWORK_FAILED:"));
+        assert!(friendly_llm_test_error("unexpected 500").starts_with("LLM_TEST_FAILED:"));
     }
 
     #[test]
