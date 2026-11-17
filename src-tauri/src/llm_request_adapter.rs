@@ -1,4 +1,6 @@
 use serde_json::{json, Value};
+use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
 
 pub const STRATEGY_AUTO: &str = "auto";
 pub const STRATEGY_DASHSCOPE_ENABLE_THINKING: &str = "dashscope_enable_thinking";
@@ -18,6 +20,18 @@ const ALLOWED_STRATEGIES: &[&str] = &[
     STRATEGY_OMIT,
 ];
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ModelReasoningProfile {
+    pub preferred_strategy: &'static str,
+    pub uses_reasoning_tokens: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CachedModelCapability {
+    Known(ModelReasoningProfile),
+    Unknown { observed_reasoning_truncation: bool },
+}
+
 pub fn is_valid_thinking_strategy(strategy: &str) -> bool {
     ALLOWED_STRATEGIES.contains(&strategy)
 }
@@ -33,12 +47,28 @@ pub fn is_thinking_only_model(base_url: &str, model: &str) -> bool {
     )
 }
 
+/// 这些固定协议官方端点已有明确关闭字段，无需额外探测 `/v1/models`。
+pub fn should_probe_models_capability(base_url: &str) -> bool {
+    let lower = base_url.to_ascii_lowercase();
+    !(lower.contains("dashscope.aliyuncs.com")
+        || lower.contains("api.deepseek.com")
+        || lower.contains("api.xiaomimimo.com"))
+}
+
 pub fn effective_thinking_strategy(base_url: &str, model: &str, configured: &str) -> &'static str {
     if is_dashscope(base_url) && configured == STRATEGY_OMIT {
         return STRATEGY_DASHSCOPE_ENABLE_THINKING;
     }
     if configured != STRATEGY_AUTO {
-        return normalize_thinking_strategy(configured);
+        let normalized = normalize_thinking_strategy(configured);
+        if normalized != STRATEGY_AUTO {
+            return normalized;
+        }
+    }
+    if let Some(CachedModelCapability::Known(profile)) =
+        get_cached_model_capability(base_url, model)
+    {
+        return profile.preferred_strategy;
     }
     preferred_auto_strategy(base_url, model)
 }
@@ -49,9 +79,9 @@ pub fn thinking_strategy_candidates(
     configured: &str,
 ) -> Vec<&'static str> {
     if configured != STRATEGY_AUTO {
-        let normalized = effective_thinking_strategy(base_url, model, configured);
-        if normalized == STRATEGY_OMIT || normalized == preferred_auto_strategy(base_url, model) {
-            return vec![normalized];
+        let normalized = normalize_thinking_strategy(configured);
+        if normalized != STRATEGY_AUTO {
+            return vec![effective_thinking_strategy(base_url, model, configured)];
         }
     }
 
@@ -113,15 +143,178 @@ pub fn apply_thinking_strategy(
             body["reasoning_effort"] = json!("low");
         }
         STRATEGY_OPENROUTER_REASONING_MINIMAL => {
-            body["reasoning"] = json!({ "effort": "minimal", "exclude": true });
+            if is_openrouter(base_url) {
+                body["reasoning"] = json!({ "effort": "minimal", "exclude": true });
+            } else {
+                body["reasoning_effort"] = json!("minimal");
+            }
         }
         STRATEGY_OPENROUTER_REASONING_NONE => {
-            body["reasoning"] = json!({ "effort": "none", "exclude": true });
+            if is_openrouter(base_url) {
+                body["reasoning"] = json!({ "effort": "none", "exclude": true });
+            } else {
+                body["reasoning_effort"] = json!("none");
+            }
         }
         STRATEGY_OMIT | STRATEGY_AUTO => {}
         _ => {}
     }
     strategy
+}
+
+/// 从 `/models` 响应解析指定模型支持的最低思考强度档位与推理开销标志。
+pub fn parse_model_reasoning_profile(
+    payload: &Value,
+    model: &str,
+) -> Option<ModelReasoningProfile> {
+    let model_trimmed = model.trim();
+    if model_trimmed.is_empty() {
+        return None;
+    }
+    let entries = payload
+        .get("data")
+        .and_then(Value::as_array)
+        .or_else(|| payload.get("models").and_then(Value::as_array))
+        .or_else(|| payload.as_array())?;
+
+    let entry = entries
+        .iter()
+        .find(|item| item.get("id").and_then(Value::as_str).map(str::trim) == Some(model_trimmed))
+        .or_else(|| {
+            entries.iter().find(|item| {
+                item.get("id")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .is_some_and(|id| id.eq_ignore_ascii_case(model_trimmed))
+            })
+        })?;
+
+    let (levels, has_explicit_levels_array) = extract_reasoning_levels(entry);
+    if !levels.is_empty() {
+        if levels
+            .iter()
+            .any(|level| matches!(level.as_str(), "none" | "off" | "disabled"))
+        {
+            return Some(ModelReasoningProfile {
+                preferred_strategy: STRATEGY_OPENROUTER_REASONING_NONE,
+                uses_reasoning_tokens: false,
+            });
+        }
+        if levels.iter().any(|level| level == "minimal") {
+            return Some(ModelReasoningProfile {
+                preferred_strategy: STRATEGY_OPENROUTER_REASONING_MINIMAL,
+                uses_reasoning_tokens: true,
+            });
+        }
+        if levels.iter().any(|level| level == "low") {
+            return Some(ModelReasoningProfile {
+                preferred_strategy: STRATEGY_OPENROUTER_REASONING_LOW,
+                uses_reasoning_tokens: true,
+            });
+        }
+        return Some(ModelReasoningProfile {
+            preferred_strategy: STRATEGY_OMIT,
+            uses_reasoning_tokens: true,
+        });
+    }
+
+    let reasoning_flag = entry.get("reasoning").and_then(Value::as_bool).or_else(|| {
+        entry
+            .get("capabilities")
+            .and_then(|caps| caps.get("reasoning"))
+            .and_then(Value::as_bool)
+    });
+
+    match reasoning_flag {
+        Some(false) => Some(ModelReasoningProfile {
+            preferred_strategy: STRATEGY_OPENROUTER_REASONING_NONE,
+            uses_reasoning_tokens: false,
+        }),
+        Some(true) if has_explicit_levels_array => Some(ModelReasoningProfile {
+            preferred_strategy: STRATEGY_OMIT,
+            uses_reasoning_tokens: true,
+        }),
+        _ => None,
+    }
+}
+
+pub fn get_cached_model_capability(base_url: &str, model: &str) -> Option<CachedModelCapability> {
+    let key = cache_key(base_url, model);
+    capability_cache().lock().ok()?.get(&key).copied()
+}
+
+pub fn store_cached_model_capability(
+    base_url: &str,
+    model: &str,
+    capability: CachedModelCapability,
+) {
+    let key = cache_key(base_url, model);
+    if let Ok(mut guard) = capability_cache().lock() {
+        let merged = match (guard.get(&key).copied(), capability) {
+            (
+                Some(CachedModelCapability::Unknown {
+                    observed_reasoning_truncation: true,
+                }),
+                CachedModelCapability::Unknown {
+                    observed_reasoning_truncation: false,
+                },
+            ) => CachedModelCapability::Unknown {
+                observed_reasoning_truncation: true,
+            },
+            (_, next) => next,
+        };
+        guard.insert(key, merged);
+    }
+}
+
+pub fn mark_model_reasoning_truncation(base_url: &str, model: &str) {
+    let key = cache_key(base_url, model);
+    if let Ok(mut guard) = capability_cache().lock() {
+        match guard.get(&key).copied() {
+            Some(CachedModelCapability::Known(_)) => {}
+            _ => {
+                guard.insert(
+                    key,
+                    CachedModelCapability::Unknown {
+                        observed_reasoning_truncation: true,
+                    },
+                );
+            }
+        }
+    }
+}
+
+/// 判断当前润色配置是否仍会产生内部推理 token，从而需要增加输出预算余量。
+pub fn strategy_uses_reasoning_tokens(
+    enable_thinking: bool,
+    effective_strategy: &str,
+    cached: Option<CachedModelCapability>,
+) -> bool {
+    if enable_thinking {
+        return true;
+    }
+    if matches!(
+        cached,
+        Some(CachedModelCapability::Unknown {
+            observed_reasoning_truncation: true
+        })
+    ) {
+        return true;
+    }
+    match effective_strategy {
+        STRATEGY_OPENROUTER_REASONING_LOW | STRATEGY_OPENROUTER_REASONING_MINIMAL => true,
+        STRATEGY_DASHSCOPE_ENABLE_THINKING
+        | STRATEGY_THINKING_DISABLED
+        | STRATEGY_OPENROUTER_REASONING_NONE => false,
+        STRATEGY_OMIT | STRATEGY_AUTO => match cached {
+            Some(CachedModelCapability::Known(profile)) => profile.uses_reasoning_tokens,
+            Some(CachedModelCapability::Unknown {
+                observed_reasoning_truncation,
+            }) => observed_reasoning_truncation,
+            None => false,
+        },
+        _ => false,
+    }
 }
 
 pub fn remove_thinking_controls(body: &mut Value) {
@@ -191,6 +384,60 @@ pub fn should_retry_without_unsupported_thinking(
             || lower.contains("invalid_request_error"))
 }
 
+fn extract_reasoning_levels(entry: &Value) -> (Vec<String>, bool) {
+    let mut levels = Vec::new();
+    let mut has_explicit_array = false;
+    let sources = [
+        entry.get("reasoning_levels"),
+        entry.get("supported_reasoning_levels"),
+        entry
+            .get("capabilities")
+            .and_then(|caps| caps.get("reasoning_levels")),
+        entry
+            .get("capabilities")
+            .and_then(|caps| caps.get("supported_reasoning_levels")),
+    ];
+
+    for source in sources.into_iter().flatten() {
+        let Some(items) = source.as_array() else {
+            continue;
+        };
+        has_explicit_array = true;
+        for item in items {
+            let level = match item {
+                Value::String(text) => Some(text.as_str()),
+                Value::Object(_) => item
+                    .get("effort")
+                    .or_else(|| item.get("level"))
+                    .or_else(|| item.get("id"))
+                    .and_then(Value::as_str),
+                _ => None,
+            };
+            if let Some(level) = level {
+                let normalized = level.trim().to_ascii_lowercase();
+                if !normalized.is_empty() {
+                    levels.push(normalized);
+                }
+            }
+        }
+    }
+
+    (levels, has_explicit_array)
+}
+
+fn capability_cache() -> &'static Mutex<HashMap<(String, String), CachedModelCapability>> {
+    static CACHE: OnceLock<Mutex<HashMap<(String, String), CachedModelCapability>>> =
+        OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn cache_key(base_url: &str, model: &str) -> (String, String) {
+    (
+        base_url.trim().trim_end_matches('/').to_ascii_lowercase(),
+        model.trim().to_string(),
+    )
+}
+
 fn preferred_auto_strategy(base_url: &str, model: &str) -> &'static str {
     let base_url = base_url.to_ascii_lowercase();
     let model = model.to_ascii_lowercase();
@@ -209,10 +456,14 @@ fn preferred_auto_strategy(base_url: &str, model: &str) -> &'static str {
     STRATEGY_DASHSCOPE_ENABLE_THINKING
 }
 
-fn is_dashscope(base_url: &str) -> bool {
+pub fn is_dashscope(base_url: &str) -> bool {
     base_url
         .to_ascii_lowercase()
         .contains("dashscope.aliyuncs.com")
+}
+
+fn is_openrouter(base_url: &str) -> bool {
+    base_url.to_ascii_lowercase().contains("openrouter.ai")
 }
 
 fn normalize_thinking_strategy(strategy: &str) -> &'static str {
@@ -231,10 +482,14 @@ fn normalize_thinking_strategy(strategy: &str) -> &'static str {
 mod tests {
     use super::{
         apply_thinking_strategy, disabled_thinking_controls, effective_thinking_strategy,
-        is_thinking_only_model, is_valid_thinking_strategy,
-        should_retry_without_unsupported_thinking, thinking_strategy_candidates, STRATEGY_AUTO,
+        get_cached_model_capability, is_thinking_only_model, is_valid_thinking_strategy,
+        mark_model_reasoning_truncation, parse_model_reasoning_profile,
+        should_probe_models_capability, should_retry_without_unsupported_thinking,
+        store_cached_model_capability, strategy_uses_reasoning_tokens,
+        thinking_strategy_candidates, CachedModelCapability, ModelReasoningProfile, STRATEGY_AUTO,
         STRATEGY_DASHSCOPE_ENABLE_THINKING, STRATEGY_OMIT, STRATEGY_OPENROUTER_REASONING_LOW,
-        STRATEGY_OPENROUTER_REASONING_NONE, STRATEGY_THINKING_DISABLED,
+        STRATEGY_OPENROUTER_REASONING_MINIMAL, STRATEGY_OPENROUTER_REASONING_NONE,
+        STRATEGY_THINKING_DISABLED,
     };
     use serde_json::json;
 
@@ -323,6 +578,232 @@ mod tests {
             body["reasoning"],
             json!({ "effort": "none", "exclude": true })
         );
+    }
+
+    #[test]
+    fn uses_standard_reasoning_effort_for_non_openrouter_gateways() {
+        let gateway = "http://127.0.0.1:3425/v1";
+        for (strategy, expected) in [
+            (STRATEGY_OPENROUTER_REASONING_NONE, "none"),
+            (STRATEGY_OPENROUTER_REASONING_MINIMAL, "minimal"),
+            (STRATEGY_OPENROUTER_REASONING_LOW, "low"),
+        ] {
+            let mut body = json!({});
+            let used = apply_thinking_strategy(&mut body, gateway, "test-model", false, strategy);
+            assert_eq!(used, strategy);
+            assert_eq!(body["reasoning_effort"], json!(expected));
+            assert!(body.get("reasoning").is_none());
+        }
+
+        let mut openrouter_minimal = json!({});
+        apply_thinking_strategy(
+            &mut openrouter_minimal,
+            "https://openrouter.ai/api/v1",
+            "test-model",
+            false,
+            STRATEGY_OPENROUTER_REASONING_MINIMAL,
+        );
+        assert_eq!(
+            openrouter_minimal["reasoning"],
+            json!({ "effort": "minimal", "exclude": true })
+        );
+    }
+
+    #[test]
+    fn keeps_explicit_manual_strategy_as_single_candidate() {
+        assert_eq!(
+            thinking_strategy_candidates(
+                "http://127.0.0.1:3425/v1",
+                "google-vertex/gemini-4-hydrogen",
+                STRATEGY_OPENROUTER_REASONING_LOW
+            ),
+            vec![STRATEGY_OPENROUTER_REASONING_LOW]
+        );
+        assert_eq!(
+            thinking_strategy_candidates(
+                "https://api.example.com/v1",
+                "custom-model",
+                STRATEGY_OPENROUTER_REASONING_NONE
+            ),
+            vec![STRATEGY_OPENROUTER_REASONING_NONE]
+        );
+        assert_eq!(
+            thinking_strategy_candidates(
+                "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                "qwen3.7-max",
+                STRATEGY_OMIT
+            ),
+            vec![STRATEGY_DASHSCOPE_ENABLE_THINKING]
+        );
+    }
+
+    #[test]
+    fn parses_model_reasoning_profiles_from_models_payload() {
+        let payload = json!({
+            "data": [
+                {
+                    "id": "deepseek-flash",
+                    "reasoning": false,
+                    "reasoning_levels": []
+                },
+                {
+                    "id": "model-with-none",
+                    "reasoning": true,
+                    "reasoning_levels": ["none", "low", "high"]
+                },
+                {
+                    "id": "kimi-k3.1-pro",
+                    "reasoning": true,
+                    "supported_reasoning_levels": [
+                        {"effort": "minimal"},
+                        {"effort": "low"}
+                    ]
+                },
+                {
+                    "id": "google-vertex/gemini-4-hydrogen",
+                    "reasoning": true,
+                    "reasoning_levels": ["low", "medium", "high"]
+                },
+                {
+                    "id": "high-only-model",
+                    "reasoning": true,
+                    "supported_reasoning_levels": [
+                        {"effort": "medium"},
+                        {"effort": "high"}
+                    ]
+                },
+                {
+                    "id": "opaque-thinking-model",
+                    "reasoning": true,
+                    "reasoning_levels": []
+                },
+                {
+                    "id": "plain-openai-model",
+                    "object": "model"
+                }
+            ]
+        });
+
+        assert_eq!(
+            parse_model_reasoning_profile(&payload, "deepseek-flash"),
+            Some(ModelReasoningProfile {
+                preferred_strategy: STRATEGY_OPENROUTER_REASONING_NONE,
+                uses_reasoning_tokens: false,
+            })
+        );
+        assert_eq!(
+            parse_model_reasoning_profile(&payload, "model-with-none"),
+            Some(ModelReasoningProfile {
+                preferred_strategy: STRATEGY_OPENROUTER_REASONING_NONE,
+                uses_reasoning_tokens: false,
+            })
+        );
+        assert_eq!(
+            parse_model_reasoning_profile(&payload, "kimi-k3.1-pro"),
+            Some(ModelReasoningProfile {
+                preferred_strategy: STRATEGY_OPENROUTER_REASONING_MINIMAL,
+                uses_reasoning_tokens: true,
+            })
+        );
+        assert_eq!(
+            parse_model_reasoning_profile(&payload, "google-vertex/gemini-4-hydrogen"),
+            Some(ModelReasoningProfile {
+                preferred_strategy: STRATEGY_OPENROUTER_REASONING_LOW,
+                uses_reasoning_tokens: true,
+            })
+        );
+        assert_eq!(
+            parse_model_reasoning_profile(&payload, "high-only-model"),
+            Some(ModelReasoningProfile {
+                preferred_strategy: STRATEGY_OMIT,
+                uses_reasoning_tokens: true,
+            })
+        );
+        assert_eq!(
+            parse_model_reasoning_profile(&payload, "opaque-thinking-model"),
+            Some(ModelReasoningProfile {
+                preferred_strategy: STRATEGY_OMIT,
+                uses_reasoning_tokens: true,
+            })
+        );
+        assert_eq!(
+            parse_model_reasoning_profile(&payload, "plain-openai-model"),
+            None
+        );
+        assert_eq!(parse_model_reasoning_profile(&payload, "missing"), None);
+    }
+
+    #[test]
+    fn probes_models_capability_only_on_non_fixed_endpoints() {
+        assert!(!should_probe_models_capability(
+            "https://dashscope.aliyuncs.com/compatible-mode/v1"
+        ));
+        assert!(!should_probe_models_capability("https://api.deepseek.com"));
+        assert!(!should_probe_models_capability(
+            "https://api.xiaomimimo.com/v1"
+        ));
+        assert!(should_probe_models_capability("http://127.0.0.1:3425/v1"));
+        assert!(should_probe_models_capability(
+            "https://openrouter.ai/api/v1"
+        ));
+    }
+
+    #[test]
+    fn caches_model_capabilities_and_detects_reasoning_budget_needs() {
+        let gateway = "https://cache-unit-test.invalid/v1";
+        let model = "custom-reasoning-model";
+        store_cached_model_capability(
+            gateway,
+            model,
+            CachedModelCapability::Known(ModelReasoningProfile {
+                preferred_strategy: STRATEGY_OPENROUTER_REASONING_LOW,
+                uses_reasoning_tokens: true,
+            }),
+        );
+        assert_eq!(
+            effective_thinking_strategy(gateway, model, STRATEGY_AUTO),
+            STRATEGY_OPENROUTER_REASONING_LOW
+        );
+        assert!(strategy_uses_reasoning_tokens(
+            false,
+            STRATEGY_OPENROUTER_REASONING_LOW,
+            get_cached_model_capability(gateway, model),
+        ));
+
+        let unknown_model = "unknown-truncating-model";
+        store_cached_model_capability(
+            gateway,
+            unknown_model,
+            CachedModelCapability::Unknown {
+                observed_reasoning_truncation: false,
+            },
+        );
+        assert!(!strategy_uses_reasoning_tokens(
+            false,
+            STRATEGY_OMIT,
+            get_cached_model_capability(gateway, unknown_model),
+        ));
+        mark_model_reasoning_truncation(gateway, unknown_model);
+        assert!(strategy_uses_reasoning_tokens(
+            false,
+            STRATEGY_OMIT,
+            get_cached_model_capability(gateway, unknown_model),
+        ));
+        assert!(strategy_uses_reasoning_tokens(
+            false,
+            STRATEGY_THINKING_DISABLED,
+            get_cached_model_capability(gateway, unknown_model),
+        ));
+        assert!(strategy_uses_reasoning_tokens(
+            true,
+            STRATEGY_OPENROUTER_REASONING_NONE,
+            None,
+        ));
+        assert!(!strategy_uses_reasoning_tokens(
+            false,
+            STRATEGY_OPENROUTER_REASONING_NONE,
+            None,
+        ));
     }
 
     #[test]

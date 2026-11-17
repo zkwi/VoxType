@@ -6,7 +6,9 @@ use crate::{
         base_chat_body, build_client, extract_message_content, response_was_truncated,
         send_chat_with_thinking_fallback,
     },
-    llm_request_adapter::apply_thinking_strategy,
+    llm_request_adapter::{
+        apply_thinking_strategy, mark_model_reasoning_truncation, STRATEGY_OMIT,
+    },
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -169,12 +171,18 @@ fn hotword_timeout_seconds(configured_seconds: f64) -> f64 {
         .clamp(1.0, 300.0)
 }
 
-fn hotword_max_tokens(max_candidates: usize) -> u32 {
+fn hotword_max_tokens(max_candidates: usize, needs_reasoning_headroom: bool) -> u32 {
     let requested = max_candidates.max(1) as u32;
-    (800 + requested.saturating_mul(120)).clamp(
+    let base = (800 + requested.saturating_mul(120)).clamp(
         HOTWORD_GENERATION_MIN_MAX_TOKENS,
         HOTWORD_GENERATION_MAX_MAX_TOKENS,
-    )
+    );
+    if needs_reasoning_headroom {
+        base.saturating_add(crate::llm_post_edit::LLM_POLISH_REASONING_HEADROOM_TOKENS)
+            .min(HOTWORD_GENERATION_MAX_MAX_TOKENS)
+    } else {
+        base
+    }
 }
 
 async fn call_openai_compatible_for_hotwords(
@@ -190,14 +198,25 @@ async fn call_openai_compatible_for_hotwords(
     let timeout = Duration::from_secs_f64(hotword_timeout_seconds(settings.timeout_seconds));
     let client =
         build_client(timeout).map_err(|err| format!("创建自动热词生成客户端失败: {}", err))?;
+    let (resolved_strategy, needs_reasoning_headroom) =
+        crate::llm_post_edit::resolve_runtime_thinking_profile(
+            base_url,
+            api_key,
+            model,
+            settings.enable_thinking,
+            &settings.thinking_strategy,
+            settings.timeout_seconds,
+        )
+        .await;
+    let initial_max_tokens = hotword_max_tokens(max_candidates, needs_reasoning_headroom);
     let body = chat_body(
         model,
         system_prompt,
         user_prompt,
         base_url,
         settings.enable_thinking,
-        &settings.thinking_strategy,
-        hotword_max_tokens(max_candidates),
+        resolved_strategy,
+        initial_max_tokens,
     );
     let result = send_chat_with_thinking_fallback(
         &client,
@@ -208,6 +227,48 @@ async fn call_openai_compatible_for_hotwords(
     )
     .await
     .map_err(|err| generation_error_for_user(&err))?;
+
+    let effective_strategy = if result.retried_without_thinking {
+        STRATEGY_OMIT
+    } else {
+        resolved_strategy
+    };
+    if crate::llm_post_edit::should_recover_reasoning_headroom(
+        base_url,
+        model,
+        settings.enable_thinking,
+        needs_reasoning_headroom,
+        effective_strategy,
+        &result.value,
+    ) {
+        let retry_max_tokens = hotword_max_tokens(max_candidates, true);
+        if retry_max_tokens > initial_max_tokens {
+            mark_model_reasoning_truncation(base_url, model);
+            app_log::info(format!(
+                "自动热词生成触发推理预算自愈重试: model={}, strategy={}, retry_max_tokens={}",
+                model, effective_strategy, retry_max_tokens
+            ));
+            let retry_body = chat_body(
+                model,
+                system_prompt,
+                user_prompt,
+                base_url,
+                settings.enable_thinking,
+                effective_strategy,
+                retry_max_tokens,
+            );
+            let retry_result = send_chat_with_thinking_fallback(
+                &client,
+                base_url,
+                api_key,
+                &retry_body,
+                "解析自动热词生成响应失败",
+            )
+            .await
+            .map_err(|err| generation_error_for_user(&err))?;
+            return handle_generation_value(&retry_result.value);
+        }
+    }
     handle_generation_value(&result.value)
 }
 
@@ -697,8 +758,13 @@ mod tests {
     fn hotword_generation_uses_larger_timeout_and_output_budget() {
         assert_eq!(hotword_timeout_seconds(30.0), 60.0);
         assert_eq!(hotword_timeout_seconds(120.0), 120.0);
-        assert!(hotword_max_tokens(30) > 1_500);
-        assert!(hotword_max_tokens(100) <= 6_000);
+        assert!(hotword_max_tokens(30, false) > 1_500);
+        assert_eq!(
+            hotword_max_tokens(30, true),
+            hotword_max_tokens(30, false) + 1_024
+        );
+        assert!(hotword_max_tokens(100, false) <= 6_000);
+        assert!(hotword_max_tokens(100, true) <= 6_000);
     }
 
     #[test]

@@ -144,6 +144,7 @@
     onTestAsrConfig: () => void;
     onAsrAuthChange: () => void;
     onTestLlmConfig: () => void;
+    onLlmThinkingStrategyChange?: (strategy: string) => void;
     onTestScreenContext: () => void;
     onClearScreenContextPreview: () => void;
     onHotkeyKeydown: (event: KeyboardEvent) => void;
@@ -282,6 +283,7 @@
     onTestAsrConfig,
     onAsrAuthChange,
     onTestLlmConfig,
+    onLlmThinkingStrategyChange,
     onTestScreenContext,
     onClearScreenContextPreview,
     onHotkeyKeydown,
@@ -414,6 +416,7 @@
     onTestAsrConfig={onTestAsrConfig}
     {onAsrAuthChange}
     onTestLlmConfig={onTestLlmConfig}
+    {onLlmThinkingStrategyChange}
   />
 {:else if selectedSection === "Options"}
   <OptionsSection

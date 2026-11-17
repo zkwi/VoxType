@@ -165,6 +165,7 @@ VoxType 会尽量恢复常见剪贴板格式。截图这类位图只要不超过
 - DeepSeek 等标准 OpenAI 兼容服务可填写服务根地址、`/v1` 地址或完整 `/chat/completions` 地址，例如 `https://api.deepseek.com`、`https://api.deepseek.com/v1/`、`https://api.deepseek.com/v1/chat/completions` 会作为等价地址处理。
 - Base URL 常见问题是填错服务商地址，或 Key 来自另一个平台/地域。
 - 模型名称必须是账号可调用的模型名；模型不存在或无权限都会导致测试失败。
+- 若测试提示思考内容耗尽输出额度，可保持“思考适配”为自动（会按 `/v1/models` 声明的最低可用档位适配并在需要时提高测试预算），或在高级兼容性设置中手动选择 `reasoning_effort=low`。
 - 大模型润色失败不会清空 ASR 文本，VoxType 会继续使用原始识别文本。
 
 ## 大模型润色太慢

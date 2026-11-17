@@ -165,6 +165,7 @@ Notes:
 - For standard OpenAI-compatible services such as DeepSeek, service root, `/v1` URL, and full `/chat/completions` URL are treated as equivalent, for example `https://api.deepseek.com`, `https://api.deepseek.com/v1/`, and `https://api.deepseek.com/v1/chat/completions`.
 - Common Base URL mistakes are using the wrong provider address, or using a key from another platform/region.
 - The model name must be available to the account; missing model access fails the test.
+- If the test reports that reasoning exhausted the output budget, keep Thinking adapter on Auto (it picks the lowest tier declared by `/v1/models` and retries once at a higher test budget) or manually select `reasoning_effort=low` under Advanced compatibility settings.
 - If LLM polishing fails during input, VoxType keeps using the original ASR text.
 
 ## LLM Polishing Is Slow

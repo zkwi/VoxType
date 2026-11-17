@@ -620,7 +620,7 @@ export function createVoxTypeController() {
       if (!quiet) {
         statusMessage = errorCode
           ? userErrorMessage(errorCode, "")
-          : userFacingInvokeFailure(command, error, t("operationFailedGeneric"));
+          : userFacingInvokeFailure(command, error, t("operationFailedGeneric"), t);
       }
       logFrontendError(`invoke failed command=${command}: ${formatFrontendError(error)}`);
       return null;
@@ -681,7 +681,7 @@ export function createVoxTypeController() {
       notifications.show(statusMessage, "success");
       return true;
     } catch (error) {
-      statusMessage = userFacingInvokeFailure(copyRecentInputCommand, error, t("operationFailedGeneric"));
+      statusMessage = userFacingInvokeFailure(copyRecentInputCommand, error, t("operationFailedGeneric"), t);
       logFrontendError(`copy last outcome text failed: ${formatFrontendError(error)}`);
       notifications.show(statusMessage, "error");
       return false;
@@ -1399,6 +1399,7 @@ export function createVoxTypeController() {
       onTestAsrConfig: testAsrConfig,
       onAsrAuthChange: clearAuthFieldErrors,
       onTestLlmConfig: testLlmConfig,
+      onLlmThinkingStrategyChange: llmAutoAdapt.markManualStrategyChange,
       onTestScreenContext: testScreenContext,
       onClearScreenContextPreview: clearScreenContextPreview,
       onHotkeyKeydown: hotkeyCapture.handleKeydown,
