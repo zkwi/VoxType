@@ -6,6 +6,11 @@
 
 ## [未发布]
 
+## [0.20.1] - 2026-11-17
+
+- 升级桌面端与前端依赖版本：`@tauri-apps/api` 与 `@tauri-apps/cli` 升至 `2.12.4`，`@tauri-apps/plugin-opener` 与 Rust `tauri-plugin-opener` 升至 `2.7.3`，前端构建工具 `vite` 升至 `8.3.8`。
+- 同步更新 GitHub Actions 与 CodeQL 工作流依赖版本（`taiki-e/install-action` 至 `v2.90.3`、`github/codeql-action` 至 `v4.39.3`）。
+
 ## [0.20.0] - 2026-11-17
 
 - 大模型自动适配在保存、切换模型或连通测试时优先读取网关 `/v1/models` 声明的思考档位，自动选择最低可用强度（如 `none`、`minimal`、`low`）；未提供能力声明时回退现有兼容探测。

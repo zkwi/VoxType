@@ -19,7 +19,8 @@
 ## 版本变更与发布审计
 
 - [更新日志](../CHANGELOG.md)
-- [当前源码版本 0.20.0 的发布审计](audits/2026-11-17-release-0.20.0-llm-model-adaptation-audit.md)
+- [当前源码版本 0.20.1 的依赖维护发布审计](audits/2026-11-17-release-0.20.1-dependency-maintenance-audit.md)
+- [0.20.0 的大模型思考档位自动适配发布审计](audits/2026-11-17-release-0.20.0-llm-model-adaptation-audit.md)
 - [0.19.1 的托盘预览发布审计](audits/2026-11-12-release-0.19.1-tray-preview-audit.md)
 - [0.19.0 的润色与字幕发布审计](audits/2026-11-12-release-0.19.0-polish-overlay-audit.md)
 - [0.18.0 的设置导航发布审计](audits/2026-11-12-release-0.18.0-settings-navigation-audit.md)
