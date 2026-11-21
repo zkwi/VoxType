@@ -41,6 +41,11 @@ const SCREEN_IMAGE_FALLBACK_QUALITY: f32 = 0.65;
 const SCREEN_IMAGE_FALLBACK_EDGE: i32 = 1_200;
 const SCREEN_IMAGE_MAX_BYTES: usize = 1_500_000;
 
+pub const WARNING_SCREEN_OCR_EMPTY: &str = "SCREEN_OCR_EMPTY";
+pub const WARNING_SCREEN_OCR_FAILED_WITH_SCREENSHOT: &str = "SCREEN_OCR_FAILED_WITH_SCREENSHOT";
+pub const WARNING_SCREEN_SCREENSHOT_ENCODE_FAILED: &str = "SCREEN_SCREENSHOT_ENCODE_FAILED";
+pub const WARNING_SCREEN_SCREENSHOT_TOO_LARGE: &str = "SCREEN_SCREENSHOT_TOO_LARGE";
+
 pub type ScreenContextReceiver = Receiver<Result<ScreenContextSnapshot, String>>;
 pub type ScreenImageReceiver = Receiver<Result<EncodedScreenImage, String>>;
 
@@ -134,6 +139,8 @@ pub struct ScreenContextTestResult {
     pub image_width: i32,
     pub image_height: i32,
     pub warning: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warning_code: Option<String>,
     pub llm_mode: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub screenshot_data_url: Option<String>,
@@ -149,6 +156,8 @@ pub struct ScreenContextTestResult {
     pub screenshot_elapsed_ms: Option<u128>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub screenshot_warning: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub screenshot_warning_code: Option<String>,
 }
 
 impl fmt::Debug for ScreenContextTestResult {
@@ -162,6 +171,7 @@ impl fmt::Debug for ScreenContextTestResult {
             .field("image_width", &self.image_width)
             .field("image_height", &self.image_height)
             .field("warning", &self.warning)
+            .field("warning_code", &self.warning_code)
             .field("llm_mode", &self.llm_mode)
             .field(
                 "screenshot_data_url",
@@ -173,6 +183,7 @@ impl fmt::Debug for ScreenContextTestResult {
             .field("screenshot_height", &self.screenshot_height)
             .field("screenshot_elapsed_ms", &self.screenshot_elapsed_ms)
             .field("screenshot_warning", &self.screenshot_warning)
+            .field("screenshot_warning_code", &self.screenshot_warning_code)
             .finish()
     }
 }
@@ -433,6 +444,14 @@ fn wait_for_context(receiver: &ScreenContextReceiver, timeout_ms: u64) -> Contex
     }
 }
 
+fn screenshot_encode_warning_code(err: &str) -> &'static str {
+    if err.contains("超过体积上限") {
+        WARNING_SCREEN_SCREENSHOT_TOO_LARGE
+    } else {
+        WARNING_SCREEN_SCREENSHOT_ENCODE_FAILED
+    }
+}
+
 pub fn test_capture(config: &ScreenContextConfig) -> Result<ScreenContextTestResult, String> {
     let started_at = Instant::now();
     let image = Arc::new(capture_context_bitmap(config)?);
@@ -450,8 +469,8 @@ pub fn test_capture(config: &ScreenContextConfig) -> Result<ScreenContextTestRes
         return match (ocr_result, encode_result) {
             (Ok(recognized), Ok(encoded)) => {
                 let text_chars = recognized.text.chars().count();
-                let warning = if recognized.text.trim().is_empty() {
-                    Some("未识别到可用文字。".to_string())
+                let warning_code = if recognized.text.trim().is_empty() {
+                    Some(WARNING_SCREEN_OCR_EMPTY.to_string())
                 } else {
                     None
                 };
@@ -463,7 +482,8 @@ pub fn test_capture(config: &ScreenContextConfig) -> Result<ScreenContextTestRes
                     text_chars,
                     image_width: recognized.image_width,
                     image_height: recognized.image_height,
-                    warning,
+                    warning: None,
+                    warning_code,
                     llm_mode,
                     screenshot_data_url: Some(encoded.data_url()),
                     screenshot_mime: Some(encoded.mime_type),
@@ -472,33 +492,42 @@ pub fn test_capture(config: &ScreenContextConfig) -> Result<ScreenContextTestRes
                     screenshot_height: Some(encoded.height),
                     screenshot_elapsed_ms: Some(encoded.elapsed_ms),
                     screenshot_warning: None,
+                    screenshot_warning_code: None,
                 })
             }
-            (Err(ocr_err), Ok(encoded)) => Ok(ScreenContextTestResult {
-                available_languages: Vec::new(),
-                selected_language: None,
-                elapsed_ms: encoded.elapsed_ms,
-                text: String::new(),
-                text_chars: 0,
-                image_width: image.width,
-                image_height: image.height,
-                warning: Some(format!("截图已生成，但文字识别失败: {}", ocr_err)),
-                llm_mode,
-                screenshot_data_url: Some(encoded.data_url()),
-                screenshot_mime: Some(encoded.mime_type),
-                screenshot_bytes: Some(encoded.bytes_len),
-                screenshot_width: Some(encoded.width),
-                screenshot_height: Some(encoded.height),
-                screenshot_elapsed_ms: Some(encoded.elapsed_ms),
-                screenshot_warning: None,
-            }),
+            (Err(ocr_err), Ok(encoded)) => {
+                app_log::warn(format!("屏幕上下文测试文字识别失败: {}", ocr_err));
+                Ok(ScreenContextTestResult {
+                    available_languages: Vec::new(),
+                    selected_language: None,
+                    elapsed_ms: encoded.elapsed_ms,
+                    text: String::new(),
+                    text_chars: 0,
+                    image_width: image.width,
+                    image_height: image.height,
+                    warning: None,
+                    warning_code: Some(WARNING_SCREEN_OCR_FAILED_WITH_SCREENSHOT.to_string()),
+                    llm_mode,
+                    screenshot_data_url: Some(encoded.data_url()),
+                    screenshot_mime: Some(encoded.mime_type),
+                    screenshot_bytes: Some(encoded.bytes_len),
+                    screenshot_width: Some(encoded.width),
+                    screenshot_height: Some(encoded.height),
+                    screenshot_elapsed_ms: Some(encoded.elapsed_ms),
+                    screenshot_warning: None,
+                    screenshot_warning_code: None,
+                })
+            }
             (Ok(recognized), Err(img_err)) => {
+                app_log::warn(format!("屏幕上下文测试截图编码失败: {}", img_err));
                 let text_chars = recognized.text.chars().count();
-                let warning = if recognized.text.trim().is_empty() {
-                    Some("未识别到可用文字。".to_string())
+                let warning_code = if recognized.text.trim().is_empty() {
+                    Some(WARNING_SCREEN_OCR_EMPTY.to_string())
                 } else {
                     None
                 };
+                let screenshot_warning_code =
+                    Some(screenshot_encode_warning_code(&img_err).to_string());
                 Ok(ScreenContextTestResult {
                     available_languages: recognized.available_languages,
                     selected_language: Some(recognized.selected_language),
@@ -507,7 +536,8 @@ pub fn test_capture(config: &ScreenContextConfig) -> Result<ScreenContextTestRes
                     text_chars,
                     image_width: recognized.image_width,
                     image_height: recognized.image_height,
-                    warning,
+                    warning: None,
+                    warning_code,
                     llm_mode,
                     screenshot_data_url: None,
                     screenshot_mime: None,
@@ -515,7 +545,8 @@ pub fn test_capture(config: &ScreenContextConfig) -> Result<ScreenContextTestRes
                     screenshot_width: None,
                     screenshot_height: None,
                     screenshot_elapsed_ms: None,
-                    screenshot_warning: Some(img_err),
+                    screenshot_warning: None,
+                    screenshot_warning_code,
                 })
             }
             (Err(ocr_err), Err(_)) => Err(ocr_err),
@@ -528,8 +559,9 @@ pub fn test_capture(config: &ScreenContextConfig) -> Result<ScreenContextTestRes
         available_languages: recognized.available_languages,
         selected_language: Some(recognized.selected_language),
         elapsed_ms: recognized.elapsed_ms,
-        warning: if recognized.text.trim().is_empty() {
-            Some("未识别到可用文字。".to_string())
+        warning: None,
+        warning_code: if recognized.text.trim().is_empty() {
+            Some(WARNING_SCREEN_OCR_EMPTY.to_string())
         } else {
             None
         },
@@ -545,6 +577,7 @@ pub fn test_capture(config: &ScreenContextConfig) -> Result<ScreenContextTestRes
         screenshot_height: None,
         screenshot_elapsed_ms: None,
         screenshot_warning: None,
+        screenshot_warning_code: None,
     })
 }
 
@@ -1517,6 +1550,7 @@ mod tests {
             image_width: 800,
             image_height: 600,
             warning: None,
+            warning_code: None,
             llm_mode: "screenshot".to_string(),
             screenshot_data_url: Some("data:image/jpeg;base64,SECRET_PREVIEW_B64".to_string()),
             screenshot_mime: Some("image/jpeg".to_string()),
@@ -1525,9 +1559,22 @@ mod tests {
             screenshot_height: Some(600),
             screenshot_elapsed_ms: Some(15),
             screenshot_warning: None,
+            screenshot_warning_code: None,
         };
         let result_debug = format!("{test_result:?}");
         assert!(!result_debug.contains("SENSITIVE_PREVIEW_TEXT"));
         assert!(!result_debug.contains("SECRET_PREVIEW_B64"));
+    }
+
+    #[test]
+    fn maps_screenshot_encode_errors_to_structured_warning_codes() {
+        assert_eq!(
+            super::screenshot_encode_warning_code("屏幕截图压缩后仍超过体积上限: 2000000 bytes"),
+            super::WARNING_SCREEN_SCREENSHOT_TOO_LARGE
+        );
+        assert_eq!(
+            super::screenshot_encode_warning_code("创建 JPEG 编码器失败"),
+            super::WARNING_SCREEN_SCREENSHOT_ENCODE_FAILED
+        );
     }
 }

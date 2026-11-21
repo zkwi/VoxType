@@ -64,6 +64,7 @@ export type ScreenContextTestResult = {
   image_width: number;
   image_height: number;
   warning: string | null;
+  warning_code?: string | null;
   llm_mode?: string;
   screenshot_data_url?: string | null;
   screenshot_mime?: string | null;
@@ -72,6 +73,7 @@ export type ScreenContextTestResult = {
   screenshot_height?: number | null;
   screenshot_elapsed_ms?: number | null;
   screenshot_warning?: string | null;
+  screenshot_warning_code?: string | null;
 };
 
 export type ConfigValidationError = {

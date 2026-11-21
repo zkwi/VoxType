@@ -5,6 +5,10 @@
   import SettingTags from "$lib/components/common/SettingTags.svelte";
   import type { AppConfig, ScreenContextTestResult, SelectableHotwordCandidate } from "$lib/types/app";
   import type { CopyKey } from "$lib/i18n";
+  import {
+    screenContextOcrWarningText,
+    screenContextScreenshotWarningText,
+  } from "$lib/utils/screenContextWarnings";
   import { AlertCircle, Check, FileText, Info, ScanText, Sparkles, Trash2 } from "lucide-svelte";
 
   type Translate = (key: CopyKey, values?: Record<string, string>) => string;
@@ -110,6 +114,12 @@
       fieldError("llm_post_edit.reference_hotwords_limit"),
   ));
   let promptAdvancedExpanded = $derived(showPromptAdvanced || promptAdvancedHasError || promptBudgetHasError);
+  let screenContextOcrWarning = $derived(
+    screenContextTestResult ? screenContextOcrWarningText(screenContextTestResult, t) : null,
+  );
+  let screenContextScreenshotWarning = $derived(
+    screenContextTestResult ? screenContextScreenshotWarningText(screenContextTestResult, t) : null,
+  );
 </script>
 
 <section class="settings-stack">
@@ -316,7 +326,7 @@
             <strong>
               {screenContextTestResult.screenshot_data_url
                 ? t("screenContextScreenshotPreviewTitle")
-                : (screenContextTestResult.warning ?? t("screenContextRecognizedText"))}
+                : (screenContextOcrWarning ?? t("screenContextRecognizedText"))}
             </strong>
             <button type="button" class="link-button" onclick={onClearScreenContextPreview}>
               <Trash2 size={14} />{t("clearPreview")}
@@ -333,15 +343,15 @@
                 <span>{screenContextTestResult.screenshot_mime === "image/png" ? "PNG" : "JPEG"}</span>
               </div>
               <img src={screenContextTestResult.screenshot_data_url} alt={t("screenContextScreenshotPreviewAlt")} />
-              {#if screenContextTestResult.screenshot_warning}
-                <small class="screenshot-warning">{screenContextTestResult.screenshot_warning}</small>
+              {#if screenContextScreenshotWarning}
+                <small class="screenshot-warning">{screenContextScreenshotWarning}</small>
               {/if}
             </div>
             <div class="ocr-subhead">
-              <strong>{screenContextTestResult.warning ?? t("screenContextRecognizedText")}</strong>
+              <strong>{screenContextOcrWarning ?? t("screenContextRecognizedText")}</strong>
             </div>
-          {:else if screenContextTestResult.screenshot_warning}
-            <small class="screenshot-warning">{screenContextTestResult.screenshot_warning}</small>
+          {:else if screenContextScreenshotWarning}
+            <small class="screenshot-warning">{screenContextScreenshotWarning}</small>
           {/if}
           <pre>{screenContextTestResult.text || t("screenContextNoText")}</pre>
         </div>
