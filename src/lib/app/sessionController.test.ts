@@ -45,4 +45,49 @@ describe("session result preview", () => {
     session.applyState({ recording: true, phase: "starting", message: "", error_code: null });
     expect(setLastOutcome).toHaveBeenLastCalledWith(null);
   });
+
+  it("localizes LLM_VISION_FALLBACK_OCR warnings while keeping polished and raw text", () => {
+    const notify = vi.fn();
+    const setLastOutcome = vi.fn<(outcome: LastSessionOutcome) => void>();
+    const session = createSessionController({
+      t: (key) => key,
+      safeInvoke: async () => null,
+      notify,
+      requireAsrAuthGate: () => false,
+      userErrorMessage: (_, fallback) => fallback,
+      shouldOpenSettingsForError: () => false,
+      scrollToSettingsPanel: vi.fn(),
+      settingsPanelForError: () => "",
+      isConfigError: () => false,
+      sessionPhaseMessage: (phase) => phase,
+      scheduleSucceededIdleHint: vi.fn(),
+      getPhase: () => "succeeded",
+      setRecording: vi.fn(),
+      setPhase: vi.fn(),
+      setErrorCode: vi.fn(),
+      setLastOutcome,
+      setLastAudioQualityDiagnostic: vi.fn(),
+      setAudioLevel: vi.fn(),
+      setStatusMessage: vi.fn(),
+      clearSensitivePreviews: () => setLastOutcome(null),
+    });
+
+    session.applyAsrFinalText({
+      generation: 15,
+      text: "润色结果",
+      raw_text: "识别原文",
+      error: null,
+      error_code: null,
+      warning: "raw warning",
+      warning_code: "LLM_VISION_FALLBACK_OCR",
+    });
+
+    expect(notify).toHaveBeenCalledWith("polishVisionFallbackOcr", "warning");
+    expect(setLastOutcome).toHaveBeenLastCalledWith(expect.objectContaining({
+      text: "润色结果",
+      rawText: "识别原文",
+      warning: "polishVisionFallbackOcr",
+      warningCode: "LLM_VISION_FALLBACK_OCR",
+    }));
+  });
 });

@@ -483,7 +483,31 @@
           </button>
         </div>
       </div>
-      <p class="field-hint">{t("llmPolishingDataHint")}</p>
+      <div class="llm-screen-context-banner" class:is-disabled={!config.screen_context.enabled}>
+        <span class="llm-screen-context-copy">
+          {t(
+            !config.screen_context.enabled
+              ? "llmScreenRefDisabled"
+              : config.screen_context.llm_mode === "ocr"
+                ? "llmScreenRefOcr"
+                : "llmScreenRefScreenshot",
+          )}
+        </span>
+        <button
+          class="link-button"
+          type="button"
+          onclick={() => onScrollToSettingsPanel("settings-screen-context")}
+        >
+          {t("llmScreenRefConfigure")}
+        </button>
+      </div>
+      <p class="field-hint">
+        {t(
+          config.screen_context.enabled && config.screen_context.llm_mode !== "ocr"
+            ? "llmPolishingDataHintScreenshot"
+            : "llmPolishingDataHint",
+        )}
+      </p>
       <p class="field-hint">{t("llmAutoTestDataHint")}</p>
       <div id="llm-api-config-fields" class="llm-api-config-fields">
         <div class="form-grid llm-config-grid">
@@ -616,6 +640,32 @@
     color: var(--primary);
     border-color: var(--primary);
     background: #eaf3ff;
+  }
+
+  .llm-screen-context-banner {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px 12px;
+    min-width: 0;
+    padding: 10px 12px;
+    background: #f8fbff;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    font-size: 13px;
+    line-height: 1.45;
+  }
+
+  .llm-screen-context-banner.is-disabled {
+    background: var(--bg-page);
+  }
+
+  .llm-screen-context-copy {
+    flex: 1 1 240px;
+    min-width: 0;
+    color: var(--text-secondary);
+    overflow-wrap: anywhere;
   }
 
   .optional-config-summary {

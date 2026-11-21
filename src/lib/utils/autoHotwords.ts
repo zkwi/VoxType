@@ -47,6 +47,10 @@ export function buildFinalPromptPreview(
     screenOcrPurpose: string;
     screenOcrEnd: string;
     screenOcrPlaceholder: string;
+    screenScreenshotContext: string;
+    screenScreenshotPurpose: string;
+    screenScreenshotEnd: string;
+    screenScreenshotPlaceholder: string;
     referenceRules: string;
     systemPrompt: string;
     userPromptTemplate: string;
@@ -56,6 +60,7 @@ export function buildFinalPromptPreview(
     recentContextPolicyDisabled: string;
     recentContextPolicyEnabled: string;
     recentContextPolicyNeedsLocal: string;
+    screenScreenshotPolicyEnabled: string;
     screenOcrPolicyEnabled: string;
     screenOcrPolicyDisabled: string;
     actualPromptTitle: string;
@@ -77,11 +82,16 @@ export function buildFinalPromptPreview(
   if (recentContextEnabledForLlm) {
     referenceBlocks.push(`${labels.recentContext}\n${labels.recentContextPurpose}\n${labels.recentContextPlaceholder}\n${labels.recentContextEnd}`);
   }
+  const screenScreenshotEnabledForLlm =
+    config.screen_context.enabled && config.screen_context.llm_mode !== "ocr";
   const screenOcrEnabledForLlm =
     config.screen_context.enabled &&
+    config.screen_context.llm_mode === "ocr" &&
     config.llm_post_edit.screen_context_max_chars > 0 &&
     config.llm_post_edit.screen_context_max_lines > 0;
-  if (screenOcrEnabledForLlm) {
+  if (screenScreenshotEnabledForLlm) {
+    referenceBlocks.push(`${labels.screenScreenshotContext}\n${labels.screenScreenshotPurpose}\n${labels.screenScreenshotPlaceholder}\n${labels.screenScreenshotEnd}`);
+  } else if (screenOcrEnabledForLlm) {
     referenceBlocks.push(`${labels.screenOcrContext}\n${labels.screenOcrPurpose}\n${labels.screenOcrPlaceholder}\n${labels.screenOcrEnd}`);
   }
   if (referenceBlocks.length > 0) {
@@ -92,7 +102,11 @@ export function buildFinalPromptPreview(
       ? labels.recentContextPolicyEnabled
       : labels.recentContextPolicyNeedsLocal
     : labels.recentContextPolicyDisabled;
-  const screenOcrPolicy = screenOcrEnabledForLlm ? labels.screenOcrPolicyEnabled : labels.screenOcrPolicyDisabled;
+  const screenOcrPolicy = screenScreenshotEnabledForLlm
+    ? labels.screenScreenshotPolicyEnabled
+    : screenOcrEnabledForLlm
+      ? labels.screenOcrPolicyEnabled
+      : labels.screenOcrPolicyDisabled;
   const summary = `${labels.summaryTitle}\n${labels.sceneContextSummary}\n${promptContextText}\n\n${recentContextPolicy}\n${screenOcrPolicy}`;
   const actualPrompt = `${labels.actualPromptTitle}\n\n${labels.systemPrompt}\n${config.llm_post_edit.system_prompt || labels.empty}\n\n${labels.userPromptTemplate}\n${userPrompt}`;
   return `${summary}\n\n${actualPrompt}`;

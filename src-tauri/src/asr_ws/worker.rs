@@ -24,7 +24,7 @@ pub(crate) struct AsrWorkerInput {
     pub(crate) app: AppHandle,
     pub(crate) session: SessionController,
     pub(crate) generation: u64,
-    pub(crate) screen_context_rx: Option<screen_context::ScreenContextReceiver>,
+    pub(crate) screen_context_rx: Option<screen_context::ScreenContextReceivers>,
     pub(crate) activity: AsrActivityReporter,
 }
 
@@ -93,13 +93,13 @@ pub fn spawn_asr_worker(input: AsrWorkerInput) {
             .await?;
             let outcome = if !text.trim().is_empty() && llm_post_edit::should_polish(&config, &text)
             {
-                // 首包等待超时的 OCR 结果到这里通常已经返回，润色仍可拿来做参考。
+                // 首包等待超时的 OCR 结果与并行编码的截图到这里通常已经返回，润色仍可拿来做参考。
                 // 只在确实要润色时才取：取用会记一条"已用于润色参考"的日志，不润色时不能记。
-                let screen_context_text = screen_context.resolve_for_post_edit().await;
+                let post_edit_screen_context = screen_context.resolve_for_post_edit().await;
                 polish_with_delayed_status(
                     &config,
                     &text,
-                    screen_context_text.as_deref(),
+                    &post_edit_screen_context,
                     &app,
                     &session,
                     generation,
@@ -142,8 +142,9 @@ pub fn spawn_asr_worker(input: AsrWorkerInput) {
                 }
                 let llm_warning = outcome.warning;
                 let llm_warning_code = outcome.warning_code;
-                let raw_text =
-                    original_for_preview(&text, &original_normalized, llm_warning.as_deref());
+                let polish_succeeded = llm_warning.is_none()
+                    || llm_warning_code == Some(llm_post_edit::WARNING_LLM_VISION_FALLBACK_OCR);
+                let raw_text = original_for_preview(&text, &original_normalized, polish_succeeded);
                 app_log::info(format!("ASR worker 返回文本长度: {}", text.chars().count()));
                 overlay::update_text(&app, &text);
                 let duration = started_at.elapsed().as_secs_f64();
@@ -153,7 +154,7 @@ pub fn spawn_asr_worker(input: AsrWorkerInput) {
                         return;
                     }
                     // 输出层已写入剪贴板并发出粘贴键。收起动画和恢复剪贴板各自继续。
-                    if llm_warning.is_none() && typing.paste_method != "clipboard_only" {
+                    if polish_succeeded && typing.paste_method != "clipboard_only" {
                         overlay::dismiss_after_paste(&app, &session, generation);
                     } else {
                         overlay::run_for_generation(&app, &session, generation, overlay::hide);
@@ -236,16 +237,16 @@ pub fn spawn_asr_worker(input: AsrWorkerInput) {
 fn original_for_preview<'a>(
     output: &str,
     original_normalized: &'a str,
-    warning: Option<&str>,
+    polish_succeeded: bool,
 ) -> Option<&'a str> {
-    (warning.is_none() && !output.is_empty() && output != original_normalized)
+    (polish_succeeded && !output.is_empty() && output != original_normalized)
         .then_some(original_normalized)
 }
 
 async fn polish_with_delayed_status(
     config: &AppConfig,
     text: &str,
-    screen_context: Option<&str>,
+    screen_context: &screen_context::PostEditScreenContext,
     app: &AppHandle,
     session: &SessionController,
     generation: u64,
@@ -253,10 +254,11 @@ async fn polish_with_delayed_status(
     let config = config.clone();
     let original_text = text.to_string();
     let task_text = original_text.clone();
-    let screen_context = screen_context.map(str::to_string);
-    let mut polish_task = tokio::spawn(async move {
-        llm_post_edit::polish(&config, &task_text, screen_context.as_deref()).await
-    });
+    let screen_context = screen_context.clone();
+    let mut polish_task =
+        tokio::spawn(
+            async move { llm_post_edit::polish(&config, &task_text, &screen_context).await },
+        );
 
     let result = match tokio::time::timeout(POST_EDITING_OVERLAY_DELAY, &mut polish_task).await {
         Ok(result) => result,
@@ -308,15 +310,12 @@ mod tests {
                 "识别原文。"
             };
             assert_eq!(
-                original_for_preview("润色结果", &original, None),
+                original_for_preview("润色结果", &original, true),
                 Some(expected)
             );
-            assert_eq!(original_for_preview(&original, &original, None), None);
-            assert_eq!(
-                original_for_preview("润色结果", &original, Some("润色告警")),
-                None
-            );
-            assert_eq!(original_for_preview("", &original, None), None);
+            assert_eq!(original_for_preview(&original, &original, true), None);
+            assert_eq!(original_for_preview("润色结果", &original, false), None);
+            assert_eq!(original_for_preview("", &original, true), None);
         }
     }
 }

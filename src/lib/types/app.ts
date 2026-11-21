@@ -48,7 +48,12 @@ export type InstallUpdateResult = {
   asset_name: string;
 };
 
-export type ConnectionTestResult = { message: string; elapsed_ms?: number; thinking_strategy?: string };
+export type ConnectionTestResult = {
+  message: string;
+  elapsed_ms?: number;
+  thinking_strategy?: string;
+  vision_supported?: boolean;
+};
 export type DiagnosticReport = { text: string };
 export type ScreenContextTestResult = {
   available_languages: string[];
@@ -59,6 +64,16 @@ export type ScreenContextTestResult = {
   image_width: number;
   image_height: number;
   warning: string | null;
+  warning_code?: string | null;
+  llm_mode?: string;
+  screenshot_data_url?: string | null;
+  screenshot_mime?: string | null;
+  screenshot_bytes?: number | null;
+  screenshot_width?: number | null;
+  screenshot_height?: number | null;
+  screenshot_elapsed_ms?: number | null;
+  screenshot_warning?: string | null;
+  screenshot_warning_code?: string | null;
 };
 
 export type ConfigValidationError = {
@@ -88,6 +103,7 @@ export type LocalDataStatus = {
   auto_hotword_total_chars: number;
   stats_event_count: number;
   screen_context_enabled: boolean;
+  screen_context_llm_mode?: string;
   llm_post_edit_enabled: boolean;
   restore_clipboard_after_paste: boolean;
 };
@@ -266,6 +282,7 @@ export type AppConfig = {
   screen_context: {
     enabled: boolean;
     capture_scope: string;
+    llm_mode: string;
     max_chars: number;
     timeout_ms: number;
   };

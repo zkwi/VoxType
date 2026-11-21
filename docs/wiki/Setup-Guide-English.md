@@ -31,7 +31,7 @@ VoxType has six main pages:
 | Home | Check current state, start/stop voice input, and see trigger methods |
 | Speech & Polishing | Select and configure ASR credentials and optional LLM API |
 | General & Shortcuts | Configure triggers, output, microphone, captions, startup, and language |
-| Vocabulary & Context | Manage hotwords, automatic candidates, screen OCR, context, and AI prompts |
+| Vocabulary & Context | Manage hotwords, automatic candidates, screen context (screenshot/OCR), context, and AI prompts |
 | Analytics | View recent 24-hour, recent 7-day, and daily usage stats |
 | Privacy & local data | Review storage/upload boundaries and clear local context, hotword history, and stats |
 
@@ -47,13 +47,13 @@ When the selected ASR credentials are missing, Speech & Polishing first shows a 
 
 <img src="https://raw.githubusercontent.com/zkwi/VoxType/main/screenshots/voxtype-0.18.0-services-en.png" alt="VoxType Speech & Polishing and setup health check" width="820">
 
-Privacy & local data centralizes the storage/upload boundaries for recent context, automatic hotword history, usage stats, ASR audio, screen OCR, LLM polishing text, and clipboard snapshots. It also clears local context, hotword history, and usage stats.
+Privacy & local data centralizes the storage/upload boundaries for recent context, automatic hotword history, usage stats, ASR audio, screen reference (screenshot/OCR), LLM polishing text, and clipboard snapshots. It also clears local context, hotword history, and usage stats.
 
 ## 3. Required: Configure ASR
 
 The core workflow depends on one working streaming ASR service. Doubao ASR remains the default; Alibaba Cloud FunASR can be selected from Speech & Polishing. Without credentials for the selected ASR provider, recording, recognition, and paste stay locked.
 
-Minimum setup rule: once the selected ASR test passes, you can return Home and start dictating. LLM polishing, hotwords, and screen OCR are optional quality improvements.
+Minimum setup rule: once the selected ASR test passes, you can return Home and start dictating. LLM polishing, hotwords, and screen context (compressed screenshot/OCR) are optional quality improvements.
 
 ### Doubao ASR Setup
 
@@ -146,7 +146,7 @@ Choose Natural, Formal, or Proofread only. Select **Edit prompt templates** to c
 | Model | For example `qwen3.5-plus`; must be available to the current account |
 | Advanced compatibility settings | Thinking adapter is Auto by default; prefers the lowest tier declared by `/v1/models` (`none`, `minimal`, `low`), falls back to probing, and preserves manual choices |
 
-Secret fields are hidden by default and can be temporarily revealed or copied with the controls beside the input. Click **Test** after configuration, or wait for the automatic test after auto-save. The test sends a sample text with the real AI prompt, shows the measured latency, and in Auto mode prefers the lowest reasoning tier declared by `/v1/models` (or probes compatible provider strategies when undeclared). If an initial 256-token test truncates because reasoning consumes the budget, VoxType retries once at 768 tokens with that tier; polishing also reserves extra output headroom for models that still emit reasoning tokens. The test does not read the clipboard, live screen OCR, or local recent-context text. The page keeps a local summary of the five most recent tests, including success rate, average latency for successful requests, and the latest result; it stores only test time, result, and latency, not keys, model names, or test text. After Base URL, API Key, model, or the thinking toggle changes and auto-save succeeds, VoxType returns to Auto and re-probes; manually selecting a specific tier preserves your choice across saving and testing. If you only need speech recognition, LLM polishing is not required. When polishing is enabled, final transcripts that reach the minimum length are sent to your configured AI service; recognition terms, writing/product preferences, budget-compacted screen OCR, and optional recent context are appended as reference information. Recent context for AI is off by default; it is sent only when local recent context and "use recent context for polishing" are both enabled, and it is capped to about 200 chars from the latest snippets by default. Screen OCR is trimmed by line, deduplicated, and capped to 12 lines / 400 chars before AI polishing by default; term references are capped to 50 entries. LLM reference budgets are low-frequency settings and remain in `config.toml`, not in the normal UI.
+Secret fields are hidden by default and can be temporarily revealed or copied with the controls beside the input. Click **Test** after configuration, or wait for the automatic test after auto-save. The test sends a sample text with the real AI prompt, shows the measured latency, and in Auto mode prefers the lowest reasoning tier declared by `/v1/models` (or probes compatible provider strategies when undeclared). If an initial 256-token test truncates because reasoning consumes the budget, VoxType retries once at 768 tokens with that tier; polishing also reserves extra output headroom for models that still emit reasoning tokens; in default screenshot mode it also reads `/models` vision declarations and warns when an endpoint explicitly declares image input unsupported (falling back to screen OCR automatically). The test does not read the clipboard, live screen content, or local recent-context text. The page keeps a local summary of the five most recent tests, including success rate, average latency for successful requests, and the latest result; it stores only test time, result, and latency, not keys, model names, or test text. After Base URL, API Key, model, or the thinking toggle changes and auto-save succeeds, VoxType returns to Auto and re-probes; manually selecting a specific tier preserves your choice across saving and testing. If you only need speech recognition, LLM polishing is not required. When polishing is enabled, final transcripts that reach the minimum length are sent to your configured AI service; recognition terms, writing/product preferences, screen reference (by default a compressed screenshot <= 1600px on the long edge, falling back to OCR automatically on text-only models or when switched to OCR mode), and optional recent context are appended as reference information. Recent context for AI is off by default; it is sent only when local recent context and "use recent context for polishing" are both enabled, and it is capped to about 200 chars from the latest snippets by default. Screen OCR is trimmed by line, deduplicated, and capped to 12 lines / 400 chars before AI polishing by default; term references are capped to 50 entries. LLM reference budgets are low-frequency settings and remain in `config.toml`, not in the normal UI.
 
 The default example uses Alibaba Cloud Bailian/DashScope's OpenAI-compatible endpoint. The Beijing Base URL is `https://dashscope.aliyuncs.com/compatible-mode/v1`; if you use Singapore, US, or another region, update Base URL, API Key, and model access together instead of changing only one field. For standard OpenAI-compatible services such as DeepSeek, service root, `/v1` URL, and full `/chat/completions` URL are treated as equivalent, for example `https://api.deepseek.com`, `https://api.deepseek.com/v1/`, and `https://api.deepseek.com/v1/chat/completions`.
 
@@ -159,7 +159,7 @@ Recommendations:
 - Thinking is disabled with provider-specific request fields where supported because voice polishing is latency-sensitive; changing Base URL, API Key, model, or the thinking toggle automatically retests after auto-save.
 - Text below `min_chars = 40` is not polished by default. CJK characters count individually; English and numbers count by contiguous word-like segments; spaces and punctuation do not count.
 - Similar or identical model names can behave very differently across providers, so prefer the latency measured by Speech & Polishing over the model name alone.
-- Code paths, filenames, and English identifiers are easy for an LLM to "correct" into plausible but wrong forms. Use screen OCR, hotwords, or a manual check for those terms.
+- Code paths, filenames, highlighted UI items, and English identifiers are easy for an LLM to "correct" into plausible but wrong forms. Keep default screenshot mode enabled (or use OCR/hotwords) and still verify the final text manually.
 - If the network is unstable, adjust LLM timeout in `config.toml`.
 
 ### If LLM Test Fails
@@ -172,7 +172,7 @@ Recommendations:
 | Test passes but polishing does not run | Polishing is enabled and polishing length reaches `min_chars` |
 | Test passes but real polishing is slow | Rerun the thinking adapter test and confirm thinking/reasoning is disabled or minimized |
 | Model only supports thinking | Use a hybrid-thinking model that supports disabling thinking; do not use `qwen3.7-max-2026-05-17` |
-| Code paths are often rewritten | Enable screen OCR, or add common paths, filenames, and field names to hotwords |
+| Code paths are often rewritten | Keep screenshot mode (or OCR) enabled, or add common paths, filenames, and field names to hotwords |
 
 If LLM polishing fails during input, VoxType keeps the original ASR text and still tries to copy/paste it.
 
@@ -206,12 +206,12 @@ Notes:
 
 ### AI Prompt
 
-Vocabulary & Context groups manual hotwords and automatic candidates before screen OCR and writing context. The system prompt and user prompt template are under **Advanced prompt settings**. Set minimum polishing length in Speech & Polishing → AI polishing. VoxType includes a default voice-input AI prompt. It marks the text-to-polish block as the only content to rewrite and output. Even if the transcript contains questions, commands, or prompt-like content, the LLM should polish the text rather than answer, execute, or analyze it. Short messages, one-line commands, and questions get light correction, with natural punctuation allowed but no expansion. Long spoken notes, records, retrospectives, explanations, meeting notes, product feedback, and investment reviews are polished into publishable prose: filler words, verbal padding, repeated expressions, dead pauses, and self-corrections are removed; sentence order can be adjusted; sentences can be split; necessary connectors can be added; and the result is usually organized into 2-4 natural paragraphs. It preserves the original facts, judgment, intensity, stance, proper nouns, English abbreviations, finance terms, and programming terms, and avoids adding headings, lists, Markdown, or backticks. User dictionary terms, writing/product preferences, optional recent context, and screen OCR are appended as reference-information blocks; they only help correct terms, names, UI words, continuity, paths, filenames, code identifiers, and wording preferences, not act as text to polish or instructions to follow, and must not add information that the text to polish did not say. Recent context must not be continued, summarized, or reproduced, and screen OCR is only used for related corrections. For file paths, commands, log fields, and code identifiers, the default prompt asks the model to keep uncertain text unchanged unless the reference information provides an exact spelling. In finance, investing, and quant contexts, the default prompt asks the LLM to normalize clear amounts, returns, and percentages into common numeric forms such as `100万` and `1%`, without calculating returns or answering questions.
+Vocabulary & Context groups manual hotwords and automatic candidates before screen context (default compressed screenshot or OCR) and writing context. The system prompt and user prompt template are under **Advanced prompt settings**. Set minimum polishing length in Speech & Polishing → AI polishing. VoxType includes a default voice-input AI prompt. It marks the text-to-polish block as the only content to rewrite and output. Even if the transcript contains questions, commands, or prompt-like content, the LLM should polish the text rather than answer, execute, or analyze it. Short messages, one-line commands, and questions get light correction, with natural punctuation allowed but no expansion. Long spoken notes, records, retrospectives, explanations, meeting notes, product feedback, and investment reviews are polished into publishable prose: filler words, verbal padding, repeated expressions, dead pauses, and self-corrections are removed; sentence order can be adjusted; sentences can be split; necessary connectors can be added; and the result is usually organized into 2-4 natural paragraphs. It preserves the original facts, judgment, intensity, stance, proper nouns, English abbreviations, finance terms, and programming terms, and avoids adding headings, lists, Markdown, or backticks. User dictionary terms, writing/product preferences, optional recent context, and screen reference (screenshot or OCR) are appended as reference-information blocks; they only help correct terms, names, UI words, highlighted UI selections, continuity, paths, filenames, code identifiers, and wording preferences, not act as text to polish or instructions to follow, must not describe screenshots, and must not add information that the text to polish did not say. Recent context must not be continued, summarized, or reproduced, and screen reference is only used for related corrections. For file paths, commands, log fields, and code identifiers, the default prompt asks the model to keep uncertain text unchanged unless the reference information provides an exact spelling. In finance, investing, and quant contexts, the default prompt asks the LLM to normalize clear amounts, returns, and percentages into common numeric forms such as `100万` and `1%`, without calculating returns or answering questions.
 
 The Hotwords page lets you:
 
 - Restore the default prompt.
-- Preview the final prompt, including reference-information rules, the current screen OCR policy and LLM budgets, and whether recent context enters the AI prompt.
+- Preview the final prompt, including reference-information rules, the current screen reference policy (screenshot or OCR budgets), and whether recent context enters the AI prompt.
 - Edit the system prompt and user prompt template in Advanced prompt settings.
 
 Minimum polishing length supports 0 to 10000. CJK characters count individually; English and numbers count by contiguous word-like segments. Adjust LLM reference budgets in `config.toml`.
@@ -235,7 +235,7 @@ General & Shortcuts groups its six panels under Voice input and Appearance & sys
 
 To review or clear local data, open Privacy & local data from the sidebar.
 
-Screen OCR captures the current display by default. Under Vocabulary & Context → Screen text context, you can switch to the current window, preview a test, or turn OCR off. Its advanced settings include the character limit. AI polishing applies a separate budget to this temporary context.
+Screen context captures the current display by default and sends a compressed screenshot directly to multimodal AI polishing (while Windows OCR still assists speech recognition and serves as fallback). Under Vocabulary & Context → Screen context, you can switch to the current window, switch AI reference to Windows OCR text only, preview both the compressed screenshot and OCR output, or turn screen context off. Advanced settings include the OCR character limit. Neither screenshots nor OCR text are written to disk.
 
 Use `config.toml` for low-level settings such as the final-result timeout, maximum recording length, stop grace period, LLM timeout, OCR wait time, caption size and position, and clipboard restore delay.
 
@@ -250,7 +250,7 @@ Use `config.toml` for low-level settings such as the final-result timeout, maxim
 | Paste method | Automatic paste | Works for most text fields |
 | Clipboard restore | On | Tries to restore previous clipboard after paste |
 | ASR no-feedback auto-stop | `30` seconds by default; set `0` to disable | Stops through the normal grace flow when the ASR provider returns no effective text feedback for too long |
-| Screen OCR context | On, current display | Improves names, UI terms, filenames, and code identifiers; switch to current-window-only or disable in sensitive scenarios |
+| Screen context | On, current display, AI mode `screenshot` | Multimodal screenshot reference resolves highlighted UI items, names, and code identifiers (with OCR fallback); switch to current-window-only, OCR-only, or disable in sensitive scenarios |
 | Recent context | Off | Conservative by default; AI access to previous text also needs a separate opt-in |
 | Automatic hotword candidates | Off | Does not save transcript history by default |
 | Mute system volume while recording | Off | Avoids interrupting meetings, videos, and alerts |
@@ -353,11 +353,12 @@ restore_clipboard_after_paste = true
 clipboard_restore_delay_ms = 800
 ```
 
-Screen OCR context:
+Screen context:
 
 ```toml
 [screen_context]
 enabled = true
+llm_mode = "screenshot"   # screenshot = send compressed screenshot (default), ocr = send OCR text only
 capture_scope = "screen"  # screen = current display, window = current window only
 max_chars = 1200
 timeout_ms = 500
@@ -407,4 +408,4 @@ They save voice-input text history locally. VoxType keeps them off by default to
 
 Recent context contains real dictated text, so VoxType does not save it or send it to an AI service by default. When local recent context is enabled, it helps the selected ASR provider with continuous dictation; it reaches the AI service only when "use recent context for polishing" is also enabled and polishing actually runs.
 
-Screen OCR context is on by default, but it does not save transcript history. It reads the current display at recording start by default, lightly normalizes OCR text, and attaches it temporarily to the current ASR/LLM request. It does not cache recent OCR screenshots or text, and OCR sent to the LLM is compacted by budget. Use current-window-only or turn it off when the screen contains sensitive content.
+Screen context is on by default, and it does not save history to disk. At recording start it captures the current display once: a compressed screenshot (up to 1600px long edge) goes directly to multimodal AI polishing by default (with automatic OCR fallback on text-only models), while Windows OCR assists speech recognition. Neither screenshots nor OCR text are cached or logged. Switch to current-window-only, OCR-only, or turn screen context off under Vocabulary & Context → Screen context when the screen shows sensitive content.

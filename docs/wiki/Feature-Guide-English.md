@@ -96,7 +96,7 @@ Quality and latency factors:
 | Final result timeout | Default 15s; adjust in `config.toml` only for network/service issues |
 | Hotwords | Important for proper nouns and product names |
 | Recent context | Useful for continuous writing, but disabled by default for privacy; when enabled, it is sent to the selected ASR service |
-| Screen OCR context | On by default, current display by default, useful for UI terms, filenames, and code identifiers |
+| Screen context | On by default; captures the current display once and sends a compressed screenshot directly to AI polishing (with OCR fallback for text-only models) while Windows OCR still assists speech recognition; switchable to OCR text only |
 
 ## 6. Auto Paste and Clipboard Restore
 
@@ -131,16 +131,16 @@ Defaults:
 - ASR only unless LLM polishing is enabled.
 - Text below `min_chars` is not polished. CJK characters count individually, while English and numbers count by contiguous word-like segments.
 - Thinking is disabled with provider-specific adapters where supported, and the LLM test saves the fastest successful adapter.
-- When polishing is enabled and the text reaches the minimum length, the final transcript is sent to your configured AI service; recognition terms, writing/product preferences, budget-compacted screen OCR, and optional recent context are appended as reference information.
+- When polishing is enabled and the text reaches the minimum length, the final transcript is sent to your configured AI service; recognition terms, writing/product preferences, screen reference (compressed screenshot by default, or budget-compacted screen OCR in OCR mode / text-only fallback), and optional recent context are appended as reference information.
 - Recent context for AI is off by default. It is sent only when local recent context and "use recent context for polishing" are both enabled, and it is capped to about 200 chars from the latest snippets by default.
-- Before AI polishing, screen OCR is trimmed by line, deduplicated, and capped to 12 lines / 400 chars by default; term references are capped to 50 entries.
+- Screenshot mode scales images to at most 1600px on the long edge (JPEG quality 0.80, unscaled smaller PNG kept when smaller, 1.5 MB payload cap); in OCR mode or fallback, screen OCR is trimmed by line, deduplicated, and capped to 12 lines / 400 chars; term references are capped to 50 entries.
 
 Tips:
 
 - Short messages often do not need polishing.
 - Documentation, meeting notes, and requirement drafts benefit more from polishing.
 - If polishing is slow, first confirm the automatic adapter test after auto-save has finished, then rerun the thinking adapter test manually if needed, disable thinking, raise `min_chars`, or choose a faster model. Raising timeout can reduce failures, but it does not make the model faster.
-- If the text contains code paths, filenames, log fields, or English identifiers, let screen OCR and hotwords provide the exact spelling, and still check the final text manually.
+- If the text contains code paths, filenames, highlighted UI items, or English identifiers, keep default screenshot reference enabled so multimodal models can see the active screen and selection alongside hotwords, and still verify the final text manually.
 
 ## 8. Hotwords, Scene Notes, and Prompts
 
@@ -170,12 +170,12 @@ In daily use, start with hotwords and scene notes. Open Advanced prompt settings
 - AI polishing offers Natural, Formal, and Proofread only presets. Editing either prompt turns the style into Custom.
 - Truncated or unusually short model output falls back to the complete transcript. When polishing changes the text, open Home to compare or copy the original, including after dictating from the tray. Clearing the preview, hiding the window again, or starting another recording clears it.
 - Adjust LLM reference budgets in `config.toml`.
-- Final prompt preview shows how recognition terms, writing/product preferences, optional recent context, and screen OCR are appended as budgeted reference information.
+- Final prompt preview shows how recognition terms, writing/product preferences, optional recent context, and your active screen reference policy (screenshot or budgeted OCR) are appended as reference information.
 - The default prompt separates short and long text: short messages, one-line commands, and questions get light correction, with natural punctuation allowed but no expansion; long spoken notes, records, retrospectives, explanations, meeting notes, product feedback, and investment reviews are polished into publishable prose, usually as 2-4 natural paragraphs.
 - The default prompt preserves proper nouns, English abbreviations, finance terms, and programming terms.
 - The default prompt preserves the original facts, judgment, intensity, and stance, and avoids adding headings, lists, Markdown, or backticks.
-- The default prompt labels user dictionary terms, writing preferences, optional recent context, and screen OCR as reference information, not text to polish or instructions to follow, and prevents reference-only details from being added when the text to polish did not say them.
-- The default prompt marks the text-to-polish block as the only output source. Recent context must not be continued, reproduced, or summarized, and screen OCR is only used for related path, filename, code identifier, and UI-term corrections.
+- The default prompt labels user dictionary terms, writing preferences, optional recent context, and screen reference (screenshot or OCR) as reference information, not text to polish or instructions to follow, and prevents reference-only details from being added when the text to polish did not say them.
+- The default prompt marks the text-to-polish block as the only output source. Recent context must not be continued, reproduced, or summarized, and screen reference is only used for related path, filename, name, UI selection, code identifier, and UI-term corrections without describing the screenshot.
 - File paths, commands, log fields, and code identifiers are kept unchanged when uncertain, unless reference information provides an exact spelling.
 - In finance, investing, and quant contexts, the default prompt asks the LLM to normalize clear amounts, returns, and percentages into common numeric forms such as `100万` and `1%`, without calculating or answering questions.
 
@@ -195,29 +195,29 @@ Privacy behavior:
 
 Enable it when you frequently dictate recurring business terms, product names, or people names. Keep it off when your dictated content is highly sensitive.
 
-## 10. Screen OCR Context
+## 10. Screen Context (Screenshot & OCR)
 
-Screen OCR context reads text from the current display or current window when recording starts. It helps ASR and the optional LLM understand UI terms, filenames, names, and code identifiers.
+Screen context captures the current display or active window once when recording starts, producing both a compressed screenshot (sent directly to AI polishing by default) and Windows OCR text (used by speech recognition and as automatic polishing fallback for text-only models) to help resolve UI selections, names, filenames, and code identifiers.
 
 Privacy and stability:
 
-- On by default, with the current display as the capture range. In Vocabulary & Context → Screen text context, you can switch to the current window and adjust the character limit in advanced settings.
-- OCR text is used only for the current request and is not written to logs, stats, config, or cache.
-- The OCR test preview can be cleared immediately and is cleared automatically when the window is hidden, the app exits, or a new recording starts.
-- When included in LLM polishing, OCR is trimmed, deduplicated, budget-capped, and appended as a separate reference-information block that is explicitly marked as not text to polish or user instructions.
+- On by default, with the current display as the capture range and compressed screenshot (up to 1600px long edge) as the default AI reference mode. Under Vocabulary & Context → Screen context, you can switch to Windows OCR text only, switch to the current window only, preview both the compressed screenshot and OCR output, or adjust the OCR character limit in advanced settings.
+- Text-only AI models are detected from `/v1/models` capability declarations or runtime API responses, fall back cleanly to OCR text, and are cached for the session.
+- Screenshots and OCR text are used only for the current request and are not written to logs, stats, config, or cache.
+- The test preview shows compressed screenshot dimensions/size plus recognized text, can be cleared immediately, and clears automatically when the window is hidden, the app exits, or a new recording starts.
 - Failure or timeout is skipped automatically and does not block recording, ASR, polishing, clipboard, or paste.
-- An OCR result that arrives after the first-packet wait is too late for ASR, but it is still used as a reference for LLM polishing with no extra waiting.
-- Manage settings on Privacy & local data opens Screen text context, where you can narrow capture or turn OCR off.
+- Both parallel screenshot encoding and late OCR results are retrieved without blocking at LLM polishing time.
+- Manage settings on Privacy & local data opens Screen context, where you can narrow capture, switch to OCR-only, or disable the feature.
 
 ## 11. Privacy & Local Data
 
-Privacy & local data answers four questions in one place: what VoxType stores, where it lives, whether it is uploaded, and whether it can be cleared. The page shows counts, switch state, logical paths, and upload boundaries only. It does not show transcripts, OCR text, hotword history text, prompts, or keys.
+Privacy & local data answers four questions in one place: what VoxType stores, where it lives, whether it is uploaded, and whether it can be cleared. The page shows counts, switch state, logical paths, and upload boundaries only. It does not show transcripts, screenshots, OCR text, hotword history text, prompts, or keys.
 
 The page separates data into three groups:
 
 - Base local files: the config file and local logs. The config file can contain API keys and basic settings, but recent context text is kept out of `config.toml`. Logs and diagnostic reports are redacted by default and should not contain transcripts, hotwords, prompts, or raw keys.
 - Local clearable data: recent context, automatic hotword history, and usage stats. Recent context and automatic hotword history contain voice-input text history and are off by default. Usage stats contain non-content metrics such as character count, duration, and speed. Recent context is sent to the selected ASR service after local recent context is enabled; it reaches the AI service only after a separate AI opt-in.
-- Runtime and third-party service data: ASR audio, screen OCR, LLM polishing text, and temporary clipboard snapshots. These are normally not written to disk, but ASR audio, OCR context, optional recent context, and LLM polishing text can be sent with the current request depending on enabled features.
+- Runtime and third-party service data: ASR audio, screen screenshots/OCR, LLM polishing text, and temporary clipboard snapshots. These are normally not written to disk, but ASR audio, OCR context, compressed screenshots (depending on AI mode), optional recent context, and LLM polishing text can be sent with the current request depending on enabled features.
 
 Clear actions remove VoxType local files only. They do not mean third-party ASR/LLM providers have deleted data they already received; retention depends on the provider configured by the user.
 

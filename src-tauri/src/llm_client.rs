@@ -25,6 +25,27 @@ pub fn base_chat_body(model: &str, system_prompt: &str, user_prompt: &str) -> Va
     })
 }
 
+pub fn multimodal_chat_body(
+    model: &str,
+    system_prompt: &str,
+    user_prompt: &str,
+    image_data_url: &str,
+) -> Value {
+    json!({
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": user_prompt},
+                    {"type": "image_url", "image_url": {"url": image_data_url}}
+                ]
+            }
+        ]
+    })
+}
+
 /// 请求 OpenAI 兼容 `/models` 接口，用于读取服务商声明的模型思考能力。
 pub async fn fetch_models_payload(
     client: &reqwest::Client,
@@ -199,7 +220,7 @@ async fn parse_chat_response(
 #[cfg(test)]
 mod tests {
     use super::{
-        base_chat_body, extract_message_content, extract_reasoning_content,
+        base_chat_body, extract_message_content, extract_reasoning_content, multimodal_chat_body,
         response_used_reasoning, response_was_truncated,
     };
     use serde_json::json;
@@ -255,6 +276,28 @@ mod tests {
         assert_eq!(body["messages"][0]["content"], "system prompt");
         assert_eq!(body["messages"][1]["role"], "user");
         assert_eq!(body["messages"][1]["content"], "user prompt");
+    }
+
+    #[test]
+    fn builds_openai_compatible_multimodal_message_body() {
+        let body = multimodal_chat_body(
+            "vision-model",
+            "system prompt",
+            "user prompt",
+            "data:image/jpeg;base64,AAAA",
+        );
+
+        assert_eq!(body["model"], "vision-model");
+        assert_eq!(body["messages"][0]["role"], "system");
+        assert_eq!(body["messages"][0]["content"], "system prompt");
+        assert_eq!(body["messages"][1]["role"], "user");
+        assert_eq!(body["messages"][1]["content"][0]["type"], "text");
+        assert_eq!(body["messages"][1]["content"][0]["text"], "user prompt");
+        assert_eq!(body["messages"][1]["content"][1]["type"], "image_url");
+        assert_eq!(
+            body["messages"][1]["content"][1]["image_url"]["url"],
+            "data:image/jpeg;base64,AAAA"
+        );
     }
 
     #[test]

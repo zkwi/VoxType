@@ -47,7 +47,7 @@ Speech & Polishing shows a compact health summary once setup is ready. 语音与
 - Main trigger: `Ctrl + Q`.
 - Right Alt, Right Ctrl, and middle mouse triggers are off by default.
 - Recent context and automatic hotword candidates: off by default.
-- Screen OCR context: on by default, current display by default, no persisted OCR text.
+- Screen context: on by default (`llm_mode = "screenshot"`, current display); sends compressed screenshots to multimodal AI polishing with automatic OCR fallback on text-only models, while Windows OCR still assists speech recognition and nothing is persisted to disk.
 - Optional LLM polishing: off by default; when enabled, thinking/reasoning is disabled with provider-specific adapters where supported.
 - ASR no-feedback fallback: defaults to 30 seconds and stops through the normal grace flow only when the provider returns no effective text feedback.
 - Doubao server endpointing example value: `end_window_size = 800`; Alibaba Cloud FunASR uses provider-specific sentence silence settings.
@@ -58,9 +58,9 @@ Speech & Polishing shows a compact health summary once setup is ready. 语音与
 - `config.toml`, logs, local context files, and usage stats are local files and should not be committed.
 - Usage statistics record duration, character count, speed, and time estimates, not recognized text.
 - Recent context and automatic hotword history are disabled by default.
-- Screen OCR context is temporary and not written to logs, stats, config, or cache.
+- Screen context (compressed screenshot / Windows OCR) is temporary and not written to logs, stats, config, or cache.
 - The Privacy & local data page shows config, logs, storage/upload boundaries, and can clear recent context, automatic hotword history, and usage stats.
-- Diagnostic reports and logs should not include real API keys, recognized text, hotwords, prompts, recent context, screen OCR text, automatic hotword history, or Windows username paths.
+- Diagnostic reports and logs should not include real API keys, recognized text, hotwords, prompts, recent context, screen OCR text, screenshots, automatic hotword history, or Windows username paths.
 
 ## Search-Friendly FAQ
 
@@ -78,4 +78,4 @@ No. LLM polishing is optional. VoxType can run as a pure ASR voice input tool, a
 
 ### Which LLM model should I use?
 
-Start with `qwen3.7-max` on DashScope/Bailian for daily polishing, or `qwen3.6-flash-2026-04-16` when latency matters more than edge-case accuracy. After changing Base URL, API Key, model, or the thinking toggle, VoxType automatically reruns the LLM adapter test after auto-save and saves the fastest strategy; you can still rerun it manually when troubleshooting. For code paths, filenames, and identifiers, prefer screen OCR, hotwords, or a manual check instead of relying on a model switch alone.
+Start with `qwen3.7-max` on DashScope/Bailian for daily polishing, or `qwen3.6-flash-2026-04-16` when latency matters more than edge-case accuracy. After changing Base URL, API Key, model, or the thinking toggle, VoxType automatically reruns the LLM adapter test after auto-save and saves the fastest strategy; you can still rerun it manually when troubleshooting. For code paths, filenames, and highlighted UI items, use screenshot mode (default) or screen OCR with hotwords, or a manual check instead of relying on a model switch alone.

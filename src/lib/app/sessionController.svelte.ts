@@ -105,7 +105,9 @@ export function createSessionController(options: SessionControllerOptions) {
         ? options.t("polishTruncatedFallback")
         : payload.warning_code === "LLM_POLISH_TOO_SHORT"
           ? options.t("polishTooShortFallback")
-          : payload.warning;
+          : payload.warning_code === "LLM_VISION_FALLBACK_OCR"
+            ? options.t("polishVisionFallbackOcr")
+            : payload.warning;
     }
     if (visibleWarning) {
       options.notify(visibleWarning, "warning");

@@ -1,7 +1,8 @@
 use crate::config::{
     AppConfig, ConfigValidationError, ASR_PROVIDER_ALIYUN_FUN, ASR_PROVIDER_DOUBAO,
     DOUBAO_AUTH_MODE_AGENT_PLAN, DOUBAO_AUTH_MODE_API_KEY, DOUBAO_AUTH_MODE_APP_ACCESS,
-    DOUBAO_SEED_ASR_2_RESOURCE_ID, MIN_UI_HEIGHT,
+    DOUBAO_SEED_ASR_2_RESOURCE_ID, MIN_UI_HEIGHT, SCREEN_CONTEXT_LLM_MODE_OCR,
+    SCREEN_CONTEXT_LLM_MODE_SCREENSHOT,
 };
 use crate::llm_request_adapter::is_valid_thinking_strategy;
 
@@ -229,9 +230,19 @@ pub fn validate_config(config: &AppConfig) -> Result<(), Vec<ConfigValidationErr
         push_validation_error(
             &mut errors,
             "screen_context.capture_scope",
-            "屏幕 OCR 识别范围只能是 screen 或 window。",
+            "屏幕上下文捕获范围只能是 screen 或 window。",
         );
     }
+    validate_allowed_value(
+        &mut errors,
+        "screen_context.llm_mode",
+        &config.screen_context.llm_mode,
+        &[
+            SCREEN_CONTEXT_LLM_MODE_SCREENSHOT,
+            SCREEN_CONTEXT_LLM_MODE_OCR,
+        ],
+        "大模型屏幕参考方式只能是 screenshot 或 ocr。",
+    );
     validate_f64_range(
         &mut errors,
         "request.final_result_timeout_seconds",

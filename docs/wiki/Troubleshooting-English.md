@@ -188,7 +188,8 @@ LLMs try to turn ASR text into plausible polished text. Code paths, filenames, l
 
 Try:
 
-- Enable screen OCR so exact paths from the current window or display can be used as ASR and optional LLM reference information.
+- Keep screen context enabled with the default compressed screenshot mode on multimodal models so exact paths, filenames, and highlighted UI selections from the current window or display reach AI polishing (while Windows OCR still assists ASR).
+- If the configured LLM does not support image input, VoxType automatically falls back to OCR text and remembers the model capability in the session, or you can switch manually under Vocabulary & Context → Screen context.
 - Add common paths, filenames, product names, and field names to hotwords.
 - Manually check output that contains paths, commands, or log fields.
 - Do not rely on switching to one model alone; the current retest found that several models can rewrite technical paths.
@@ -225,7 +226,7 @@ Fix:
 
 Since 0.1.62, VoxType merges extra spaces between adjacent CJK characters before sending screen OCR context to the selected ASR service and the optional LLM. For example, `屏 幕 OCR 上 下 文` is normalized to `屏幕 OCR 上下文`. English acronyms, shortcuts, paths, and number spacing are kept as much as possible.
 
-If the test preview is poor, confirm that the Windows Chinese OCR language capability is available and keep the reference text unobstructed. For sensitive content, limit capture to the current window or turn OCR off under Vocabulary & Context → Screen text context.
+If the test preview is poor, confirm that the Windows Chinese OCR language capability is available and keep the reference text unobstructed. For sensitive content, limit capture to the current window, switch AI reference to OCR text only, or turn screen context off under Vocabulary & Context → Screen context.
 
 ## Update Fails
 

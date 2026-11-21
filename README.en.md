@@ -94,11 +94,11 @@ VoxType takes over each enabled extra trigger. With Right Ctrl enabled, Left Ctr
 
 A valid shortcut combination is saved automatically. Press Esc or use Tab to move focus and keep the previous shortcut. Tab combinations with modifiers can be recorded.
 
-### Vocabulary, writing context, and screen OCR
+### Vocabulary, writing context, and screen context
 
 - **Hotwords** help with names, product names, acronyms, and technical terms.
 - **Writing context** describes preferences and use cases such as support tickets or meeting notes.
-- **Screen OCR** is on by default. Under Vocabulary & Context → Screen text context, you can change the capture scope, preview a test, turn OCR off, or adjust the character limit in advanced settings.
+- **Screen context** is on by default. When recording starts, VoxType captures the current display or window once: by default, it sends a compressed screenshot (up to 1600px on the long edge) to your multimodal LLM for polishing (text-only models automatically fall back to OCR and are remembered), while local Windows OCR still assists speech recognition. Under Vocabulary & Context → Screen context, you can change the capture scope, switch back to Windows OCR text only, preview both the compressed screenshot and OCR output, or adjust the OCR character limit in advanced settings.
 - **Recent context** is off by default. Enable it for continuous dictation, with a separate switch for LLM use.
 - **Automatic hotword candidates** are off by default. When enabled, local history can be used to generate candidates for you to review.
 
@@ -108,7 +108,7 @@ The app saves settings automatically. Consult the example config and feature gui
 
 - For short messages, you can use ASR on its own. For meeting notes, enable LLM editing and set the minimum length to suit your dictation.
 - If another app uses `Ctrl + Q`, record a different combination or enable a single extra trigger.
-- Use display OCR when you dictate with reference material visible. Limit OCR to the active window when it contains all the relevant context.
+- Keep current display screenshot mode enabled when dictating against code, docs, or highlighted UI selections; switch to the active window only when it holds all relevant context, or choose OCR text only if you do not want images sent to your LLM.
 - Try clipboard-only output in remote desktops and apps that restrict automatic paste.
 
 ## 4. Privacy and local data
@@ -127,17 +127,17 @@ These are the default locations for installed builds. Existing config or stats f
 
 | Feature | Data sent to the selected service |
 | --- | --- |
-| Speech recognition | The current recording and any enabled hotwords, writing context, OCR text, and recent context |
-| LLM editing | Final recognition text meeting the length threshold, plus enabled reference context |
+| Speech recognition | The current recording and any enabled hotwords, writing context, Windows OCR text, and recent context |
+| LLM editing | Final recognition text meeting the length threshold, plus enabled reference context (compressed screenshot by default with automatic OCR fallback on text-only models, or budget-compacted OCR text in OCR mode) |
 | Manual hotword generation | Local history snippets used to extract candidates |
 
-Windows performs screen OCR locally. When enabled, relevant text can be included in the current request. Clipboard snapshots are temporary, and you can clear the latest transcription preview from Home.
+Windows captures the screen and performs OCR locally without writing screenshots or screen text to config, logs, or stats; data is only transmitted for the active turn when enabled. Clipboard snapshots are temporary, and you can clear the latest transcription preview from Home.
 
 Privacy & local data offers controls to clear recent context, hotword history, and stats. The provider manages retention of any data it has already received.
 
 ### Local privacy controls
 
-- To exclude screen text and previous dictation, turn off screen OCR and leave recent context off.
+- To exclude screen captures, screen text, and previous dictation, turn off screen context and leave recent context off; to keep screen assistance text-only without uploading images to your LLM, set AI polishing reference to Windows OCR text only.
 - You can enable recent context for ASR. LLM editing can use that context only after a separate opt-in.
 - If you enable automatic hotword history, you can clear the local history after generating candidates.
 

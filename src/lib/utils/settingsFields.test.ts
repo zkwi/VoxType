@@ -12,6 +12,7 @@ describe("settings validation routing", () => {
     ["context.hotwords", "settings-hotwords", "Hotwords"],
     ["screen_context.max_chars", "settings-screen-context", "Hotwords"],
     ["screen_context.capture_scope", "settings-screen-context", "Hotwords"],
+    ["screen_context.llm_mode", "settings-screen-context", "Hotwords"],
     ["llm_post_edit.min_chars", "settings-llm-api", "ApiConfig"],
   ])("opens the owning panel for %s", (field, panel, section) => {
     expect(settingsPanelForField(field)).toBe(panel);
