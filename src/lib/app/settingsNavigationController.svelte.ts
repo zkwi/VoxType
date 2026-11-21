@@ -23,13 +23,18 @@ export function createSettingsNavigationController(options: SettingsNavigationCo
 
   function settingsStickyOffset(scroller: HTMLElement) {
     const jumpNav = scroller.querySelector<HTMLElement>(".settings-jump-nav");
-    return jumpNav ? jumpNav.offsetHeight + 18 : 18;
+    return jumpNav ? jumpNav.offsetHeight + 24 : 24;
   }
 
   function scrollToSettingsPanel(targetId: string) {
     if (!options.isBrowser()) return;
     requestedPanel = { id: targetId };
-    selectedSection = getSectionForSettingsPanel(targetId);
+    const nextSection = getSectionForSettingsPanel(targetId);
+    const sectionChanged = selectedSection !== nextSection;
+    selectedSection = nextSection;
+    if (sectionChanged) {
+      contentScroller()?.scrollTo({ top: 0, behavior: "auto" });
+    }
     afterSectionRender(() => {
       const scroller = contentScroller();
       const target = document.getElementById(targetId);
@@ -38,10 +43,15 @@ export function createSettingsNavigationController(options: SettingsNavigationCo
       const scrollerRect = scroller.getBoundingClientRect();
       const targetRect = target.getBoundingClientRect();
       const targetTop = targetRect.top - scrollerRect.top + scroller.scrollTop;
-      scroller.scrollTo({
-        top: Math.max(0, targetTop - settingsStickyOffset(scroller)),
-        behavior: "smooth",
-      });
+      const destination = Math.max(0, targetTop - settingsStickyOffset(scroller));
+      if (sectionChanged) {
+        scroller.scrollTop = destination;
+      } else {
+        scroller.scrollTo({
+          top: destination,
+          behavior: "smooth",
+        });
+      }
     });
   }
 

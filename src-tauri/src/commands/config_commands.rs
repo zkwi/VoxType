@@ -329,13 +329,14 @@ pub(crate) async fn test_llm_config(config: AppConfig) -> Result<ConnectionTestR
     match llm_post_edit::test_connection(&config).await {
         Ok(result) => {
             app_log::info(format!(
-                "大模型配置测试成功: elapsed_ms={}, thinking_strategy={}",
-                result.elapsed_ms, result.thinking_strategy
+                "大模型配置测试成功: elapsed_ms={}, thinking_strategy={}, vision_supported={:?}",
+                result.elapsed_ms, result.thinking_strategy, result.vision_supported
             ));
             Ok(ConnectionTestResult::with_llm_result(
                 "大模型测试成功，当前 API Key 可用。",
                 result.elapsed_ms,
                 result.thinking_strategy,
+                result.vision_supported,
             ))
         }
         Err(err) => {
@@ -349,21 +350,28 @@ pub(crate) async fn test_llm_config(config: AppConfig) -> Result<ConnectionTestR
 pub(crate) fn test_screen_context(
     config: AppConfig,
 ) -> Result<screen_context::ScreenContextTestResult, String> {
-    app_log::info("用户开始测试屏幕 OCR 上下文。");
+    app_log::info(format!(
+        "用户开始测试屏幕上下文: scope={}, llm_mode={}",
+        config.screen_context.capture_scope, config.screen_context.llm_mode
+    ));
     match screen_context::test_capture_on_worker(&config.screen_context) {
         Ok(result) => {
             app_log::info(format!(
-                "屏幕 OCR 上下文测试完成: chars={}, elapsed_ms={}, language={}, image={}x{}",
+                "屏幕上下文测试完成: chars={}, elapsed_ms={}, language={}, image={}x{}, screenshot_mime={:?}, screenshot_bytes={:?}, screenshot_size={}x{}",
                 result.text_chars,
                 result.elapsed_ms,
                 result.selected_language.as_deref().unwrap_or("unknown"),
                 result.image_width,
-                result.image_height
+                result.image_height,
+                result.screenshot_mime.as_deref(),
+                result.screenshot_bytes,
+                result.screenshot_width.unwrap_or(0),
+                result.screenshot_height.unwrap_or(0)
             ));
             Ok(result)
         }
         Err(err) => {
-            app_log::warn(format!("屏幕 OCR 上下文测试失败: {}", err));
+            app_log::warn(format!("屏幕上下文测试失败: {}", err));
             Err(err)
         }
     }

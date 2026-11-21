@@ -197,9 +197,13 @@ impl SessionController {
             };
             emit_state(Some(app), &starting);
         }
-        // 屏幕 OCR 在独立线程里跑，先于麦克风启动和系统静音发起，可以多抢出这段时间，
-        // 让首包能用上上下文而不是撞到等待上限；采集失败时这次结果会被直接丢弃。
-        let screen_context_rx = screen_context::spawn_capture(&loaded.data.screen_context);
+        // 屏幕 OCR 与（可选）压缩截图在独立线程里单次截图并行生成，先于麦克风启动和系统静音发起，
+        // 多抢出这段时间，让首包能用上 OCR 上下文，润色也能直接复用截图。
+        let capture_image_for_llm = loaded.data.screen_context.enabled
+            && loaded.data.llm_post_edit.enabled
+            && loaded.data.screen_context.uses_screenshot_for_llm();
+        let screen_context_rx =
+            screen_context::spawn_capture(&loaded.data.screen_context, capture_image_for_llm);
         let audio_capture = match audio::start_capture(
             &loaded.data.audio,
             Some(audio_tx),

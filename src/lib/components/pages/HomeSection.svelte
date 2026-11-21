@@ -122,6 +122,13 @@
   let llmStatus = $derived(
     !config.llm_post_edit.enabled ? t("disabled") : t(hasLlmApiConfig ? "enabled" : "llmApiMissing"),
   );
+  let screenContextOverviewLabel = $derived(
+    !config.screen_context.enabled
+      ? t("overviewScreenOff")
+      : config.screen_context.llm_mode === "ocr"
+        ? t("overviewScreenOcr")
+        : t("overviewScreenScreenshot"),
+  );
 
   const outcomePreviewLimit = 500;
   let lastOutcomeExpanded = $state(false);
@@ -349,7 +356,7 @@
     </button>
     <button type="button" onclick={() => onSelectSection("Hotwords")}>
       <span>{t("overviewVocabulary")}</span>
-      <strong>{t("overviewVocabularyValue", { hotwords: formatNumber(effectiveHotwordCount), state: t(config.screen_context.enabled ? "enabled" : "disabled") })}</strong>
+      <strong>{t("overviewVocabularyValue", { hotwords: formatNumber(effectiveHotwordCount), state: screenContextOverviewLabel })}</strong>
     </button>
     <button type="button" onclick={() => onScrollToSettingsPanel("settings-basic-output")}>
       <span>{t("pasteMethod")}</span>

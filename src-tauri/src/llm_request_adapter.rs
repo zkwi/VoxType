@@ -162,11 +162,8 @@ pub fn apply_thinking_strategy(
     strategy
 }
 
-/// 从 `/models` 响应解析指定模型支持的最低思考强度档位与推理开销标志。
-pub fn parse_model_reasoning_profile(
-    payload: &Value,
-    model: &str,
-) -> Option<ModelReasoningProfile> {
+/// 从 `/models` 响应查找匹配模型条目。
+fn find_model_entry<'a>(payload: &'a Value, model: &str) -> Option<&'a Value> {
     let model_trimmed = model.trim();
     if model_trimmed.is_empty() {
         return None;
@@ -177,7 +174,7 @@ pub fn parse_model_reasoning_profile(
         .or_else(|| payload.get("models").and_then(Value::as_array))
         .or_else(|| payload.as_array())?;
 
-    let entry = entries
+    entries
         .iter()
         .find(|item| item.get("id").and_then(Value::as_str).map(str::trim) == Some(model_trimmed))
         .or_else(|| {
@@ -187,7 +184,15 @@ pub fn parse_model_reasoning_profile(
                     .map(str::trim)
                     .is_some_and(|id| id.eq_ignore_ascii_case(model_trimmed))
             })
-        })?;
+        })
+}
+
+/// 从 `/models` 响应解析指定模型支持的最低思考强度档位与推理开销标志。
+pub fn parse_model_reasoning_profile(
+    payload: &Value,
+    model: &str,
+) -> Option<ModelReasoningProfile> {
+    let entry = find_model_entry(payload, model)?;
 
     let (levels, has_explicit_levels_array) = extract_reasoning_levels(entry);
     if !levels.is_empty() {
@@ -236,6 +241,201 @@ pub fn parse_model_reasoning_profile(
         }),
         _ => None,
     }
+}
+
+/// 从 `/models` 响应解析指定模型是否支持图片输入；未声明时返回 `None`。
+pub fn parse_model_vision_support(payload: &Value, model: &str) -> Option<bool> {
+    let entry = find_model_entry(payload, model)?;
+    let modality_arrays = [
+        entry
+            .get("architecture")
+            .and_then(|arch| arch.get("input_modalities")),
+        entry.get("input_modalities"),
+        entry
+            .get("capabilities")
+            .and_then(|caps| caps.get("input_modalities")),
+    ];
+    for candidate in modality_arrays.into_iter().flatten() {
+        let Some(items) = candidate.as_array() else {
+            continue;
+        };
+        if items.is_empty() {
+            continue;
+        }
+        let has_image = items.iter().filter_map(Value::as_str).any(|item| {
+            matches!(
+                item.trim().to_ascii_lowercase().as_str(),
+                "image" | "vision"
+            )
+        });
+        return Some(has_image);
+    }
+
+    if let Some(modality) = entry
+        .get("architecture")
+        .and_then(|arch| arch.get("modality"))
+        .and_then(Value::as_str)
+    {
+        let input_side = modality
+            .split("->")
+            .next()
+            .unwrap_or(modality)
+            .trim()
+            .to_ascii_lowercase();
+        if !input_side.is_empty() {
+            return Some(input_side.contains("image") || input_side.contains("vision"));
+        }
+    }
+
+    entry
+        .get("capabilities")
+        .and_then(|caps| caps.get("vision"))
+        .and_then(Value::as_bool)
+        .or_else(|| entry.get("vision").and_then(Value::as_bool))
+}
+
+pub fn get_cached_model_vision_support(base_url: &str, model: &str) -> Option<bool> {
+    let key = cache_key(base_url, model);
+    vision_support_cache().lock().ok()?.get(&key).copied()
+}
+
+pub fn store_cached_model_vision_support(base_url: &str, model: &str, supported: bool) {
+    let key = cache_key(base_url, model);
+    if let Ok(mut guard) = vision_support_cache().lock() {
+        // 如果运行时已经实测发现该模型拒绝图片，不被过时的 `/models` 乐观声明覆盖回去。
+        if guard.get(&key) == Some(&false) && supported {
+            return;
+        }
+        guard.insert(key, supported);
+    }
+}
+
+/// 标记模型不支持图片输入；仅在首次标记时返回 `true`，用于只提示用户一次。
+pub fn mark_model_vision_unsupported(base_url: &str, model: &str) -> bool {
+    let key = cache_key(base_url, model);
+    let Ok(mut guard) = vision_support_cache().lock() else {
+        return true;
+    };
+    if guard.get(&key) == Some(&false) {
+        return false;
+    }
+    guard.insert(key, false);
+    true
+}
+
+fn parse_status_code_prefix(text: &str) -> Option<u16> {
+    let digits: String = text
+        .trim_start()
+        .chars()
+        .take_while(|ch| ch.is_ascii_digit())
+        .collect();
+    if digits.len() == 3 {
+        digits.parse::<u16>().ok()
+    } else {
+        None
+    }
+}
+
+fn has_non_image_http_status(error: &str) -> bool {
+    if let Some((_, tail)) = error.split_once("状态码:") {
+        if let Some(code) = parse_status_code_prefix(tail) {
+            if matches!(code, 401 | 403 | 429 | 500..=599) {
+                return true;
+            }
+        }
+    }
+    let lower = error.to_ascii_lowercase();
+    [
+        "http 401",
+        "http 403",
+        "http 429",
+        "http 500",
+        "http 502",
+        "http 503",
+        "http 504",
+        "status 401",
+        "status 403",
+        "status 429",
+        "status 500",
+        "status 502",
+        "status 503",
+        "status 504",
+        "status: 401",
+        "status: 403",
+        "status: 429",
+        "status: 500",
+        "status: 502",
+        "status: 503",
+        "status: 504",
+        "401 unauthorized",
+        "403 forbidden",
+        "429 too many",
+        "500 internal",
+        "502 bad gateway",
+        "503 service",
+        "504 gateway",
+    ]
+    .iter()
+    .any(|pattern| lower.contains(pattern))
+}
+
+/// 判断服务商错误是否明确表示当前模型或端点不支持图片/多模态输入。
+pub fn is_unsupported_image_error(error: &str) -> bool {
+    let lower = error.to_ascii_lowercase();
+    if has_non_image_http_status(error)
+        || lower.contains("unauthorized")
+        || lower.contains("forbidden")
+        || lower.contains("invalid api key")
+        || lower.contains("invalid_api_key")
+        || lower.contains("rate limit")
+        || lower.contains("ratelimit")
+        || lower.contains("insufficient_quota")
+        || lower.contains("timeout")
+        || lower.contains("timed out")
+        || lower.contains("proxy")
+        || lower.contains("dns")
+    {
+        return false;
+    }
+    if error.contains("不支持图片")
+        || error.contains("不支持图像")
+        || error.contains("不支持视觉")
+        || error.contains("不支持多模态")
+        || error.contains("仅支持文本")
+        || error.contains("仅支持纯文本")
+    {
+        return true;
+    }
+    if lower.contains("no endpoints found that support image")
+        || lower.contains("does not support image")
+        || lower.contains("doesn't support image")
+        || lower.contains("does not support vision")
+        || lower.contains("doesn't support vision")
+        || lower.contains("not support image")
+        || lower.contains("not support multimodal")
+        || lower.contains("unsupported image")
+        || lower.contains("text-only model")
+        || lower.contains("text only model")
+    {
+        return true;
+    }
+    if (lower.contains("image_url")
+        || lower.contains("image input")
+        || lower.contains("multimodal"))
+        && (lower.contains("unsupported")
+            || lower.contains("not support")
+            || lower.contains("invalid")
+            || lower.contains("unknown")
+            || lower.contains("unexpected")
+            || lower.contains("unrecognized")
+            || lower.contains("cannot"))
+    {
+        return true;
+    }
+    (lower.contains("content") || lower.contains("messages"))
+        && (lower.contains("expected a string")
+            || lower.contains("must be a string")
+            || lower.contains("invalid type: sequence"))
 }
 
 pub fn get_cached_model_capability(base_url: &str, model: &str) -> Option<CachedModelCapability> {
@@ -431,6 +631,11 @@ fn capability_cache() -> &'static Mutex<HashMap<(String, String), CachedModelCap
     CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+fn vision_support_cache() -> &'static Mutex<HashMap<(String, String), bool>> {
+    static CACHE: OnceLock<Mutex<HashMap<(String, String), bool>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
 fn cache_key(base_url: &str, model: &str) -> (String, String) {
     (
         base_url.trim().trim_end_matches('/').to_ascii_lowercase(),
@@ -482,14 +687,15 @@ fn normalize_thinking_strategy(strategy: &str) -> &'static str {
 mod tests {
     use super::{
         apply_thinking_strategy, disabled_thinking_controls, effective_thinking_strategy,
-        get_cached_model_capability, is_thinking_only_model, is_valid_thinking_strategy,
-        mark_model_reasoning_truncation, parse_model_reasoning_profile,
+        get_cached_model_capability, get_cached_model_vision_support, is_thinking_only_model,
+        is_unsupported_image_error, is_valid_thinking_strategy, mark_model_reasoning_truncation,
+        mark_model_vision_unsupported, parse_model_reasoning_profile, parse_model_vision_support,
         should_probe_models_capability, should_retry_without_unsupported_thinking,
-        store_cached_model_capability, strategy_uses_reasoning_tokens,
-        thinking_strategy_candidates, CachedModelCapability, ModelReasoningProfile, STRATEGY_AUTO,
-        STRATEGY_DASHSCOPE_ENABLE_THINKING, STRATEGY_OMIT, STRATEGY_OPENROUTER_REASONING_LOW,
-        STRATEGY_OPENROUTER_REASONING_MINIMAL, STRATEGY_OPENROUTER_REASONING_NONE,
-        STRATEGY_THINKING_DISABLED,
+        store_cached_model_capability, store_cached_model_vision_support,
+        strategy_uses_reasoning_tokens, thinking_strategy_candidates, CachedModelCapability,
+        ModelReasoningProfile, STRATEGY_AUTO, STRATEGY_DASHSCOPE_ENABLE_THINKING, STRATEGY_OMIT,
+        STRATEGY_OPENROUTER_REASONING_LOW, STRATEGY_OPENROUTER_REASONING_MINIMAL,
+        STRATEGY_OPENROUTER_REASONING_NONE, STRATEGY_THINKING_DISABLED,
     };
     use serde_json::json;
 
@@ -887,6 +1093,117 @@ mod tests {
             "https://openrouter.ai/api/v1",
             &json!({ "reasoning_effort": "none" }),
             "Reasoning is mandatory for this endpoint and cannot be disabled."
+        ));
+    }
+
+    #[test]
+    fn parses_vision_support_from_models_payload() {
+        let payload = json!({
+            "data": [
+                {
+                    "id": "openrouter-multimodal",
+                    "architecture": {
+                        "modality": "text+image->text",
+                        "input_modalities": ["text", "image"]
+                    }
+                },
+                {
+                    "id": "openrouter-text-only",
+                    "architecture": {
+                        "modality": "text->text",
+                        "input_modalities": ["text"]
+                    }
+                },
+                {
+                    "id": "modality-string-only",
+                    "architecture": {
+                        "modality": "text+image->text"
+                    }
+                },
+                {
+                    "id": "capabilities-vision-flag",
+                    "capabilities": { "vision": true }
+                },
+                {
+                    "id": "plain-model",
+                    "object": "model"
+                }
+            ]
+        });
+
+        assert_eq!(
+            parse_model_vision_support(&payload, "openrouter-multimodal"),
+            Some(true)
+        );
+        assert_eq!(
+            parse_model_vision_support(&payload, "openrouter-text-only"),
+            Some(false)
+        );
+        assert_eq!(
+            parse_model_vision_support(&payload, "modality-string-only"),
+            Some(true)
+        );
+        assert_eq!(
+            parse_model_vision_support(&payload, "capabilities-vision-flag"),
+            Some(true)
+        );
+        assert_eq!(parse_model_vision_support(&payload, "plain-model"), None);
+        assert_eq!(parse_model_vision_support(&payload, "missing"), None);
+    }
+
+    #[test]
+    fn caches_and_transitions_model_vision_support_once() {
+        let gateway = "https://vision-cache-unit-test.invalid/v1";
+        let model = "text-only-model";
+
+        assert_eq!(get_cached_model_vision_support(gateway, model), None);
+        store_cached_model_vision_support(gateway, model, true);
+        assert_eq!(get_cached_model_vision_support(gateway, model), Some(true));
+
+        assert!(mark_model_vision_unsupported(gateway, model));
+        assert!(!mark_model_vision_unsupported(gateway, model));
+        assert_eq!(get_cached_model_vision_support(gateway, model), Some(false));
+
+        // 已实测不支持图片的模型，不应被 `/models` 乐观声明覆盖回去。
+        store_cached_model_vision_support(gateway, model, true);
+        assert_eq!(get_cached_model_vision_support(gateway, model), Some(false));
+    }
+
+    #[test]
+    fn detects_unsupported_image_errors_without_catching_auth_or_rate_limits() {
+        assert!(is_unsupported_image_error(
+            "LLM 返回状态码: 404 Not Found; {\"error\":{\"message\":\"No endpoints found that support image input\"}}"
+        ));
+        assert!(is_unsupported_image_error(
+            "LLM 返回状态码: 400 Bad Request; This model does not support image_url inputs."
+        ));
+        assert!(is_unsupported_image_error(
+            "LLM 返回状态码: 400 Bad Request; invalid type for messages[1].content: expected a string"
+        ));
+        assert!(is_unsupported_image_error(
+            "LLM 返回状态码: 400 Bad Request; 当前模型不支持图片输入"
+        ));
+        assert!(is_unsupported_image_error(
+            "LLM 返回状态码: 400 Bad Request; {\"trace_id\":\"req_20260401\",\"limit\":1500,\"error\":{\"message\":\"image_url is not supported\"}}"
+        ));
+        assert!(is_unsupported_image_error(
+            "LLM 返回状态码: 404 Not Found; {\"id\":\"gen_5002\",\"message\":\"No endpoints found that support image input\"}"
+        ));
+
+        assert!(!is_unsupported_image_error(
+            "LLM 返回状态码: 401 Unauthorized; invalid_api_key"
+        ));
+        assert!(!is_unsupported_image_error(
+            "LLM 返回状态码: 429 Too Many Requests; rate limit exceeded"
+        ));
+        assert!(!is_unsupported_image_error(
+            "LLM 返回状态码: 500 Internal Server Error; upstream image decoder crashed"
+        ));
+        assert!(!is_unsupported_image_error(
+            "LLM 返回状态码: 503 Service Unavailable; image_url temporary gateway failure"
+        ));
+        assert!(!is_unsupported_image_error(
+            "调用 LLM 失败: operation timed out"
         ));
     }
 }

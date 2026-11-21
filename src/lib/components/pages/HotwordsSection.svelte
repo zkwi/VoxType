@@ -10,7 +10,7 @@
   type Translate = (key: CopyKey, values?: Record<string, string>) => string;
 
   const contextJumpTargets = [
-    { id: "settings-hotwords", label: "customHotwords" },
+    { id: "settings-hotwords", label: "hotwordsCommonTitle" },
     { id: "settings-auto-hotwords", label: "autoHotwordsTitle" },
     { id: "settings-screen-context", label: "screenContextTitle" },
     { id: "settings-prompt-context", label: "sceneContext" },
@@ -223,7 +223,13 @@
           <input type="checkbox" bind:checked={config.screen_context.enabled} />
           <span class="check-copy">
             <span>{t("enableScreenContext")}</span>
-            <small>{t("screenContextSentToService")}</small>
+            <small>
+              {t(
+                config.screen_context.llm_mode === "ocr"
+                  ? "screenContextSentToServiceOcr"
+                  : "screenContextSentToServiceScreenshot",
+              )}
+            </small>
           </span>
         </label>
       </div>
@@ -238,7 +244,26 @@
           </select>
           {#if fieldError("screen_context.capture_scope")}<small class="field-error">{fieldError("screen_context.capture_scope")}</small>{/if}
         </label>
+        <label class:field-invalid={Boolean(fieldError("screen_context.llm_mode"))}>
+          <span>{t("screenContextLlmMode")}</span>
+          <select data-config-field="screen_context.llm_mode" aria-invalid={Boolean(fieldError("screen_context.llm_mode"))}
+            bind:value={config.screen_context.llm_mode}
+            disabled={!config.screen_context.enabled && !fieldError("screen_context.llm_mode")}>
+            <option value="screenshot">{t("screenContextLlmModeScreenshot")}</option>
+            <option value="ocr">{t("screenContextLlmModeOcr")}</option>
+          </select>
+          {#if fieldError("screen_context.llm_mode")}<small class="field-error">{fieldError("screen_context.llm_mode")}</small>{/if}
+        </label>
       </div>
+      {#if config.screen_context.enabled && config.screen_context.llm_mode !== "ocr" && (!config.llm_post_edit.enabled || !hasLlmApiConfig)}
+        <div class="inline-info-banner">
+          <Info size={16} />
+          <span>{t("screenContextScreenshotNeedsLlmHint")}</span>
+          <button type="button" class="link-button" onclick={onOpenLlmApiSettings}>
+            {t("goApiConfig")}
+          </button>
+        </div>
+      {/if}
       <p class="field-hint">{t("screenContextPrivacyHint")}</p>
       <AdvancedSettings
         title={t("screenContextAdvanced")}
@@ -256,11 +281,25 @@
       <ActionPanel
         title={t("screenContextTestTitle")}
         description={t("screenContextTestDescription")}
-        meta={screenContextTestResult ? t("screenContextTestMeta", {
-          chars: String(screenContextTestResult.text_chars),
-          ms: String(screenContextTestResult.elapsed_ms),
-          lang: screenContextTestResult.selected_language ?? "-"
-        }) : ""}
+        meta={screenContextTestResult
+          ? screenContextTestResult.llm_mode !== "ocr" &&
+            screenContextTestResult.screenshot_data_url &&
+            typeof screenContextTestResult.screenshot_width === "number" &&
+            typeof screenContextTestResult.screenshot_height === "number" &&
+            typeof screenContextTestResult.screenshot_bytes === "number"
+            ? t("screenContextTestMetaWithScreenshot", {
+                size: `${screenContextTestResult.screenshot_width}×${screenContextTestResult.screenshot_height}`,
+                kb: String(Math.max(1, Math.round(screenContextTestResult.screenshot_bytes / 1024))),
+                chars: String(screenContextTestResult.text_chars),
+                ms: String(screenContextTestResult.elapsed_ms),
+                lang: screenContextTestResult.selected_language ?? "-",
+              })
+            : t("screenContextTestMeta", {
+                chars: String(screenContextTestResult.text_chars),
+                ms: String(screenContextTestResult.elapsed_ms),
+                lang: screenContextTestResult.selected_language ?? "-",
+              })
+          : ""}
       >
         {#snippet actions()}
           <button type="button" onclick={onTestScreenContext} disabled={testingScreenContext}>
@@ -269,14 +308,41 @@
         {/snippet}
       </ActionPanel>
       {#if screenContextTestResult}
-        <div class="ocr-preview" class:empty={!screenContextTestResult.text.trim()}>
+        <div
+          class="ocr-preview"
+          class:empty={!screenContextTestResult.text.trim() && !screenContextTestResult.screenshot_data_url}
+        >
           <div class="ocr-preview-head">
-            <strong>{screenContextTestResult.warning ?? t("screenContextRecognizedText")}</strong>
-            <button type="button" class="link-action compact" onclick={onClearScreenContextPreview}>
+            <strong>
+              {screenContextTestResult.screenshot_data_url
+                ? t("screenContextScreenshotPreviewTitle")
+                : (screenContextTestResult.warning ?? t("screenContextRecognizedText"))}
+            </strong>
+            <button type="button" class="link-button" onclick={onClearScreenContextPreview}>
               <Trash2 size={14} />{t("clearPreview")}
             </button>
           </div>
           <p>{t("screenContextPreviewSensitive")}</p>
+          {#if screenContextTestResult.screenshot_data_url}
+            <div class="screenshot-preview">
+              <div class="screenshot-preview-meta">
+                <span>{screenContextTestResult.screenshot_width}×{screenContextTestResult.screenshot_height}</span>
+                {#if typeof screenContextTestResult.screenshot_bytes === "number"}
+                  <span>{Math.max(1, Math.round(screenContextTestResult.screenshot_bytes / 1024))} KB</span>
+                {/if}
+                <span>{screenContextTestResult.screenshot_mime === "image/png" ? "PNG" : "JPEG"}</span>
+              </div>
+              <img src={screenContextTestResult.screenshot_data_url} alt={t("screenContextScreenshotPreviewAlt")} />
+              {#if screenContextTestResult.screenshot_warning}
+                <small class="screenshot-warning">{screenContextTestResult.screenshot_warning}</small>
+              {/if}
+            </div>
+            <div class="ocr-subhead">
+              <strong>{screenContextTestResult.warning ?? t("screenContextRecognizedText")}</strong>
+            </div>
+          {:else if screenContextTestResult.screenshot_warning}
+            <small class="screenshot-warning">{screenContextTestResult.screenshot_warning}</small>
+          {/if}
           <pre>{screenContextTestResult.text || t("screenContextNoText")}</pre>
         </div>
       {/if}
@@ -399,8 +465,12 @@
     gap: 12px;
   }
 
-  .ocr-preview-head .link-action {
+  .ocr-preview-head .link-button {
     flex: 0 0 auto;
+    min-height: 30px;
+    padding: 0 10px;
+    border-radius: 999px;
+    font-size: 12px;
   }
 
   .ocr-preview p {
@@ -420,6 +490,80 @@
     line-height: 1.5;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
+  }
+
+  .inline-info-banner {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 10px;
+    min-width: 0;
+    padding: 10px 12px;
+    color: var(--text-secondary);
+    background: #f8fbff;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    font-size: 13px;
+    line-height: 1.45;
+  }
+
+  .inline-info-banner :global(svg) {
+    flex: 0 0 auto;
+    color: var(--primary);
+  }
+
+  .inline-info-banner span {
+    flex: 1 1 240px;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .screenshot-preview {
+    display: grid;
+    gap: 8px;
+    min-width: 0;
+    padding: 10px;
+    background: #ffffff;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+  }
+
+  .screenshot-preview-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .screenshot-preview-meta span {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    color: var(--text-secondary);
+    background: #f1f5f9;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+  }
+
+  .screenshot-preview img {
+    display: block;
+    width: 100%;
+    max-height: 240px;
+    object-fit: contain;
+    background: #f8fafc;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+
+  .screenshot-warning {
+    color: #8a4b00;
+    font-size: 12px;
+    line-height: 1.4;
+  }
+
+  .ocr-subhead {
+    padding-top: 2px;
   }
 
   .inline-warning {

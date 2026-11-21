@@ -143,7 +143,7 @@ export function createSetupController(options: SetupControllerOptions) {
         const strategyLabel = strategyLabelKey
           ? options.t(strategyLabelKey)
           : (result.thinking_strategy ?? "");
-        const message =
+        const baseMessage =
           typeof result.elapsed_ms === "number" && savedStrategy
             ? options.t("llmTestSucceededWithLatencyAndStrategy", {
                 ms: options.formatNumber(result.elapsed_ms),
@@ -152,6 +152,13 @@ export function createSetupController(options: SetupControllerOptions) {
             : typeof result.elapsed_ms === "number"
               ? options.t("llmTestSucceededWithLatency", { ms: options.formatNumber(result.elapsed_ms) })
               : options.t("llmTestSucceeded");
+        const visionNote =
+          result.vision_supported === false &&
+          currentConfig.screen_context.enabled &&
+          currentConfig.screen_context.llm_mode !== "ocr"
+            ? ` ${options.t("llmTestVisionUnsupportedNote")}`
+            : "";
+        const message = `${baseMessage}${visionNote}`;
         options.setStatusMessage(message);
         options.setLlmTestStatusMessage(message);
         options.notify(message, "success");
@@ -178,12 +185,25 @@ export function createSetupController(options: SetupControllerOptions) {
       });
       if (result) {
         options.setScreenContextTestResult(result);
-        const message = options.t("screenContextTestSucceeded", {
-          chars: options.formatNumber(result.text_chars),
-          ms: options.formatNumber(result.elapsed_ms),
-        });
+        const hasScreenshot =
+          result.llm_mode !== "ocr" &&
+          Boolean(result.screenshot_data_url) &&
+          typeof result.screenshot_width === "number" &&
+          typeof result.screenshot_height === "number" &&
+          typeof result.screenshot_bytes === "number";
+        const message = hasScreenshot
+          ? options.t("screenContextTestSucceededWithScreenshot", {
+              size: `${result.screenshot_width}×${result.screenshot_height}`,
+              kb: options.formatNumber(Math.max(1, Math.round((result.screenshot_bytes ?? 0) / 1024))),
+              chars: options.formatNumber(result.text_chars),
+              ms: options.formatNumber(result.elapsed_ms),
+            })
+          : options.t("screenContextTestSucceeded", {
+              chars: options.formatNumber(result.text_chars),
+              ms: options.formatNumber(result.elapsed_ms),
+            });
         options.setStatusMessage(message);
-        options.notify(message, result.warning ? "warning" : "success");
+        options.notify(message, result.warning || result.screenshot_warning ? "warning" : "success");
       } else if (options.getStatusMessage()) {
         options.notify(options.getStatusMessage(), "error");
       }

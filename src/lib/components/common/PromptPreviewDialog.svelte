@@ -85,7 +85,8 @@
     font-size: 12px;
     line-height: 1.55;
     resize: none;
-    white-space: pre;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
   }
 
   .prompt-preview-actions {

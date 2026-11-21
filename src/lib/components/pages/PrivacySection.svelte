@@ -235,10 +235,25 @@
             <td data-label={t("privacyDataType")}><strong>{t("privacyScreenOcrData")}</strong></td>
             <td data-label={t("privacySavedColumn")}>{config.screen_context.enabled ? t("privacyRuntimeOnly") : t("privacyDisabledNoSave")}</td>
             <td class="location-cell" data-label={t("privacyLocationColumn")}>{t("privacyLocationNotStored")}</td>
-            <td data-label={t("privacyUploadColumn")}>{t("privacyUploadScreenOcr")}</td>
+            <td data-label={t("privacyUploadColumn")}>
+              {t(
+                config.screen_context.llm_mode === "ocr"
+                  ? "privacyUploadScreenOcr"
+                  : "privacyUploadScreenScreenshot",
+              )}
+            </td>
             <td data-label={t("privacyActionColumn")}>
               <div class="action-cell">
                 <span class:enabled={config.screen_context.enabled} class="status-pill">{statusText(config.screen_context.enabled)}</span>
+                {#if config.screen_context.enabled}
+                  <small class="action-hint">
+                    {t(
+                      config.screen_context.llm_mode === "ocr"
+                        ? "privacyScreenModeOcr"
+                        : "privacyScreenModeScreenshot",
+                    )}
+                  </small>
+                {/if}
                 <button type="button" class="secondary-action" onclick={onOpenScreenContextSettings}>{t("privacyManageSettings")}</button>
               </div>
             </td>
@@ -248,7 +263,13 @@
             <td data-label={t("privacyDataType")}><strong>{t("privacyLlmTextData")}</strong></td>
             <td data-label={t("privacySavedColumn")}>{config.llm_post_edit.enabled ? t("privacyRuntimeOnly") : t("privacyDisabledNoSave")}</td>
             <td class="location-cell" data-label={t("privacyLocationColumn")}>{t("privacyLocationNotStored")}</td>
-            <td data-label={t("privacyUploadColumn")}>{t("privacyUploadLlmText")}</td>
+            <td data-label={t("privacyUploadColumn")}>
+              {t(
+                config.screen_context.enabled && config.screen_context.llm_mode !== "ocr"
+                  ? "privacyUploadLlmTextScreenshot"
+                  : "privacyUploadLlmText",
+              )}
+            </td>
             <td data-label={t("privacyActionColumn")}>
               {#if !config.llm_post_edit.enabled && !hasLlmApiConfig}
                 <div class="action-cell">
@@ -358,17 +379,20 @@
     width: 12%;
   }
 
-  .col-saved,
+  .col-saved {
+    width: 15%;
+  }
+
   .col-action {
-    width: 17%;
+    width: 19%;
   }
 
   .col-location {
-    width: 21%;
+    width: 22%;
   }
 
   .col-upload {
-    width: 33%;
+    width: 32%;
   }
 
   th,
@@ -430,7 +454,7 @@
     font-size: inherit;
     font-weight: 700;
     line-height: inherit;
-    overflow-wrap: anywhere;
+    overflow-wrap: break-word;
   }
 
   .location-stack {

@@ -69,6 +69,14 @@ fn build_diagnostic_report(
             }
         })
         .unwrap_or_else(|_| "状态读取失败".to_string());
+    let screen_context_summary = if loaded.data.screen_context.enabled {
+        format!(
+            "已启用（范围: {}, 大模型参考: {}）",
+            loaded.data.screen_context.capture_scope, loaded.data.screen_context.llm_mode
+        )
+    } else {
+        "未启用".to_string()
+    };
     let text = format!(
         "VoxType 诊断报告\n\
 版本: {}\n\
@@ -77,12 +85,13 @@ fn build_diagnostic_report(
 日志文件: {}\n\
 ASR 已配置: {}\n\
 LLM 润色: {}\n\
+屏幕上下文: {}\n\
 最近上下文: {}\n\
 自动热词候选: {}\n\
 触发方式: {}\n\
 最近会话状态: {:?}\n\
 最近错误码: {}\n\
-诊断报告内容: 不包含识别正文、屏幕 OCR 正文、热词、Prompt、最近上下文正文、自动热词历史正文、候选词、密钥原文\n\
+诊断报告内容: 不包含识别正文、屏幕截图与 OCR 正文、热词、Prompt、最近上下文正文、自动热词历史正文、候选词、密钥原文\n\
 日志脱敏范围: key/token/bearer/password/secret 类字段和本机用户路径\n",
         env!("CARGO_PKG_VERSION"),
         std::env::consts::OS,
@@ -96,6 +105,7 @@ LLM 润色: {}\n\
         } else {
             "未启用"
         },
+        screen_context_summary,
         recent_context_summary,
         auto_hotword_summary,
         trigger_summary,
@@ -159,6 +169,7 @@ pub(crate) fn get_local_data_status() -> Result<LocalDataStatus, String> {
         auto_hotword_total_chars: auto_hotword_status.total_chars,
         stats_event_count: stats::stats_event_count(),
         screen_context_enabled: loaded.data.screen_context.enabled,
+        screen_context_llm_mode: loaded.data.screen_context.llm_mode,
         llm_post_edit_enabled: loaded.data.llm_post_edit.enabled,
         restore_clipboard_after_paste: loaded.data.typing.restore_clipboard_after_paste,
     })
